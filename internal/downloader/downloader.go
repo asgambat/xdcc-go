@@ -19,7 +19,8 @@ type Options struct {
 	WaitTime         int
 	Username         string
 	ChannelJoinDelay int
-	Verbosity        int // 0=normal, 1=verbose (-v), 2=debug (-vv), -1=quiet
+	Verbosity        int    // 0=normal, 1=verbose (-v), 2=debug (-vv), -1=quiet
+	DNSServer        string // fallback DNS resolver (host:port); empty = use default
 }
 
 // DownloadPacks downloads all packs sequentially.
@@ -35,6 +36,7 @@ func DownloadPacks(packs []*entities.XDCCPack, opts Options) {
 		WaitTime:         opts.WaitTime,
 		Username:         opts.Username,
 		ChannelJoinDelay: opts.ChannelJoinDelay,
+		DNSServer:        opts.DNSServer,
 	}
 
 	for _, group := range groupByServer(packs) {

@@ -67,6 +67,25 @@ func TestAvailableEngines(t *testing.T) {
 	}
 }
 
+func TestResolveBaseURL(t *testing.T) {
+	tests := []struct {
+		override   string
+		defaultURL string
+		want       string
+	}{
+		{"", "https://nibl.co.uk", "https://nibl.co.uk"},
+		{"http://localhost:8080", "https://nibl.co.uk", "http://localhost:8080"},
+		{"http://test", "https://ixirc.com", "http://test"},
+		{"", "https://subsplease.org", "https://subsplease.org"},
+	}
+	for _, tt := range tests {
+		if got := resolveBaseURL(tt.override, tt.defaultURL); got != tt.want {
+			t.Errorf("resolveBaseURL(%q, %q) = %q, want %q",
+				tt.override, tt.defaultURL, got, tt.want)
+		}
+	}
+}
+
 func TestEngineNames(t *testing.T) {
 	cases := []struct {
 		engine Engine

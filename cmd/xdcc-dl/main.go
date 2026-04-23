@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+	"xdcc-go/internal/cli"
 	"xdcc-go/internal/downloader"
 	"xdcc-go/internal/entities"
 )
@@ -22,6 +23,7 @@ func main() {
 		channelJoinDelay int
 		verbosity        int
 		quietLevel       int
+		dnsServer        string
 	)
 
 	cmd := &cobra.Command{
@@ -44,7 +46,9 @@ Verbosity levels:
   -v         also show bot notices, channel joins, WHOIS results
   -vv        full debug (DNS, DCC internals, all IRC events)
   -q         hide connection info; show only errors, bot notices and progress
-  -qq        suppress all output`,
+  -qq        suppress all output
+
+If -q and -v are used together, -q takes precedence and -v is ignored.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			message := args[0]
@@ -72,7 +76,8 @@ Verbosity levels:
 				WaitTime:         waitTime,
 				Username:         username,
 				ChannelJoinDelay: channelJoinDelay,
-				Verbosity:        verbosityLevel(verbosity, quietLevel),
+				Verbosity:        cli.VerbosityLevel(verbosity, quietLevel),
+				DNSServer:        dnsServer,
 			})
 			return nil
 		},
@@ -98,21 +103,12 @@ Verbosity levels:
 		"Seconds to wait after connecting before sending WHOIS (-1 = random 5-10s)")
 	cmd.Flags().CountVarP(&verbosity, "verbose", "v", "Increase verbosity: -v shows bot notices, -vv shows full debug info")
 	cmd.Flags().CountVarP(&quietLevel, "quiet", "q", "Reduce output: -q hides connection info (keeps errors/notices/progress), -qq suppresses all output")
+	cmd.Flags().StringVar(&dnsServer, "dns-server", "",
+		"Fallback DNS resolver used when system DNS is blocked (host:port, default: 8.8.8.8:53)")
 
 	if err := cmd.Execute(); err != nil {
 		os.Exit(1)
 	}
 }
 
-// verbosityLevel maps verbose count and quiet count to a verbosity int.
-// -qq (quiet>=2) => -2 (suppress all), -q (quiet=1) => -1 (suppress info, keep errors/notices/progress)
-// default => 0, -v => 1, -vv => 2
-func verbosityLevel(verbose, quiet int) int {
-	if quiet >= 2 {
-		return -2
-	}
-	if quiet >= 1 {
-		return -1
-	}
-	return verbose
-}
+// verbosityLevel moved to internal/cli package.

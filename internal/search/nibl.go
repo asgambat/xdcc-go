@@ -17,10 +17,7 @@ type NiblEngine struct {
 func (e *NiblEngine) Name() string { return "nibl" }
 
 func (e *NiblEngine) Search(term string) ([]*entities.XDCCPack, error) {
-	base := "https://nibl.co.uk"
-	if e.baseURL != "" {
-		base = e.baseURL
-	}
+	base := resolveBaseURL(e.baseURL, "https://nibl.co.uk")
 	query := strings.ReplaceAll(term, " ", "+")
 	url := fmt.Sprintf("%s/search?query=%s", base, query)
 

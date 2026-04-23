@@ -84,6 +84,9 @@ func NewClient(packs []*entities.XDCCPack, opts DownloadOptions, verbosity int) 
 	if opts.StallTimeout < 0 {
 		opts.StallTimeout = 0
 	}
+	if opts.DNSServer == "" {
+		opts.DNSServer = "8.8.8.8:53"
+	}
 	return &Client{
 		packs:     packs,
 		opts:      opts,
@@ -148,7 +151,12 @@ func (c *Client) LastBotNotice() string {
 
 func (c *Client) connect() error {
 	server := c.packs[0].Server
-	if err := c.checkServerReachable(server.Address); err != nil {
+
+	// Resolve the hostname to an IP, with fallback to the public DNS resolver
+	// if the system DNS is blocked. Use the IP (not the hostname) when building
+	// the girc config so the library does not redo a potentially blocked lookup.
+	resolvedIP, err := c.resolveHost(server.Address)
+	if err != nil {
 		return err
 	}
 
@@ -165,7 +173,7 @@ func (c *Client) connect() error {
 	c.ircErrCh = make(chan error, 1)
 
 	c.irc = girc.New(girc.Config{
-		Server:      server.Address,
+		Server:      resolvedIP, // use resolved IP to avoid repeating a blocked DNS lookup
 		Port:        server.Port,
 		Nick:        nick,
 		User:        nick,
@@ -332,19 +340,28 @@ func (c *Client) waitForCurrentPack() error {
 // connection so subsequent packs can reuse it.
 func (c *Client) finishSuccess() {
 	elapsed := time.Since(c.downStartTime)
-	speed := float64(c.filesize) / elapsed.Seconds() / 1024
-	fmt.Printf("File %s downloaded successfully in %s at %.1f KB/s\n",
+	speedStr := formatSpeed(float64(c.filesize) / elapsed.Seconds())
+	fmt.Printf("\nFile %s downloaded successfully in %s at %s\n",
 		c.currentPack().Filename,
 		formatDuration(elapsed),
-		speed)
+		speedStr)
 	c.closeOnce.Do(func() {
 		close(c.downloadDone)
 		close(c.ackQueue)
 	})
 }
 
+// finishWithNotice stores a bot notice and then calls finishWithError.
+func (c *Client) finishWithNotice(err error, notice string) {
+	c.mu.Lock()
+	c.lastBotNotice = notice
+	c.mu.Unlock()
+	c.finishWithError(err)
+}
+
 // finishWithError records a download error. Does NOT close the IRC
 // connection so the session can retry or continue with the next pack.
+// The first error wins: subsequent calls are ignored (sync.Once guards the channel close).
 func (c *Client) finishWithError(err error) {
 	c.mu.Lock()
 	if c.downloadError == nil {
@@ -361,6 +378,8 @@ func (c *Client) finishWithError(err error) {
 // Logging
 // ---------------------------------------------------------------------------
 
+// infof prints at verbosity >= 0 (default and above). Use for connection status
+// and download progress that is suppressed only in quiet mode (-q / -qq).
 func (c *Client) infof(format string, args ...interface{}) {
 	if c.verbosity >= 0 {
 		log.Printf("[xdcc] "+format, args...)
@@ -375,12 +394,16 @@ func (c *Client) noticef(format string, args ...interface{}) {
 	}
 }
 
+// logf prints at verbosity >= 1 (-v). Use for channel joins, WHOIS results,
+// DCC negotiation messages.
 func (c *Client) logf(format string, args ...interface{}) {
 	if c.verbosity >= 1 {
 		log.Printf("[xdcc] "+format, args...)
 	}
 }
 
+// debugf prints at verbosity >= 2 (-vv). Use for low-level details: DNS,
+// DCC internals, raw IRC event flow.
 func (c *Client) debugf(format string, args ...interface{}) {
 	if c.verbosity >= 2 {
 		log.Printf("[xdcc] "+format, args...)

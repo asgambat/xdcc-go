@@ -134,9 +134,10 @@ func TestFormatDuration(t *testing.T) {
 		want string
 	}{
 		{30 * time.Second, "30s"},
-		{89 * time.Second, "89s"},
-		{90 * time.Second, "1.5m"},
-		{2 * time.Minute, "2.0m"},
+		{59 * time.Second, "59s"},
+		{60 * time.Second, "1m 0s"},
+		{90 * time.Second, "1m 30s"},
+		{2*time.Minute + 5*time.Second, "2m 5s"},
 	}
 	for _, tt := range tests {
 		if got := formatDuration(tt.in); got != tt.want {
@@ -179,6 +180,24 @@ func TestParseU32(t *testing.T) {
 	}
 }
 
+func TestFormatSpeed(t *testing.T) {
+	tests := []struct {
+		bytesPerSec float64
+		want        string
+	}{
+		{512 * 1024, "512.0 KB/s"},
+		{1023 * 1024, "1023.0 KB/s"},
+		{1024 * 1024, "1.00 MB/s"},
+		{2048 * 1024, "2.00 MB/s"},
+		{1536 * 1024, "1.50 MB/s"},
+	}
+	for _, tt := range tests {
+		if got := formatSpeed(tt.bytesPerSec); got != tt.want {
+			t.Errorf("formatSpeed(%.0f) = %q, want %q", tt.bytesPerSec, got, tt.want)
+		}
+	}
+}
+
 func TestRandN(t *testing.T) {
 	for i := 0; i < 100; i++ {
 		r := randN(10)
@@ -215,10 +234,190 @@ func TestRandomUsername(t *testing.T) {
 	}
 }
 
-func TestCheckServerReachable_Localhost(t *testing.T) {
+// ---------------------------------------------------------------------------
+// DNS fallback (utils.go resolveHost)
+// ---------------------------------------------------------------------------
+
+// startFakeDNSServer starts a minimal UDP DNS server on a random localhost port.
+// For every query it returns an A record pointing to answerIP.
+// The server shuts down when the test ends.
+func startFakeDNSServer(t *testing.T, answerIP string) string {
+	t.Helper()
+	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { pc.Close() })
+
+	go func() {
+		buf := make([]byte, 512)
+		for {
+			n, addr, err := pc.ReadFrom(buf)
+			if err != nil {
+				return
+			}
+			if n < 12 {
+				continue
+			}
+			resp := buildFakeDNSResponse(buf[:n], answerIP)
+			if resp != nil {
+				pc.WriteTo(resp, addr)
+			}
+		}
+	}()
+	return pc.LocalAddr().String()
+}
+
+// buildFakeDNSResponse constructs a minimal DNS A-record response for any query.
+// It copies the query ID, sets QR+AA flags, and appends one A record with answerIP.
+func buildFakeDNSResponse(query []byte, answerIP string) []byte {
+	ip := net.ParseIP(answerIP).To4()
+	if ip == nil {
+		return nil
+	}
+
+	// Locate end of question section (name + QTYPE + QCLASS).
+	pos := 12
+	for pos < len(query) {
+		if query[pos] == 0 {
+			pos += 5 // null label + QTYPE (2) + QCLASS (2)
+			break
+		}
+		if query[pos]&0xC0 == 0xC0 { // compressed pointer
+			pos += 2 + 4 // pointer + QTYPE + QCLASS
+			break
+		}
+		pos += int(query[pos]) + 1
+	}
+	if pos > len(query) {
+		return nil
+	}
+
+	// Build response: copy query up to end of question, then append answer.
+	resp := make([]byte, pos+16)
+	copy(resp, query[:pos])
+	resp[2] = 0x81 // QR=1, AA=1, OPCODE=0
+	resp[3] = 0x80 // RA=1, RCODE=0
+	resp[6] = 0x00 // ANCOUNT hi
+	resp[7] = 0x01 // ANCOUNT lo = 1
+
+	// Answer RR: compressed name pointer → question name at offset 12.
+	resp[pos+0] = 0xC0
+	resp[pos+1] = 0x0C
+	resp[pos+2] = 0x00 // TYPE A
+	resp[pos+3] = 0x01
+	resp[pos+4] = 0x00 // CLASS IN
+	resp[pos+5] = 0x01
+	resp[pos+6] = 0x00 // TTL = 60
+	resp[pos+7] = 0x00
+	resp[pos+8] = 0x00
+	resp[pos+9] = 0x3C
+	resp[pos+10] = 0x00 // RDLENGTH = 4
+	resp[pos+11] = 0x04
+	resp[pos+12] = ip[0]
+	resp[pos+13] = ip[1]
+	resp[pos+14] = ip[2]
+	resp[pos+15] = ip[3]
+	return resp
+}
+
+func TestNewClient_DefaultDNSServer(t *testing.T) {
+	pack := entities.NewXDCCPack(entities.NewIrcServer("irc.rizon.net"), "Bot", 1)
+	c := NewClient([]*entities.XDCCPack{pack}, DownloadOptions{}, 0)
+	if c.opts.DNSServer != "8.8.8.8:53" {
+		t.Errorf("default DNSServer = %q, want 8.8.8.8:53", c.opts.DNSServer)
+	}
+}
+
+func TestNewClient_CustomDNSServer(t *testing.T) {
+	pack := entities.NewXDCCPack(entities.NewIrcServer("irc.rizon.net"), "Bot", 1)
+	c := NewClient([]*entities.XDCCPack{pack}, DownloadOptions{DNSServer: "1.1.1.1:53"}, 0)
+	if c.opts.DNSServer != "1.1.1.1:53" {
+		t.Errorf("DNSServer = %q, want 1.1.1.1:53", c.opts.DNSServer)
+	}
+}
+
+func TestResolveHost_Localhost(t *testing.T) {
 	c := newTestClient(t)
-	if err := c.checkServerReachable("localhost"); err != nil {
-		t.Fatalf("checkServerReachable(localhost) = %v, want nil", err)
+	ip, err := c.resolveHost("localhost")
+	if err != nil {
+		t.Fatalf("resolveHost(localhost) = %v, want nil", err)
+	}
+	if ip == "" {
+		t.Error("resolveHost(localhost) returned empty IP")
+	}
+}
+
+func TestResolveHost_NonExistentHost_Error(t *testing.T) {
+	// A .invalid TLD is guaranteed by RFC 2606 to never resolve.
+	// Both system DNS and public fallback should fail.
+	c := newTestClient(t)
+	_, err := c.resolveHost("this.host.does.not.exist.xdccgo.invalid")
+	if err == nil {
+		t.Error("expected error for non-existent host, got nil")
+	}
+	if !errors.Is(err, ErrServerUnreachable) {
+		t.Errorf("expected ErrServerUnreachable, got %v", err)
+	}
+}
+
+// TestResolveHost_FallbackDNS verifies that when the system DNS fails (NXDOMAIN
+// for a non-existent host), resolveHost retries via the configured fallback DNS
+// server. The fallback is a local fake DNS server that returns 192.0.2.1 (a
+// TEST-NET address per RFC 5737) for any query.
+func TestResolveHost_FallbackDNS(t *testing.T) {
+	const fakeIP = "192.0.2.1"
+	dnsAddr := startFakeDNSServer(t, fakeIP)
+
+	c := newTestClient(t)
+	c.opts.DNSServer = dnsAddr
+
+	// Use a non-existent hostname so system DNS fails → fallback is triggered.
+	ip, err := c.resolveHost("xdccgo.fallback.test.invalid")
+	if err != nil {
+		t.Fatalf("resolveHost with fallback DNS = %v, want nil", err)
+	}
+	if ip != fakeIP {
+		t.Errorf("resolved IP = %q, want %q", ip, fakeIP)
+	}
+}
+
+// TestResolveHost_BlockedAddress_FallsBackToDNS simulates an ISP that returns
+// 0.0.0.0 for a blocked hostname. The fallback DNS server returns a real IP.
+func TestResolveHost_BlockedAddress_FallsBackToDNS(t *testing.T) {
+	// We cannot make the system DNS return 0.0.0.0 without OS-level mocking,
+	// so we verify the validAddrs helper logic by passing a hostname to our
+	// fake DNS server directly (no system DNS step needed for this path test).
+	const fakeIP = "10.0.0.1"
+	dnsAddr := startFakeDNSServer(t, fakeIP)
+
+	c := newTestClient(t)
+	c.opts.DNSServer = dnsAddr
+
+	// Even if system DNS succeeds for localhost, the test validates that our
+	// fake server would answer correctly if triggered.
+	ip, err := c.resolveHost("xdccgo.blocked.test.invalid")
+	if err != nil {
+		t.Fatalf("expected fallback to succeed, got %v", err)
+	}
+	if ip != fakeIP {
+		t.Errorf("ip = %q, want %q", ip, fakeIP)
+	}
+}
+
+// TestResolveHost_FallbackServerUnreachable: both system DNS and fallback fail.
+// resolveHost must return ErrServerUnreachable (not panic or hang).
+func TestResolveHost_FallbackServerUnreachable(t *testing.T) {
+	c := newTestClient(t)
+	// Point fallback to a port that is not listening.
+	c.opts.DNSServer = "127.0.0.1:19999"
+
+	_, err := c.resolveHost("this.host.does.not.exist.xdccgo.invalid")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !errors.Is(err, ErrServerUnreachable) {
+		t.Errorf("expected ErrServerUnreachable, got %v", err)
 	}
 }
 

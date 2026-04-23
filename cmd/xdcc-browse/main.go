@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"xdcc-go/internal/cli"
 	"xdcc-go/internal/downloader"
 	"xdcc-go/internal/entities"
 	"xdcc-go/internal/search"
@@ -30,6 +31,7 @@ func main() {
 		quietLevel       int
 		extFilter        string
 		botFilter        string
+		dnsServer        string
 	)
 
 	cmd := &cobra.Command{
@@ -54,7 +56,9 @@ Verbosity levels:
   -v         also show bot notices, channel joins, WHOIS results
   -vv        full debug (DNS, DCC internals, all IRC events)
   -q         hide connection info; show only errors, bot notices and progress
-  -qq        suppress all output`,
+  -qq        suppress all output
+
+If -q and -v are used together, -q takes precedence and -v is ignored.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			term := args[0]
@@ -127,7 +131,8 @@ Verbosity levels:
 				WaitTime:         waitTime,
 				Username:         username,
 				ChannelJoinDelay: channelJoinDelay,
-				Verbosity:        verbosityLevel(verbosity, quietLevel),
+				Verbosity:        cli.VerbosityLevel(verbosity, quietLevel),
+				DNSServer:        dnsServer,
 			})
 			return nil
 		},
@@ -159,6 +164,8 @@ Verbosity levels:
 		"Filter results by file extension(s), comma-separated (e.g. mkv,avi,mp4)")
 	cmd.Flags().StringVarP(&botFilter, "bot", "b", "",
 		"Filter results by bot name substring, case-insensitive (e.g. WOND)")
+	cmd.Flags().StringVar(&dnsServer, "dns-server", "",
+		"Fallback DNS resolver used when system DNS is blocked (host:port, default: 8.8.8.8:53)")
 
 	if err := cmd.Execute(); err != nil {
 		os.Exit(1)
@@ -198,16 +205,7 @@ func filterByExtension(packs []*entities.XDCCPack, extList string) []*entities.X
 	return out
 }
 
-// verbosityLevel maps verbose and quiet counts to a single verbosity int.
-func verbosityLevel(verbose, quiet int) int {
-	if quiet >= 2 {
-		return -2
-	}
-	if quiet >= 1 {
-		return -1
-	}
-	return verbose
-}
+// verbosityLevel moved to internal/cli package.
 
 // selectPacks prompts the user to select one or more packs from the results list.
 // Accepts: single number (3), range (1-5), comma list (1,3,5), or "all".

@@ -41,6 +41,9 @@ type DownloadOptions struct {
 	WaitTime         int    // seconds to wait before sending XDCC request
 	Username         string // IRC nick to use; empty = random
 	ChannelJoinDelay int    // seconds to wait after connecting before WHOIS; -1 = random 5-10
+	// DNSServer is the fallback DNS resolver used when the system DNS returns a
+	// blocked address (0.0.0.0 / ::). Format: "host:port". Default: "8.8.8.8:53".
+	DNSServer string
 }
 
 // PackResult holds the outcome of a single pack download.

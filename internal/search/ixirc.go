@@ -39,10 +39,7 @@ func (e *IxircEngine) Search(term string) ([]*entities.XDCCPack, error) {
 	pageID := 0
 
 	for {
-		base := "https://ixirc.com"
-		if e.baseURL != "" {
-			base = e.baseURL
-		}
+		base := resolveBaseURL(e.baseURL, "https://ixirc.com")
 		apiURL := fmt.Sprintf("%s/api/?q=%s&pn=%d",
 			base, url.QueryEscape(term), pageID)
 

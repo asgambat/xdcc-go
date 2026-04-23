@@ -22,10 +22,7 @@ func (e *SubsPleaseEngine) Search(term string) ([]*entities.XDCCPack, error) {
 		return nil, nil
 	}
 
-	base := "https://subsplease.org"
-	if e.baseURL != "" {
-		base = e.baseURL
-	}
+	base := resolveBaseURL(e.baseURL, "https://subsplease.org")
 	searchURL := base + "/xdcc/search.php?t=" + url.PathEscape(term)
 
 	resp, err := http.Get(searchURL)

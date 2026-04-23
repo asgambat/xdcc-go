@@ -97,6 +97,13 @@ func (c *Client) registerHandlers() {
 	})
 
 	// NOTICE from bot.
+	// The handler distinguishes three classes of messages:
+	//   1. Server ident/hostname checks — downgraded to logf (verbose only) because
+	//      they are emitted by the server itself, not the bot, and clutter normal output.
+	//   2. "Already requested" messages — trigger a 60 s wait + retry.
+	//   3. "Denied / slot busy" messages — abort with ErrBotDenied.
+	// Message patterns include both English and Italian strings because several
+	// Rizon bots (particularly Italian ones) reply in Italian.
 	c.irc.Handlers.Add(girc.NOTICE, func(client *girc.Client, e girc.Event) {
 		notice := e.Last()
 		msg := strings.ToLower(notice)
@@ -126,19 +133,13 @@ func (c *Client) registerHandlers() {
 
 		for _, s := range alreadyReqMsgs {
 			if strings.Contains(msg, s) {
-				c.mu.Lock()
-				c.lastBotNotice = notice
-				c.mu.Unlock()
-				c.finishWithError(ErrPackAlreadyReq)
+				c.finishWithNotice(ErrPackAlreadyReq, notice)
 				return
 			}
 		}
 		for _, s := range blockedMsgs {
 			if strings.Contains(msg, s) {
-				c.mu.Lock()
-				c.lastBotNotice = notice
-				c.mu.Unlock()
-				c.finishWithError(ErrBotDenied)
+				c.finishWithNotice(ErrBotDenied, notice)
 				return
 			}
 		}

@@ -37,6 +37,10 @@ func (c *Client) handleDCCSend(parts []string, sourceHost string) {
 	port := parts[3]
 	sizeStr := parts[4]
 
+	// Passive DCC: the bot reports IP 0.0.0.0 (NAT/firewall scenario).
+	// Fall back to the source hostname from the IRC CTCP event, or to the
+	// server address as a last resort. This is non-standard but widely used
+	// by bots behind NAT.
 	peerIP := ipNumToQuad(ipNum)
 	if peerIP == "0.0.0.0" {
 		if sourceHost != "" {
@@ -142,6 +146,11 @@ func (c *Client) startDownloadAppend() {
 	c.startDownload(peerAddr, true)
 }
 
+// receiveData reads incoming bytes from the DCC TCP connection and writes them
+// to the destination file. It sends an ACK after every chunk (IRC DCC protocol
+// requires the receiver to acknowledge each received byte count).
+// When the connection closes (EOF) the defer block decides success/failure by
+// comparing progress to the expected file size.
 func (c *Client) receiveData() {
 	defer func() {
 		c.mu.Lock()
@@ -206,6 +215,10 @@ func (c *Client) ackSender() {
 	}
 }
 
+// enqueueACK builds a big-endian ACK packet containing the current progress
+// counter and queues it for the ackSender goroutine. The packet is 4 bytes for
+// transfers ≤ 4 GiB, and 8 bytes for larger files (extended DCC ACK, RFC 2571).
+// If the queue is full the ACK is dropped — the next chunk will enqueue a fresh one.
 func (c *Client) enqueueACK() {
 	prog := atomic.LoadInt64(&c.progress)
 	var ack []byte
@@ -263,11 +276,7 @@ func (c *Client) progressPrinter() {
 				}
 			}
 
-			speedKB := speed / 1024
-			speedStr := fmt.Sprintf("%.1f KB/s", speedKB)
-			if speedKB >= 1024 {
-				speedStr = fmt.Sprintf("%.2f MB/s", speedKB/1024)
-			}
+			speedStr := formatSpeed(speed)
 
 			fmt.Printf("\r  %.1f%% [%s / %s] %s%s    ",
 				pct,
