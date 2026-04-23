@@ -10,13 +10,19 @@ import (
 )
 
 // NiblEngine searches for XDCC packs on nibl.co.uk.
-type NiblEngine struct{}
+type NiblEngine struct {
+	baseURL string // override for testing; empty = "https://nibl.co.uk"
+}
 
 func (e *NiblEngine) Name() string { return "nibl" }
 
 func (e *NiblEngine) Search(term string) ([]*entities.XDCCPack, error) {
+	base := "https://nibl.co.uk"
+	if e.baseURL != "" {
+		base = e.baseURL
+	}
 	query := strings.ReplaceAll(term, " ", "+")
-	url := fmt.Sprintf("https://nibl.co.uk/search?query=%s", query)
+	url := fmt.Sprintf("%s/search?query=%s", base, query)
 
 	resp, err := http.Get(url)
 	if err != nil {

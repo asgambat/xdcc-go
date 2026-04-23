@@ -10,7 +10,9 @@ import (
 )
 
 // IxircEngine searches for XDCC packs on ixirc.com using their JSON API.
-type IxircEngine struct{}
+type IxircEngine struct {
+	baseURL string // override for testing; empty = "https://ixirc.com"
+}
 
 func (e *IxircEngine) Name() string { return "ixirc" }
 
@@ -37,8 +39,12 @@ func (e *IxircEngine) Search(term string) ([]*entities.XDCCPack, error) {
 	pageID := 0
 
 	for {
-		apiURL := fmt.Sprintf("https://ixirc.com/api/?q=%s&pn=%d",
-			url.QueryEscape(term), pageID)
+		base := "https://ixirc.com"
+		if e.baseURL != "" {
+			base = e.baseURL
+		}
+		apiURL := fmt.Sprintf("%s/api/?q=%s&pn=%d",
+			base, url.QueryEscape(term), pageID)
 
 		resp, err := http.Get(apiURL)
 		if err != nil {

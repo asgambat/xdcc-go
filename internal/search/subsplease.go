@@ -11,7 +11,9 @@ import (
 )
 
 // SubsPleaseEngine searches for XDCC packs on subsplease.org.
-type SubsPleaseEngine struct{}
+type SubsPleaseEngine struct {
+	baseURL string // override for testing; empty = "https://subsplease.org"
+}
 
 func (e *SubsPleaseEngine) Name() string { return "subsplease" }
 
@@ -20,8 +22,11 @@ func (e *SubsPleaseEngine) Search(term string) ([]*entities.XDCCPack, error) {
 		return nil, nil
 	}
 
-	searchQuery := url.PathEscape(term)
-	searchURL := "https://subsplease.org/xdcc/search.php?t=" + searchQuery
+	base := "https://subsplease.org"
+	if e.baseURL != "" {
+		base = e.baseURL
+	}
+	searchURL := base + "/xdcc/search.php?t=" + url.PathEscape(term)
 
 	resp, err := http.Get(searchURL)
 	if err != nil {

@@ -159,9 +159,15 @@ func HumanReadableBytes(b int64) string {
 
 var xdccMsgRegex = regexp.MustCompile(`^/msg [^ ]+ xdcc send #[0-9]+((,[0-9]+)*|(-[0-9]+(;[0-9]+)?)?)$`)
 
-// ParseXDCCMessage parses an XDCC message and returns a list of XDCCPack objects.
-// The message format is: /msg <bot> xdcc send #<pack>[,<pack>...] or #<start>-<end>[;<step>]
-// server defaults to "irc.rizon.net" if empty.
+// ParseXDCCMessage parses an XDCC message and returns one XDCCPack per requested pack number.
+// Accepted formats:
+//
+//	/msg <bot> xdcc send #42        → single pack
+//	/msg <bot> xdcc send #1,3,5     → comma-separated list
+//	/msg <bot> xdcc send #1-10      → inclusive range
+//	/msg <bot> xdcc send #1-10;2    → range with step
+//
+// server defaults to "irc.rizon.net" if empty; directory defaults to ".".
 func ParseXDCCMessage(msg, directory, server string) ([]*XDCCPack, error) {
 	if server == "" {
 		server = "irc.rizon.net"
@@ -174,64 +180,95 @@ func ParseXDCCMessage(msg, directory, server string) ([]*XDCCPack, error) {
 		return nil, fmt.Errorf("invalid XDCC message: %s", msg)
 	}
 
-	// Extract bot name: "/msg <bot> xdcc send ..."
-	afterMsg := strings.TrimPrefix(msg, "/msg ")
-	parts := strings.SplitN(afterMsg, " ", 2)
-	bot := parts[0]
-
-	// Apply server overrides based on bot prefix
+	bot := extractBot(msg)
 	ircServer := resolveServer(bot, server)
 
-	// Extract pack number(s) after "#"
+	// Everything after the last "#" is the pack specification.
 	packPart := msg[strings.LastIndex(msg, "#")+1:]
 
-	var packs []*XDCCPack
+	return parsePackNums(packPart, ircServer, bot, directory)
+}
 
-	if strings.Contains(packPart, ",") {
-		// Comma-separated: #1,2,3
-		for _, n := range strings.Split(packPart, ",") {
-			num, err := strconv.Atoi(strings.TrimSpace(n))
-			if err != nil {
-				return nil, fmt.Errorf("invalid pack number: %s", n)
-			}
-			p := NewXDCCPack(ircServer, bot, num)
-			p.SetDirectory(directory)
-			packs = append(packs, p)
-		}
-	} else if strings.Contains(packPart, "-") {
-		// Range: #1-10 or #1-10;2
-		step := 1
-		rangeStr := packPart
-		if strings.Contains(rangeStr, ";") {
-			rangeParts := strings.SplitN(rangeStr, ";", 2)
-			rangeStr = rangeParts[0]
-			step, _ = strconv.Atoi(rangeParts[1])
-			if step < 1 {
-				step = 1
-			}
-		}
-		rangeParts := strings.SplitN(rangeStr, "-", 2)
-		start, err1 := strconv.Atoi(rangeParts[0])
-		end, err2 := strconv.Atoi(rangeParts[1])
-		if err1 != nil || err2 != nil {
-			return nil, fmt.Errorf("invalid pack range: %s", packPart)
-		}
-		for i := start; i <= end; i += step {
-			p := NewXDCCPack(ircServer, bot, i)
-			p.SetDirectory(directory)
-			packs = append(packs, p)
-		}
-	} else {
-		num, err := strconv.Atoi(packPart)
+// extractBot returns the bot name from a validated /msg line.
+// Input format: "/msg <bot> xdcc send ..."
+func extractBot(msg string) string {
+	afterMsg := strings.TrimPrefix(msg, "/msg ")
+	return strings.SplitN(afterMsg, " ", 2)[0]
+}
+
+// parsePackNums dispatches pack parsing to the right strategy based on syntax:
+// comma list, range with optional step, or plain single number.
+func parsePackNums(packPart string, srv IrcServer, bot, directory string) ([]*XDCCPack, error) {
+	switch {
+	case strings.Contains(packPart, ","):
+		return parseCommaSeparated(packPart, srv, bot, directory)
+	case strings.Contains(packPart, "-"):
+		return parseRange(packPart, srv, bot, directory)
+	default:
+		p, err := parseSingle(packPart, srv, bot, directory)
 		if err != nil {
-			return nil, fmt.Errorf("invalid pack number: %s", packPart)
+			return nil, err
 		}
-		p := NewXDCCPack(ircServer, bot, num)
-		p.SetDirectory(directory)
-		packs = append(packs, p)
+		return []*XDCCPack{p}, nil
+	}
+}
+
+// parseCommaSeparated handles "#1,3,5" — each token is an individual pack number.
+func parseCommaSeparated(packPart string, srv IrcServer, bot, directory string) ([]*XDCCPack, error) {
+	var packs []*XDCCPack
+	for _, n := range strings.Split(packPart, ",") {
+		num, err := strconv.Atoi(strings.TrimSpace(n))
+		if err != nil {
+			return nil, fmt.Errorf("invalid pack number: %s", n)
+		}
+		packs = append(packs, newPack(srv, bot, directory, num))
+	}
+	return packs, nil
+}
+
+// parseRange handles "#start-end" and "#start-end;step".
+// step defaults to 1 when omitted or invalid (< 1).
+func parseRange(packPart string, srv IrcServer, bot, directory string) ([]*XDCCPack, error) {
+	step := 1
+	rangeStr := packPart
+
+	// Optional ";step" suffix.
+	if strings.Contains(rangeStr, ";") {
+		parts := strings.SplitN(rangeStr, ";", 2)
+		rangeStr = parts[0]
+		if s, err := strconv.Atoi(parts[1]); err == nil && s >= 1 {
+			step = s
+		}
 	}
 
+	parts := strings.SplitN(rangeStr, "-", 2)
+	start, err1 := strconv.Atoi(parts[0])
+	end, err2 := strconv.Atoi(parts[1])
+	if err1 != nil || err2 != nil {
+		return nil, fmt.Errorf("invalid pack range: %s", packPart)
+	}
+
+	var packs []*XDCCPack
+	for i := start; i <= end; i += step {
+		packs = append(packs, newPack(srv, bot, directory, i))
+	}
 	return packs, nil
+}
+
+// parseSingle handles a plain pack number with no separator.
+func parseSingle(packPart string, srv IrcServer, bot, directory string) (*XDCCPack, error) {
+	num, err := strconv.Atoi(packPart)
+	if err != nil {
+		return nil, fmt.Errorf("invalid pack number: %s", packPart)
+	}
+	return newPack(srv, bot, directory, num), nil
+}
+
+// newPack creates an XDCCPack and sets its download directory.
+func newPack(srv IrcServer, bot, directory string, num int) *XDCCPack {
+	p := NewXDCCPack(srv, bot, num)
+	p.SetDirectory(directory)
+	return p
 }
 
 // resolveServer returns the appropriate IrcServer for the given bot name.
