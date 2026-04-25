@@ -4,9 +4,9 @@
 package irc
 
 import (
+	"context"
 	"errors"
 	"fmt"
-	"log"
 	"net"
 	"os"
 	"sync"
@@ -25,6 +25,7 @@ import (
 // connection. Packs on the same server are downloaded without disconnecting;
 // channels already joined are not rejoined.
 type Client struct {
+	ctx       context.Context
 	packs     []*entities.XDCCPack
 	opts      DownloadOptions
 	verbosity int // 0=normal, 1=verbose, 2=debug, -1=quiet
@@ -65,6 +66,8 @@ type Client struct {
 
 	// stall detection: unix nanoseconds of last received byte
 	lastActivity atomic.Int64
+
+	logger Logger
 }
 
 // ---------------------------------------------------------------------------
@@ -74,7 +77,7 @@ type Client struct {
 // NewClient creates a new XDCC Client that will download all packs in order.
 // packs must all belong to the same IRC server.
 // verbosity: -1=quiet, 0=normal, 1=verbose (-v), 2=debug (-vv).
-func NewClient(packs []*entities.XDCCPack, opts DownloadOptions, verbosity int) *Client {
+func NewClient(ctx context.Context, packs []*entities.XDCCPack, opts DownloadOptions, verbosity int) *Client {
 	if opts.ChannelJoinDelay < 0 {
 		opts.ChannelJoinDelay = randN(6) + 5
 	}
@@ -87,10 +90,16 @@ func NewClient(packs []*entities.XDCCPack, opts DownloadOptions, verbosity int) 
 	if opts.DNSServer == "" {
 		opts.DNSServer = "8.8.8.8:53"
 	}
+	logger := opts.Logger
+	if logger == nil {
+		logger = defaultLogger()
+	}
 	return &Client{
+		ctx:       ctx,
 		packs:     packs,
 		opts:      opts,
 		verbosity: verbosity,
+		logger:    logger,
 	}
 }
 
@@ -111,15 +120,41 @@ func (c *Client) DownloadAll() []PackResult {
 	}
 
 	for i := range c.packs {
+		select {
+		case <-c.ctx.Done():
+			for j := i; j < len(results); j++ {
+				results[j].Error = ErrCancelled
+			}
+			c.irc.Close()
+			select {
+			case <-c.ircErrCh:
+			case <-time.After(5 * time.Second):
+			}
+			return results
+		default:
+		}
 		if i > 0 {
 			c.debugf("Waiting 3s before next pack")
-			time.Sleep(3 * time.Second)
+			select {
+			case <-c.ctx.Done():
+				for j := i; j < len(results); j++ {
+					results[j].Error = ErrCancelled
+				}
+				c.irc.Close()
+				select {
+				case <-c.ircErrCh:
+				case <-time.After(5 * time.Second):
+				}
+				return results
+			case <-time.After(3 * time.Second):
+			}
 		}
 		results[i] = c.downloadPackAtIndex(i, 0)
 		// Fatal errors: propagate to all remaining packs
 		if results[i].Error != nil {
 			if errors.Is(results[i].Error, ErrServerUnreachable) ||
-				errors.Is(results[i].Error, ErrUnrecoverable) {
+				errors.Is(results[i].Error, ErrUnrecoverable) ||
+				errors.Is(results[i].Error, ErrCancelled) {
 				for j := i + 1; j < len(results); j++ {
 					results[j].Error = results[i].Error
 				}
@@ -266,7 +301,11 @@ func (c *Client) downloadPackAtIndex(idx int, retryCount int) PackResult {
 	// Channel-join delay only on first connection (not between packs)
 	if idx == 0 {
 		c.debugf("Waiting %ds before WHOIS (channel join delay)", c.opts.ChannelJoinDelay)
-		time.Sleep(time.Duration(c.opts.ChannelJoinDelay) * time.Second)
+		select {
+		case <-c.ctx.Done():
+			return PackResult{Error: ErrCancelled}
+		case <-time.After(time.Duration(c.opts.ChannelJoinDelay) * time.Second):
+		}
 	}
 
 	c.debugf("Sending WHOIS for bot '%s'", pack.Bot)
@@ -280,7 +319,11 @@ func (c *Client) downloadPackAtIndex(idx int, retryCount int) PackResult {
 	switch {
 	case errors.Is(err, ErrPackAlreadyReq):
 		fmt.Println("Pack already requested. Waiting 60 seconds before retrying...")
-		time.Sleep(60 * time.Second)
+		select {
+		case <-c.ctx.Done():
+			return PackResult{Error: ErrCancelled}
+		case <-time.After(60 * time.Second):
+		}
 		return c.downloadPackAtIndex(idx, retryCount+1)
 
 	case errors.Is(err, ErrTimeout), errors.Is(err, ErrDownloadFailed):
@@ -308,6 +351,9 @@ func (c *Client) waitForCurrentPack() error {
 		c.debugf("Transfer started, switching to stall detection")
 	case <-c.downloadDone:
 		return c.downloadError
+	case <-c.ctx.Done():
+		c.finishWithError(ErrCancelled)
+		return ErrCancelled
 	case err := <-c.ircErrCh:
 		// IRC connection died before transfer started; treat as timeout so
 		// downloadPackAtIndex will reconnect and retry.
@@ -328,7 +374,11 @@ func (c *Client) waitForCurrentPack() error {
 	if c.opts.StallTimeout > 0 {
 		go c.stallWatcher()
 	}
-	<-c.downloadDone
+	select {
+	case <-c.downloadDone:
+	case <-c.ctx.Done():
+		c.finishWithError(ErrCancelled)
+	}
 	return c.downloadError
 }
 
@@ -390,7 +440,7 @@ func (c *Client) finishWithError(err error) {
 // and download progress that is suppressed only in quiet mode (-q / -qq).
 func (c *Client) infof(format string, args ...interface{}) {
 	if c.verbosity >= 0 {
-		log.Printf("[xdcc] "+format, args...)
+		c.logger.Printf(format, args...)
 	}
 }
 
@@ -398,7 +448,7 @@ func (c *Client) infof(format string, args ...interface{}) {
 // Use for errors, bot messages, and status that matter even in quiet mode.
 func (c *Client) noticef(format string, args ...interface{}) {
 	if c.verbosity >= -1 {
-		log.Printf("[xdcc] "+format, args...)
+		c.logger.Printf(format, args...)
 	}
 }
 
@@ -406,7 +456,7 @@ func (c *Client) noticef(format string, args ...interface{}) {
 // DCC negotiation messages.
 func (c *Client) logf(format string, args ...interface{}) {
 	if c.verbosity >= 1 {
-		log.Printf("[xdcc] "+format, args...)
+		c.logger.Printf(format, args...)
 	}
 }
 
@@ -414,6 +464,6 @@ func (c *Client) logf(format string, args ...interface{}) {
 // DCC internals, raw IRC event flow.
 func (c *Client) debugf(format string, args ...interface{}) {
 	if c.verbosity >= 2 {
-		log.Printf("[xdcc] "+format, args...)
+		c.logger.Printf(format, args...)
 	}
 }

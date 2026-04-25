@@ -3,6 +3,7 @@
 package downloader
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -19,15 +20,16 @@ type Options struct {
 	WaitTime         int
 	Username         string
 	ChannelJoinDelay int
-	Verbosity        int    // 0=normal, 1=verbose (-v), 2=debug (-vv), -1=quiet
-	DNSServer        string // fallback DNS resolver (host:port); empty = use default
+	Verbosity        int            // 0=normal, 1=verbose (-v), 2=debug (-vv), -1=quiet
+	DNSServer        string         // fallback DNS resolver (host:port); empty = use default
+	Logger           xdccirc.Logger // custom logger; nil = default
 }
 
 // DownloadPacks downloads all packs sequentially.
 // Consecutive packs that share the same IRC server address reuse a single
 // connection; the client joins channels as needed and stays in channels
 // already joined so they do not need to be rejoined for later packs.
-func DownloadPacks(packs []*entities.XDCCPack, opts Options) {
+func DownloadPacks(ctx context.Context, packs []*entities.XDCCPack, opts Options) {
 	ircOpts := xdccirc.DownloadOptions{
 		ConnectTimeout:   opts.ConnectTimeout,
 		StallTimeout:     opts.StallTimeout,
@@ -37,10 +39,11 @@ func DownloadPacks(packs []*entities.XDCCPack, opts Options) {
 		Username:         opts.Username,
 		ChannelJoinDelay: opts.ChannelJoinDelay,
 		DNSServer:        opts.DNSServer,
+		Logger:           opts.Logger,
 	}
 
 	for _, group := range groupByServer(packs) {
-		client := xdccirc.NewClient(group, ircOpts, opts.Verbosity)
+		client := xdccirc.NewClient(ctx, group, ircOpts, opts.Verbosity)
 		results := client.DownloadAll()
 		for i, pack := range group {
 			printResult(pack, results[i])
@@ -88,6 +91,8 @@ func printResult(pack *entities.XDCCPack, r xdccirc.PackResult) {
 		fmt.Println("Tip: use --server to override the IRC server address.")
 	case errors.Is(r.Error, xdccirc.ErrUnrecoverable):
 		fmt.Println("Unrecoverable error (IP banned?). Aborting.")
+	case errors.Is(r.Error, xdccirc.ErrCancelled):
+		fmt.Println("Download cancelled.")
 	case errors.Is(r.Error, xdccirc.ErrTimeout):
 		fmt.Printf("Download of pack #%d timed out after all retries\n", pack.PackNumber)
 	case errors.Is(r.Error, xdccirc.ErrDownloadFailed):

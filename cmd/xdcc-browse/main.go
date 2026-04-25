@@ -2,11 +2,14 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/spf13/cobra"
 	"xdcc-go/internal/cli"
@@ -62,6 +65,9 @@ Verbosity levels:
 If -q and -v are used together, -q takes precedence and -v is ignored.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+			defer cancel()
+
 			term := args[0]
 
 			engine := search.EngineByName(engineName, false)
@@ -133,7 +139,7 @@ If -q and -v are used together, -q takes precedence and -v is ignored.`,
 				return fmt.Errorf("invalid throttle value %q: %w", throttle, err)
 			}
 
-			downloader.DownloadPacks(selected, downloader.Options{
+			downloader.DownloadPacks(ctx, selected, downloader.Options{
 				ConnectTimeout:   connectTimeout,
 				StallTimeout:     stallTimeout,
 				FallbackChannel:  fallbackChannel,

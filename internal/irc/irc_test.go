@@ -1,6 +1,7 @@
 package irc
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -24,7 +25,7 @@ func newTestClient(t *testing.T) *Client {
 	pack := entities.NewXDCCPack(srv, "TestBot", 1)
 	pack.SetFilename("test.mkv", true)
 	pack.SetDirectory(t.TempDir())
-	c := NewClient([]*entities.XDCCPack{pack}, DownloadOptions{}, -1)
+	c := NewClient(context.Background(), []*entities.XDCCPack{pack}, DownloadOptions{}, -1)
 	c.resetForPack()
 	return c
 }
@@ -323,7 +324,7 @@ func buildFakeDNSResponse(query []byte, answerIP string) []byte {
 
 func TestNewClient_DefaultDNSServer(t *testing.T) {
 	pack := entities.NewXDCCPack(entities.NewIrcServer("irc.rizon.net"), "Bot", 1)
-	c := NewClient([]*entities.XDCCPack{pack}, DownloadOptions{}, 0)
+	c := NewClient(context.Background(), []*entities.XDCCPack{pack}, DownloadOptions{}, 0)
 	if c.opts.DNSServer != "8.8.8.8:53" {
 		t.Errorf("default DNSServer = %q, want 8.8.8.8:53", c.opts.DNSServer)
 	}
@@ -331,7 +332,7 @@ func TestNewClient_DefaultDNSServer(t *testing.T) {
 
 func TestNewClient_CustomDNSServer(t *testing.T) {
 	pack := entities.NewXDCCPack(entities.NewIrcServer("irc.rizon.net"), "Bot", 1)
-	c := NewClient([]*entities.XDCCPack{pack}, DownloadOptions{DNSServer: "1.1.1.1:53"}, 0)
+	c := NewClient(context.Background(), []*entities.XDCCPack{pack}, DownloadOptions{DNSServer: "1.1.1.1:53"}, 0)
 	if c.opts.DNSServer != "1.1.1.1:53" {
 		t.Errorf("DNSServer = %q, want 1.1.1.1:53", c.opts.DNSServer)
 	}
@@ -428,7 +429,7 @@ func TestResolveHost_FallbackServerUnreachable(t *testing.T) {
 func TestNewClient_DefaultConnectTimeout(t *testing.T) {
 	pack := entities.NewXDCCPack(entities.NewIrcServer("irc.rizon.net"), "Bot", 1)
 	// ConnectTimeout <= 0 must be replaced with 120.
-	c := NewClient([]*entities.XDCCPack{pack}, DownloadOptions{ConnectTimeout: 0}, 0)
+	c := NewClient(context.Background(), []*entities.XDCCPack{pack}, DownloadOptions{ConnectTimeout: 0}, 0)
 	if c.opts.ConnectTimeout != 120 {
 		t.Errorf("ConnectTimeout = %d, want 120", c.opts.ConnectTimeout)
 	}
@@ -436,7 +437,7 @@ func TestNewClient_DefaultConnectTimeout(t *testing.T) {
 
 func TestNewClient_NegativeStallTimeoutClamped(t *testing.T) {
 	pack := entities.NewXDCCPack(entities.NewIrcServer("irc.rizon.net"), "Bot", 1)
-	c := NewClient([]*entities.XDCCPack{pack}, DownloadOptions{StallTimeout: -5}, 0)
+	c := NewClient(context.Background(), []*entities.XDCCPack{pack}, DownloadOptions{StallTimeout: -5}, 0)
 	if c.opts.StallTimeout != 0 {
 		t.Errorf("StallTimeout = %d, want 0", c.opts.StallTimeout)
 	}
@@ -444,7 +445,7 @@ func TestNewClient_NegativeStallTimeoutClamped(t *testing.T) {
 
 func TestNewClient_RandomChannelJoinDelay(t *testing.T) {
 	pack := entities.NewXDCCPack(entities.NewIrcServer("irc.rizon.net"), "Bot", 1)
-	c := NewClient([]*entities.XDCCPack{pack}, DownloadOptions{ChannelJoinDelay: -1}, 0)
+	c := NewClient(context.Background(), []*entities.XDCCPack{pack}, DownloadOptions{ChannelJoinDelay: -1}, 0)
 	if c.opts.ChannelJoinDelay < 5 || c.opts.ChannelJoinDelay > 10 {
 		t.Errorf("ChannelJoinDelay = %d, want in [5, 10]", c.opts.ChannelJoinDelay)
 	}
@@ -452,7 +453,7 @@ func TestNewClient_RandomChannelJoinDelay(t *testing.T) {
 
 func TestNewClient_ExplicitChannelJoinDelay(t *testing.T) {
 	pack := entities.NewXDCCPack(entities.NewIrcServer("irc.rizon.net"), "Bot", 1)
-	c := NewClient([]*entities.XDCCPack{pack}, DownloadOptions{ChannelJoinDelay: 7}, 0)
+	c := NewClient(context.Background(), []*entities.XDCCPack{pack}, DownloadOptions{ChannelJoinDelay: 7}, 0)
 	if c.opts.ChannelJoinDelay != 7 {
 		t.Errorf("ChannelJoinDelay = %d, want 7", c.opts.ChannelJoinDelay)
 	}

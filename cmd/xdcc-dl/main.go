@@ -1,8 +1,11 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/spf13/cobra"
 	"xdcc-go/internal/cli"
@@ -51,6 +54,9 @@ Verbosity levels:
 If -q and -v are used together, -q takes precedence and -v is ignored.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+			defer cancel()
+
 			message := args[0]
 
 			packs, err := entities.ParseXDCCMessage(message, ".", server)
@@ -68,7 +74,7 @@ If -q and -v are used together, -q takes precedence and -v is ignored.`,
 				return fmt.Errorf("invalid throttle value %q: %w", throttle, err)
 			}
 
-			downloader.DownloadPacks(packs, downloader.Options{
+			downloader.DownloadPacks(ctx, packs, downloader.Options{
 				ConnectTimeout:   connectTimeout,
 				StallTimeout:     stallTimeout,
 				FallbackChannel:  fallbackChannel,

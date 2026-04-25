@@ -30,6 +30,7 @@ var (
 	ErrServerUnreachable = &XDCCDownloadError{Kind: "server_unreachable", Message: "IRC server is unreachable"}
 	ErrUnrecoverable     = &XDCCDownloadError{Kind: "unrecoverable", Message: "unrecoverable error (IP banned?)"}
 	ErrDownloadFailed    = &XDCCDownloadError{Kind: "download_failed", Message: "download did not complete"}
+	ErrCancelled         = &XDCCDownloadError{Kind: "cancelled", Message: "download cancelled by user"}
 )
 
 // DownloadOptions configures a download session.
@@ -44,6 +45,7 @@ type DownloadOptions struct {
 	// DNSServer is the fallback DNS resolver used when the system DNS returns a
 	// blocked address (0.0.0.0 / ::). Format: "host:port". Default: "8.8.8.8:53".
 	DNSServer string
+	Logger    Logger // custom logger; nil = default (log.New with "[xdcc] " prefix)
 }
 
 // PackResult holds the outcome of a single pack download.
