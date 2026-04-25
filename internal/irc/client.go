@@ -346,8 +346,12 @@ func (c *Client) finishSuccess() {
 		formatDuration(elapsed),
 		speedStr)
 	c.closeOnce.Do(func() {
-		close(c.downloadDone)
-		close(c.ackQueue)
+		if c.downloadDone != nil {
+			close(c.downloadDone)
+		}
+		if c.ackQueue != nil {
+			close(c.ackQueue)
+		}
 	})
 }
 
@@ -369,8 +373,12 @@ func (c *Client) finishWithError(err error) {
 	}
 	c.mu.Unlock()
 	c.closeOnce.Do(func() {
-		close(c.downloadDone)
-		close(c.ackQueue)
+		if c.downloadDone != nil {
+			close(c.downloadDone)
+		}
+		if c.ackQueue != nil {
+			close(c.ackQueue)
+		}
 	})
 }
 

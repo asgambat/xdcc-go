@@ -14,6 +14,7 @@ func main() {
 	var (
 		engineName string
 		verbosity  int
+		compact    bool
 	)
 
 	cmd := &cobra.Command{
@@ -49,6 +50,10 @@ Verbosity levels:
 				return fmt.Errorf("search failed: %w", err)
 			}
 
+			if compact {
+				results = entities.CompactPacks(results)
+			}
+
 			if len(results) == 0 {
 				fmt.Fprintln(os.Stderr, "No results found.")
 				return nil
@@ -76,6 +81,8 @@ Verbosity levels:
 	cmd.Flags().StringVarP(&engineName, "search-engine", "e", "xdcc-eu",
 		"Search engine to use: nibl, xdcc-eu, ixirc, subsplease. Can also be passed as second positional argument")
 	cmd.Flags().CountVarP(&verbosity, "verbose", "v", "Increase verbosity: -v shows search engine debug info")
+	cmd.Flags().BoolVar(&compact, "compact", false,
+		"Remove duplicate results with same filename, size and bot family")
 
 	if err := cmd.Execute(); err != nil {
 		os.Exit(1)

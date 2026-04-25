@@ -32,6 +32,7 @@ func main() {
 		extFilter        string
 		botFilter        string
 		dnsServer        string
+		compact          bool
 	)
 
 	cmd := &cobra.Command{
@@ -82,6 +83,11 @@ If -q and -v are used together, -q takes precedence and -v is ignored.`,
 			// Filter by bot name if requested
 			if botFilter != "" {
 				results = filterByBot(results, botFilter)
+			}
+
+			// Compact results if requested
+			if compact {
+				results = entities.CompactPacks(results)
 			}
 
 			if len(results) == 0 {
@@ -166,6 +172,8 @@ If -q and -v are used together, -q takes precedence and -v is ignored.`,
 		"Filter results by bot name substring, case-insensitive (e.g. WOND)")
 	cmd.Flags().StringVar(&dnsServer, "dns-server", "",
 		"Fallback DNS resolver used when system DNS is blocked (host:port, default: 8.8.8.8:53)")
+	cmd.Flags().BoolVar(&compact, "compact", false,
+		"Remove duplicate results with same filename, size and bot family")
 
 	if err := cmd.Execute(); err != nil {
 		os.Exit(1)
