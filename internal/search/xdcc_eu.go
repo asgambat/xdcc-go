@@ -3,6 +3,7 @@ package search
 import (
 	"fmt"
 	"net/url"
+	"os"
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
@@ -32,7 +33,7 @@ func (e *XdccEuEngine) Search(term string) ([]*entities.XDCCPack, error) {
 // fetchDocument performs the HTTP GET and parses the response body as an HTML document.
 func (e *XdccEuEngine) fetchDocument(rawURL string) (*goquery.Document, error) {
 	if e.Verbose {
-		fmt.Printf("[DEBUG] GET %s\n", rawURL)
+		fmt.Fprintf(os.Stderr, "[DEBUG] GET %s\n", rawURL)
 	}
 
 	resp, err := httpGet(rawURL)
@@ -41,8 +42,8 @@ func (e *XdccEuEngine) fetchDocument(rawURL string) (*goquery.Document, error) {
 	}
 	defer resp.Body.Close()
 
-	if e.Verbose {
-		fmt.Printf("[DEBUG] HTTP status: %s\n", resp.Status)
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("xdcc.eu returned HTTP %d", resp.StatusCode)
 	}
 
 	doc, err := goquery.NewDocumentFromReader(resp.Body)
@@ -51,11 +52,10 @@ func (e *XdccEuEngine) fetchDocument(rawURL string) (*goquery.Document, error) {
 	}
 
 	if e.Verbose {
-		// .rescount is the page element that shows how many results were found.
 		if rescount := strings.TrimSpace(doc.Find(".rescount").Text()); rescount != "" {
-			fmt.Printf("[DEBUG] Page says: %s\n", rescount)
+			fmt.Fprintf(os.Stderr, "[DEBUG] Page says: %s\n", rescount)
 		}
-		fmt.Printf("[DEBUG] Table rows found: %d\n", doc.Find("tbody tr").Length())
+		fmt.Fprintf(os.Stderr, "[DEBUG] Table rows found: %d\n", doc.Find("tbody tr").Length())
 	}
 
 	return doc, nil

@@ -399,9 +399,6 @@ func (c *Client) finishSuccess() {
 		if c.downloadDone != nil {
 			close(c.downloadDone)
 		}
-		if c.ackQueue != nil {
-			close(c.ackQueue)
-		}
 	})
 }
 
@@ -425,9 +422,6 @@ func (c *Client) finishWithError(err error) {
 	c.closeOnce.Do(func() {
 		if c.downloadDone != nil {
 			close(c.downloadDone)
-		}
-		if c.ackQueue != nil {
-			close(c.ackQueue)
 		}
 	})
 }

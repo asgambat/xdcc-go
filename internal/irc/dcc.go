@@ -203,15 +203,23 @@ func (c *Client) receiveData() {
 }
 
 func (c *Client) ackSender() {
-	for ack := range c.ackQueue {
-		c.mu.Lock()
-		conn := c.dccConn
-		c.mu.Unlock()
-		if conn == nil {
-			continue
+	for {
+		select {
+		case ack := <-c.ackQueue:
+			c.mu.Lock()
+			conn := c.dccConn
+			c.mu.Unlock()
+			if conn == nil {
+				continue
+			}
+			conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+			if _, err := conn.Write(ack); err != nil {
+				c.debugf("ACK write failed: %v", err)
+				return
+			}
+		case <-c.downloadDone:
+			return
 		}
-		conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
-		conn.Write(ack)
 	}
 }
 

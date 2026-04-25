@@ -98,6 +98,12 @@ func parseRange(packPart string, srv IrcServer, bot, directory string) ([]*XDCCP
 	if err1 != nil || err2 != nil {
 		return nil, fmt.Errorf("invalid pack range: %s", packPart)
 	}
+	if start <= 0 || end <= 0 {
+		return nil, fmt.Errorf("invalid pack range: numbers must be positive: %s", packPart)
+	}
+	if start > end {
+		return nil, fmt.Errorf("invalid pack range: start > end: %s", packPart)
+	}
 
 	var packs []*XDCCPack
 	for i := start; i <= end; i += step {

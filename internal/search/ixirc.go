@@ -46,13 +46,16 @@ func (e *IxircEngine) Search(term string) ([]*entities.XDCCPack, error) {
 		if err != nil {
 			return packs, fmt.Errorf("ixirc request failed: %w", err)
 		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode >= 400 {
+			return packs, fmt.Errorf("ixirc returned HTTP %d", resp.StatusCode)
+		}
 
 		var data ixircResponse
 		if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-			resp.Body.Close()
 			return packs, fmt.Errorf("ixirc JSON decode failed: %w", err)
 		}
-		resp.Body.Close()
 
 		for _, result := range data.Results {
 			if result.Uname == "" {

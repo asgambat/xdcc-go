@@ -27,6 +27,10 @@ func (e *NiblEngine) Search(term string) ([]*entities.XDCCPack, error) {
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("nibl returned HTTP %d", resp.StatusCode)
+	}
+
 	doc, err := goquery.NewDocumentFromReader(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("nibl HTML parse failed: %w", err)

@@ -125,6 +125,13 @@ func TestParseXDCCMessage_InvalidFormat(t *testing.T) {
 	}
 }
 
+func TestParseXDCCMessage_ReversedRange(t *testing.T) {
+	_, err := ParseXDCCMessage("/msg SomeBot xdcc send #5-1", ".", "irc.rizon.net")
+	if err == nil {
+		t.Error("expected error for reversed range #5-1, got nil")
+	}
+}
+
 func TestParseXDCCMessage_DirectoryPropagated(t *testing.T) {
 	packs, err := ParseXDCCMessage("/msg SomeBot xdcc send #1,2", "/downloads", "")
 	if err != nil {
