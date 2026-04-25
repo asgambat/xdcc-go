@@ -126,7 +126,9 @@ If -q and -v are used together, -q takes precedence and -v is ignored.`,
 
 			entities.PreparePacks(selected, out)
 
-			// If --server was explicitly set, override the server on all selected packs
+			// Explicit --server overrides the bot-prefix → server auto-detection
+			// (TLT→williamgattone, WeC→explosionirc) applied by PreparePacks.
+			// Without this flag, the correct server is chosen automatically.
 			if server != "" {
 				srv := entities.ParseIrcServer(server)
 				for _, p := range selected {

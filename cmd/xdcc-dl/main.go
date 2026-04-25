@@ -69,6 +69,16 @@ If -q and -v are used together, -q takes precedence and -v is ignored.`,
 
 			entities.PreparePacks(packs, out)
 
+			// Explicit --server overrides bot-prefix auto-detection
+			// (TLT→williamgattone, WeC→explosionirc). Without this flag,
+			// the correct server is chosen automatically by resolveServer.
+			if cmd.Flags().Changed("server") {
+				srv := entities.ParseIrcServer(server)
+				for _, p := range packs {
+					p.Server = srv
+				}
+			}
+
 			throttleBytes, err := entities.ParseThrottle(throttle)
 			if err != nil {
 				return fmt.Errorf("invalid throttle value %q: %w", throttle, err)
@@ -89,8 +99,8 @@ If -q and -v are used together, -q takes precedence and -v is ignored.`,
 		},
 	}
 
-	cmd.Flags().StringVarP(&server, "server", "s", "irc.rizon.net",
-		"IRC server address (host or host:port). Overrides automatic server detection from bot name")
+	cmd.Flags().StringVarP(&server, "server", "s", "",
+		"Override IRC server (host or host:port). Without this flag, the server is auto-detected from the bot name")
 	cmd.Flags().StringVarP(&out, "out", "o", "",
 		"Output directory or file path (defaults to current directory with pack filename)")
 	cmd.Flags().StringVarP(&throttle, "throttle", "t", "-1",

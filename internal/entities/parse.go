@@ -129,24 +129,39 @@ func newPack(srv IrcServer, bot, directory string, num int) *XDCCPack {
 }
 
 // resolveServer returns the appropriate IrcServer for the given bot name.
-// Applies known bot-prefix → server overrides only when the default server
-// is irc.rizon.net (i.e. no explicit --server was provided by the user).
-func resolveServer(bot, defaultServer string) IrcServer {
-	if defaultServer != "irc.rizon.net" && defaultServer != "" {
-		// User explicitly set a server — honour it regardless of bot prefix
-		return ParseIrcServer(defaultServer)
-	}
+//
+// IMPORTANT RULE — Bot-prefix → server mapping:
+//   - Bots whose name starts with "TLT" MUST connect to irc.williamgattone.it
+//   - Bots whose name starts with "WeC" MUST connect to irc.explosionirc.net
+//
+// This mapping is ALWAYS applied regardless of what server the search engine
+// returned. The only way to override it is by passing --server explicitly on
+// the command line; that override is handled at the CLI level AFTER this
+// function runs (see xdcc-dl, xdcc-browse main.go).
+//
+// Do NOT add conditions that skip these mappings (e.g. checking defaultServer).
+func resolveServer(bot, fallbackServer string) IrcServer {
 	switch {
 	case strings.HasPrefix(bot, "TLT"):
 		return NewIrcServer("irc.williamgattone.it")
 	case strings.HasPrefix(bot, "WeC"):
 		return NewIrcServer("irc.explosionirc.net")
 	default:
-		return ParseIrcServer(defaultServer)
+		if fallbackServer == "" {
+			fallbackServer = "irc.rizon.net"
+		}
+		return ParseIrcServer(fallbackServer)
 	}
 }
 
 // PreparePacks applies output path and server overrides to a list of packs.
+//
+// Bot-prefix → server mapping (TLT→williamgattone, WeC→explosionirc) is
+// always applied here via resolveServer. This is critical for packs coming
+// from search engines that may report a generic server (e.g. irc.rizon.net).
+// The only override is the explicit --server CLI flag, handled by the caller
+// AFTER this function returns.
+//
 // If location is an existing directory, it is used as the download directory.
 // If location is set but is not a directory and there is only one pack, it
 // overrides the filename; for multiple packs, it appends a zero-padded index.

@@ -58,6 +58,10 @@ Verbosity levels:
 				}
 			}
 
+			// Apply bot-prefix → server mapping (TLT→williamgattone, WeC→explosionirc)
+			// so the printed commands show the correct --server flag.
+			entities.PreparePacks(results, "")
+
 			if len(results) == 0 {
 				fmt.Fprintln(os.Stderr, "No results found.")
 				return nil
