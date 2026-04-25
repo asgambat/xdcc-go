@@ -51,7 +51,11 @@ Verbosity levels:
 			}
 
 			if compact {
+				before := len(results)
 				results = entities.CompactPacks(results)
+				if len(results) < before {
+					fmt.Fprintf(os.Stderr, "Compact: %d results reduced to %d\n", before, len(results))
+				}
 			}
 
 			if len(results) == 0 {

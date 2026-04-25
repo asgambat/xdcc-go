@@ -254,7 +254,9 @@ func (c *Client) progressPrinter() {
 		select {
 		case <-ticker.C:
 			prog := atomic.LoadInt64(&c.progress)
+			c.mu.Lock()
 			total := c.filesize
+			c.mu.Unlock()
 			elapsed := time.Since(lastTime).Seconds()
 			speed := float64(prog-lastProgress) / elapsed
 			lastProgress = prog

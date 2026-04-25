@@ -3,7 +3,6 @@ package search
 import (
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"net/url"
 
 	"xdcc-go/internal/entities"
@@ -43,7 +42,7 @@ func (e *IxircEngine) Search(term string) ([]*entities.XDCCPack, error) {
 		apiURL := fmt.Sprintf("%s/api/?q=%s&pn=%d",
 			base, url.QueryEscape(term), pageID)
 
-		resp, err := http.Get(apiURL)
+		resp, err := httpGet(apiURL)
 		if err != nil {
 			return packs, fmt.Errorf("ixirc request failed: %w", err)
 		}

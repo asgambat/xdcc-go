@@ -1,8 +1,6 @@
 package entities
 
-import "fmt"
-
-// BotFamily returns the prefix used to group bots into "families".
+// BotFamilyreturns the prefix used to group bots into "families".
 // If the bot name is at least 13 characters long, the first 10 are used;
 // otherwise the first len(name)-3 characters are used (minimum 0).
 func BotFamily(botName string) string {
@@ -37,9 +35,6 @@ func CompactPacks(packs []*XDCCPack) []*XDCCPack {
 			seen[k] = true
 			out = append(out, p)
 		}
-	}
-	if len(out) < len(packs) {
-		fmt.Printf("Compact: %d results reduced to %d\n", len(packs), len(out))
 	}
 	return out
 }

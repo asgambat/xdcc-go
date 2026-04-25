@@ -87,7 +87,11 @@ If -q and -v are used together, -q takes precedence and -v is ignored.`,
 
 			// Compact results if requested
 			if compact {
+				before := len(results)
 				results = entities.CompactPacks(results)
+				if len(results) < before {
+					fmt.Fprintf(os.Stderr, "Compact: %d results reduced to %d\n", before, len(results))
+				}
 			}
 
 			if len(results) == 0 {
@@ -249,11 +253,15 @@ func parseSelection(input string, results []*entities.XDCCPack) ([]*entities.XDC
 	var selected []*entities.XDCCPack
 	seen := make(map[int]bool)
 
-	addIdx := func(i int) {
-		if i >= 1 && i <= len(results) && !seen[i] {
+	addIdx := func(i int) error {
+		if i < 1 || i > len(results) {
+			return fmt.Errorf("index %d out of range (1-%d)", i, len(results))
+		}
+		if !seen[i] {
 			seen[i] = true
 			selected = append(selected, results[i-1])
 		}
+		return nil
 	}
 
 	for _, part := range strings.Split(input, ",") {
@@ -266,7 +274,9 @@ func parseSelection(input string, results []*entities.XDCCPack) ([]*entities.XDC
 				return nil, fmt.Errorf("invalid selection: %q", part)
 			}
 			for i := start; i < start+count; i++ {
-				addIdx(i)
+				if err := addIdx(i); err != nil {
+					return nil, err
+				}
 			}
 		} else if strings.Contains(part, "-") {
 			bounds := strings.SplitN(part, "-", 2)
@@ -275,16 +285,27 @@ func parseSelection(input string, results []*entities.XDCCPack) ([]*entities.XDC
 			if e1 != nil || e2 != nil {
 				return nil, fmt.Errorf("invalid selection: %q", part)
 			}
+			if start > end {
+				return nil, fmt.Errorf("invalid range: start %d > end %d", start, end)
+			}
 			for i := start; i <= end; i++ {
-				addIdx(i)
+				if err := addIdx(i); err != nil {
+					return nil, err
+				}
 			}
 		} else {
 			n, err := strconv.Atoi(part)
 			if err != nil {
 				return nil, fmt.Errorf("invalid selection: %q", part)
 			}
-			addIdx(n)
+			if err := addIdx(n); err != nil {
+				return nil, err
+			}
 		}
+	}
+
+	if len(selected) == 0 {
+		return nil, fmt.Errorf("no valid packs in selection")
 	}
 
 	return selected, nil

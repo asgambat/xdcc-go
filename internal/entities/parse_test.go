@@ -179,6 +179,32 @@ func TestPreparePacks_TLTBotServerOverride(t *testing.T) {
 	}
 }
 
+func TestPreparePacks_DirectoryLocation(t *testing.T) {
+	dir := t.TempDir()
+	packs := []*XDCCPack{
+		NewXDCCPack(NewIrcServer("irc.rizon.net"), "Bot", 1),
+		NewXDCCPack(NewIrcServer("irc.rizon.net"), "Bot", 2),
+	}
+	// Set original filenames to verify they are not overwritten.
+	packs[0].SetFilename("file1.mkv", true)
+	packs[1].SetFilename("file2.mkv", true)
+
+	PreparePacks(packs, dir)
+
+	for i, p := range packs {
+		if p.Directory != dir {
+			t.Errorf("packs[%d].Directory = %q, want %q", i, p.Directory, dir)
+		}
+	}
+	// Filenames must remain unchanged.
+	if packs[0].Filename != "file1.mkv" {
+		t.Errorf("packs[0].Filename = %q, want file1.mkv", packs[0].Filename)
+	}
+	if packs[1].Filename != "file2.mkv" {
+		t.Errorf("packs[1].Filename = %q, want file2.mkv", packs[1].Filename)
+	}
+}
+
 // --- ByteStringToByteCount ---------------------------------------------------
 
 func TestByteStringToByteCount(t *testing.T) {

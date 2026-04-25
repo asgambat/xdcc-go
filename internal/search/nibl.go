@@ -2,7 +2,7 @@ package search
 
 import (
 	"fmt"
-	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
@@ -18,10 +18,10 @@ func (e *NiblEngine) Name() string { return "nibl" }
 
 func (e *NiblEngine) Search(term string) ([]*entities.XDCCPack, error) {
 	base := resolveBaseURL(e.baseURL, "https://nibl.co.uk")
-	query := strings.ReplaceAll(term, " ", "+")
-	url := fmt.Sprintf("%s/search?query=%s", base, query)
+	query := url.QueryEscape(term)
+	searchURL := fmt.Sprintf("%s/search?query=%s", base, query)
 
-	resp, err := http.Get(url)
+	resp, err := httpGet(searchURL)
 	if err != nil {
 		return nil, fmt.Errorf("nibl search request failed: %w", err)
 	}

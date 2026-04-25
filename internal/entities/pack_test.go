@@ -1,6 +1,9 @@
 package entities
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
+)
 
 // --- XDCCPack methods --------------------------------------------------------
 
@@ -27,8 +30,9 @@ func TestGetFilepath_AbsoluteDirectory(t *testing.T) {
 	p := NewXDCCPack(NewIrcServer("irc.rizon.net"), "Bot", 1)
 	p.SetFilename("file.mkv", true)
 	p.SetDirectory("/downloads")
-	if got := p.GetFilepath(); got != "/downloads/file.mkv" {
-		t.Errorf("GetFilepath = %q, want /downloads/file.mkv", got)
+	want := filepath.Join("/downloads", "file.mkv")
+	if got := p.GetFilepath(); got != want {
+		t.Errorf("GetFilepath = %q, want %q", got, want)
 	}
 }
 
@@ -55,6 +59,16 @@ func TestSetFilename_NoOverrideAddsExtension(t *testing.T) {
 	p := NewXDCCPack(NewIrcServer("irc.rizon.net"), "Bot", 1)
 	p.SetFilename("myfile", true)
 	p.SetFilename("something.mkv", false)
+	if p.Filename != "myfile.mkv" {
+		t.Errorf("Filename = %q, want myfile.mkv", p.Filename)
+	}
+}
+
+func TestSetFilename_NoOverrideMultiDotFilename(t *testing.T) {
+	// Multi-dot filename: extension should be ".mkv", not ".show.s01e01.mkv".
+	p := NewXDCCPack(NewIrcServer("irc.rizon.net"), "Bot", 1)
+	p.SetFilename("myfile", true)
+	p.SetFilename("my.show.s01e01.mkv", false)
 	if p.Filename != "myfile.mkv" {
 		t.Errorf("Filename = %q, want myfile.mkv", p.Filename)
 	}

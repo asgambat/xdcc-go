@@ -3,7 +3,6 @@ package search
 import (
 	"fmt"
 	"io"
-	"net/http"
 	"net/url"
 	"strings"
 
@@ -25,7 +24,7 @@ func (e *SubsPleaseEngine) Search(term string) ([]*entities.XDCCPack, error) {
 	base := resolveBaseURL(e.baseURL, "https://subsplease.org")
 	searchURL := base + "/xdcc/search.php?t=" + url.PathEscape(term)
 
-	resp, err := http.Get(searchURL)
+	resp, err := httpGet(searchURL)
 	if err != nil {
 		return nil, fmt.Errorf("subsplease request failed: %w", err)
 	}
@@ -63,7 +62,8 @@ func (e *SubsPleaseEngine) Search(term string) ([]*entities.XDCCPack, error) {
 
 		pack := entities.NewXDCCPack(server, bot, packNum)
 		pack.SetFilename(filename, true)
-		pack.SetSize(int64(fileSize) * 1000 * 1000) // size in MB
+		// SubsPlease reports sizes in decimal megabytes (SI), not mebibytes.
+		pack.SetSize(int64(fileSize) * 1000 * 1000)
 		packs = append(packs, pack)
 	}
 

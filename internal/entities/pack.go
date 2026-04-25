@@ -2,6 +2,7 @@ package entities
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 )
 
@@ -30,12 +31,9 @@ func NewXDCCPack(server IrcServer, bot string, packNumber int) *XDCCPack {
 // If a filename is already set and override is false, only the extension is updated.
 func (p *XDCCPack) SetFilename(filename string, override bool) {
 	if p.Filename != "" && !override {
-		parts := strings.SplitN(filename, ".", 2)
-		if len(parts) == 2 {
-			ext := parts[1]
-			if !strings.HasSuffix(p.Filename, "."+ext) {
-				p.Filename += "." + ext
-			}
+		ext := filepath.Ext(filename)
+		if ext != "" && !strings.HasSuffix(p.Filename, ext) {
+			p.Filename += ext
 		}
 		return
 	}
@@ -70,7 +68,7 @@ func (p *XDCCPack) GetFilepath() string {
 	if p.Directory == "" || p.Directory == "." {
 		return p.Filename
 	}
-	return p.Directory + "/" + p.Filename
+	return filepath.Join(p.Directory, p.Filename)
 }
 
 // GetRequestMessage returns the XDCC send message for the bot.

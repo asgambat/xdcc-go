@@ -2,6 +2,7 @@ package entities
 
 import (
 	"fmt"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -140,10 +141,14 @@ func resolveServer(bot, defaultServer string) IrcServer {
 }
 
 // PreparePacks applies output path and server overrides to a list of packs.
-// If location is set and there is only one pack, it overrides the filename;
-// for multiple packs, it appends a zero-padded index.
+// If location is an existing directory, it is used as the download directory.
+// If location is set but is not a directory and there is only one pack, it
+// overrides the filename; for multiple packs, it appends a zero-padded index.
 func PreparePacks(packs []*XDCCPack, location string) {
-	// Apply server overrides based on bot name
+	// Apply server overrides based on bot name.
+	// This is intentionally kept even though ParseXDCCMessage also calls
+	// resolveServer, because PreparePacks is also used for packs originating
+	// from search engines (e.g. xdcc-browse) that bypass ParseXDCCMessage.
 	for _, p := range packs {
 		p.Server = resolveServer(p.Bot, p.Server.Address)
 	}
@@ -151,6 +156,16 @@ func PreparePacks(packs []*XDCCPack, location string) {
 	if location == "" {
 		return
 	}
+
+	// If location is an existing directory, use it as the download directory.
+	if fi, err := os.Stat(location); err == nil && fi.IsDir() {
+		for _, p := range packs {
+			p.SetDirectory(location)
+		}
+		return
+	}
+
+	// Otherwise treat location as a filename/path.
 	if len(packs) == 1 {
 		packs[0].SetFilename(location, true)
 	} else {
@@ -163,16 +178,26 @@ func PreparePacks(packs []*XDCCPack, location string) {
 // ByteStringToByteCount converts a human-readable byte string (e.g. "1.5 MB") to bytes.
 func ByteStringToByteCount(s string) int64 {
 	s = strings.TrimSpace(s)
-	units := map[string]int64{
-		"B": 1, "KB": 1024, "MB": 1024 * 1024, "GB": 1024 * 1024 * 1024,
-		"K": 1024, "M": 1024 * 1024, "G": 1024 * 1024 * 1024,
+	upper := strings.ToUpper(s)
+	// Check longer suffixes first to avoid ambiguity (e.g., "KB" before "B").
+	units := []struct {
+		suffix string
+		mult   int64
+	}{
+		{"GB", 1024 * 1024 * 1024},
+		{"MB", 1024 * 1024},
+		{"KB", 1024},
+		{"G", 1024 * 1024 * 1024},
+		{"M", 1024 * 1024},
+		{"K", 1024},
+		{"B", 1},
 	}
-	for suffix, mult := range units {
-		if strings.HasSuffix(strings.ToUpper(s), suffix) {
-			numStr := strings.TrimSpace(s[:len(s)-len(suffix)])
+	for _, u := range units {
+		if strings.HasSuffix(upper, u.suffix) {
+			numStr := strings.TrimSpace(s[:len(s)-len(u.suffix)])
 			val, err := strconv.ParseFloat(numStr, 64)
 			if err == nil {
-				return int64(val * float64(mult))
+				return int64(val * float64(u.mult))
 			}
 		}
 	}

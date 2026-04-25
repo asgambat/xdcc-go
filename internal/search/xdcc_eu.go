@@ -2,7 +2,6 @@ package search
 
 import (
 	"fmt"
-	"net/http"
 	"net/url"
 	"strings"
 
@@ -13,12 +12,14 @@ import (
 // XdccEuEngine searches for XDCC packs on xdcc.eu.
 type XdccEuEngine struct {
 	Verbose bool
+	baseURL string // override for testing; empty = "https://www.xdcc.eu"
 }
 
 func (e *XdccEuEngine) Name() string { return "xdcc-eu" }
 
 func (e *XdccEuEngine) Search(term string) ([]*entities.XDCCPack, error) {
-	searchURL := fmt.Sprintf("https://www.xdcc.eu/search.php?searchkey=%s", url.QueryEscape(term))
+	base := resolveBaseURL(e.baseURL, "https://www.xdcc.eu")
+	searchURL := fmt.Sprintf("%s/search.php?searchkey=%s", base, url.QueryEscape(term))
 
 	doc, err := e.fetchDocument(searchURL)
 	if err != nil {
@@ -34,7 +35,7 @@ func (e *XdccEuEngine) fetchDocument(rawURL string) (*goquery.Document, error) {
 		fmt.Printf("[DEBUG] GET %s\n", rawURL)
 	}
 
-	resp, err := http.Get(rawURL)
+	resp, err := httpGet(rawURL)
 	if err != nil {
 		return nil, fmt.Errorf("xdcc.eu request failed: %w", err)
 	}
