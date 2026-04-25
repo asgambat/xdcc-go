@@ -1,4 +1,7 @@
-FROM --platform=linux/arm64 golang:1.22-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.22-alpine AS builder
+
+ARG TARGETOS
+ARG TARGETARCH
 
 WORKDIR /app
 
@@ -12,16 +15,16 @@ RUN go mod download
 # Copy source code
 COPY . .
 
-# Build all three binaries with static linking
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 \
-    go build -ldflags="-s -w" -o /out/xdcc-dl ./cmd/xdcc-dl
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 \
-    go build -ldflags="-s -w" -o /out/xdcc-search ./cmd/xdcc-search
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 \
+# Build all three binaries with static linking for the target platform
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build -ldflags="-s -w" -o /out/xdcc-dl ./cmd/xdcc-dl && \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build -ldflags="-s -w" -o /out/xdcc-search ./cmd/xdcc-search && \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -ldflags="-s -w" -o /out/xdcc-browse ./cmd/xdcc-browse
 
 # --- Runtime image ---
-FROM --platform=linux/arm64 alpine:3.20
+FROM alpine:3.20
 
 RUN apk add --no-cache ca-certificates tzdata
 

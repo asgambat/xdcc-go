@@ -42,7 +42,7 @@ docker run -d --name xdcc -v /my/downloads:/downloads xdcc-go
 docker exec -it xdcc xdcc-browse "my show" -o /downloads
 ```
 
-The image is built for `linux/arm64`. Change `GOARCH` in the Dockerfile to target a different architecture.
+The Dockerfile supports multi-architecture builds via Docker BuildKit. Build for a specific platform with `docker buildx build --platform=linux/amd64 -t xdcc-go .` or for multiple platforms at once with `docker buildx build --platform=linux/amd64,linux/arm64 -t xdcc-go .`.
 
 ---
 
