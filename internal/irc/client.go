@@ -231,6 +231,9 @@ func (c *Client) connect() error {
 			return err
 		}
 		return fmt.Errorf("IRC connection closed before CONNECTED event")
+	case <-c.ctx.Done():
+		c.irc.Close()
+		return ErrCancelled
 	case <-time.After(timeout):
 		c.irc.Close()
 		return ErrTimeout
@@ -377,6 +380,11 @@ func (c *Client) waitForCurrentPack() error {
 	select {
 	case <-c.downloadDone:
 	case <-c.ctx.Done():
+		c.mu.Lock()
+		if c.dccConn != nil {
+			c.dccConn.Close()
+		}
+		c.mu.Unlock()
 		c.finishWithError(ErrCancelled)
 	}
 	return c.downloadError

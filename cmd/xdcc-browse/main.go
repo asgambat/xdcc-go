@@ -65,9 +65,6 @@ Verbosity levels:
 If -q and -v are used together, -q takes precedence and -v is ignored.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-			defer cancel()
-
 			term := args[0]
 
 			engine := search.EngineByName(engineName, false)
@@ -123,6 +120,9 @@ If -q and -v are used together, -q takes precedence and -v is ignored.`,
 				fmt.Println("No packs selected.")
 				return nil
 			}
+
+			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+			defer cancel()
 
 			entities.PreparePacks(selected, out)
 
