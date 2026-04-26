@@ -2,13 +2,17 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/spf13/cobra"
+	"xdcc-go/internal/cli"
 	"xdcc-go/internal/downloader"
 	"xdcc-go/internal/entities"
 	"xdcc-go/internal/search"
@@ -30,6 +34,8 @@ func main() {
 		quietLevel       int
 		extFilter        string
 		botFilter        string
+		dnsServer        string
+		compact          bool
 	)
 
 	cmd := &cobra.Command{
@@ -54,7 +60,9 @@ Verbosity levels:
   -v         also show bot notices, channel joins, WHOIS results
   -vv        full debug (DNS, DCC internals, all IRC events)
   -q         hide connection info; show only errors, bot notices and progress
-  -qq        suppress all output`,
+  -qq        suppress all output
+
+If -q and -v are used together, -q takes precedence and -v is ignored.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			term := args[0]
@@ -78,6 +86,15 @@ Verbosity levels:
 			// Filter by bot name if requested
 			if botFilter != "" {
 				results = filterByBot(results, botFilter)
+			}
+
+			// Compact results if requested
+			if compact {
+				before := len(results)
+				results = entities.CompactPacks(results)
+				if len(results) < before {
+					fmt.Fprintf(os.Stderr, "Compact: %d results reduced to %d\n", before, len(results))
+				}
 			}
 
 			if len(results) == 0 {
@@ -104,9 +121,14 @@ Verbosity levels:
 				return nil
 			}
 
+			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+			defer cancel()
+
 			entities.PreparePacks(selected, out)
 
-			// If --server was explicitly set, override the server on all selected packs
+			// Explicit --server overrides the bot-prefix → server auto-detection
+			// (TLT→williamgattone, WeC→explosionirc) applied by PreparePacks.
+			// Without this flag, the correct server is chosen automatically.
 			if server != "" {
 				srv := entities.ParseIrcServer(server)
 				for _, p := range selected {
@@ -119,7 +141,7 @@ Verbosity levels:
 				return fmt.Errorf("invalid throttle value %q: %w", throttle, err)
 			}
 
-			downloader.DownloadPacks(selected, downloader.Options{
+			downloader.DownloadPacks(ctx, selected, downloader.Options{
 				ConnectTimeout:   connectTimeout,
 				StallTimeout:     stallTimeout,
 				FallbackChannel:  fallbackChannel,
@@ -127,7 +149,8 @@ Verbosity levels:
 				WaitTime:         waitTime,
 				Username:         username,
 				ChannelJoinDelay: channelJoinDelay,
-				Verbosity:        verbosityLevel(verbosity, quietLevel),
+				Verbosity:        cli.VerbosityLevel(verbosity, quietLevel),
+				DNSServer:        dnsServer,
 			})
 			return nil
 		},
@@ -159,6 +182,10 @@ Verbosity levels:
 		"Filter results by file extension(s), comma-separated (e.g. mkv,avi,mp4)")
 	cmd.Flags().StringVarP(&botFilter, "bot", "b", "",
 		"Filter results by bot name substring, case-insensitive (e.g. WOND)")
+	cmd.Flags().StringVar(&dnsServer, "dns-server", "",
+		"Fallback DNS resolver used when system DNS is blocked (host:port, default: 8.8.8.8:53)")
+	cmd.Flags().BoolVar(&compact, "compact", false,
+		"Remove duplicate results with same filename, size and bot family")
 
 	if err := cmd.Execute(); err != nil {
 		os.Exit(1)
@@ -198,16 +225,7 @@ func filterByExtension(packs []*entities.XDCCPack, extList string) []*entities.X
 	return out
 }
 
-// verbosityLevel maps verbose and quiet counts to a single verbosity int.
-func verbosityLevel(verbose, quiet int) int {
-	if quiet >= 2 {
-		return -2
-	}
-	if quiet >= 1 {
-		return -1
-	}
-	return verbose
-}
+// verbosityLevel moved to internal/cli package.
 
 // selectPacks prompts the user to select one or more packs from the results list.
 // Accepts: single number (3), range (1-5), comma list (1,3,5), or "all".
@@ -243,11 +261,15 @@ func parseSelection(input string, results []*entities.XDCCPack) ([]*entities.XDC
 	var selected []*entities.XDCCPack
 	seen := make(map[int]bool)
 
-	addIdx := func(i int) {
-		if i >= 1 && i <= len(results) && !seen[i] {
+	addIdx := func(i int) error {
+		if i < 1 || i > len(results) {
+			return fmt.Errorf("index %d out of range (1-%d)", i, len(results))
+		}
+		if !seen[i] {
 			seen[i] = true
 			selected = append(selected, results[i-1])
 		}
+		return nil
 	}
 
 	for _, part := range strings.Split(input, ",") {
@@ -260,7 +282,9 @@ func parseSelection(input string, results []*entities.XDCCPack) ([]*entities.XDC
 				return nil, fmt.Errorf("invalid selection: %q", part)
 			}
 			for i := start; i < start+count; i++ {
-				addIdx(i)
+				if err := addIdx(i); err != nil {
+					return nil, err
+				}
 			}
 		} else if strings.Contains(part, "-") {
 			bounds := strings.SplitN(part, "-", 2)
@@ -269,16 +293,27 @@ func parseSelection(input string, results []*entities.XDCCPack) ([]*entities.XDC
 			if e1 != nil || e2 != nil {
 				return nil, fmt.Errorf("invalid selection: %q", part)
 			}
+			if start > end {
+				return nil, fmt.Errorf("invalid range: start %d > end %d", start, end)
+			}
 			for i := start; i <= end; i++ {
-				addIdx(i)
+				if err := addIdx(i); err != nil {
+					return nil, err
+				}
 			}
 		} else {
 			n, err := strconv.Atoi(part)
 			if err != nil {
 				return nil, fmt.Errorf("invalid selection: %q", part)
 			}
-			addIdx(n)
+			if err := addIdx(n); err != nil {
+				return nil, err
+			}
 		}
+	}
+
+	if len(selected) == 0 {
+		return nil, fmt.Errorf("no valid packs in selection")
 	}
 
 	return selected, nil

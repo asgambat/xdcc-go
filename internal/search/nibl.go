@@ -2,7 +2,7 @@ package search
 
 import (
 	"fmt"
-	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
@@ -10,19 +10,26 @@ import (
 )
 
 // NiblEngine searches for XDCC packs on nibl.co.uk.
-type NiblEngine struct{}
+type NiblEngine struct {
+	baseURL string // override for testing; empty = "https://nibl.co.uk"
+}
 
 func (e *NiblEngine) Name() string { return "nibl" }
 
 func (e *NiblEngine) Search(term string) ([]*entities.XDCCPack, error) {
-	query := strings.ReplaceAll(term, " ", "+")
-	url := fmt.Sprintf("https://nibl.co.uk/search?query=%s", query)
+	base := resolveBaseURL(e.baseURL, "https://nibl.co.uk")
+	query := url.QueryEscape(term)
+	searchURL := fmt.Sprintf("%s/search?query=%s", base, query)
 
-	resp, err := http.Get(url)
+	resp, err := httpGet(searchURL)
 	if err != nil {
 		return nil, fmt.Errorf("nibl search request failed: %w", err)
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("nibl returned HTTP %d", resp.StatusCode)
+	}
 
 	doc, err := goquery.NewDocumentFromReader(resp.Body)
 	if err != nil {

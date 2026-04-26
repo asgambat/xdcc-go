@@ -17,8 +17,8 @@ A Go implementation of an XDCC downloader for IRC. Provides three command-line t
 ### Build from source
 
 ```sh
-git clone https://github.com/bassista/xdcc
-cd xdcc/xdcc-go
+git clone https://github.com/asgambat/xdcc-go
+cd xdcc-go
 go build -o xdcc-dl     ./cmd/xdcc-dl
 go build -o xdcc-search ./cmd/xdcc-search
 go build -o xdcc-browse ./cmd/xdcc-browse
@@ -42,7 +42,7 @@ docker run -d --name xdcc -v /my/downloads:/downloads xdcc-go
 docker exec -it xdcc xdcc-browse "my show" -o /downloads
 ```
 
-The image is built for `linux/arm64`. Change `GOARCH` in the Dockerfile to target a different architecture.
+The Dockerfile supports multi-architecture builds via Docker BuildKit. Build for a specific platform with `docker buildx build --platform=linux/amd64 -t xdcc-go .` or for multiple platforms at once with `docker buildx build --platform=linux/amd64,linux/arm64 -t xdcc-go .`.
 
 ---
 
@@ -71,19 +71,20 @@ Pack number supports ranges, steps, and lists:
 
 ### Flags
 
-| Flag | Default | Description |
-|---|---|---|
-| `-s`, `--server` | *(auto)* | IRC server (`host` or `host:port`). Overrides automatic server detection from bot name |
-| `-o`, `--out` | `.` | Output directory or file path |
-| `-t`, `--throttle` | `-1` | Speed limit in bytes/s (e.g. `512K`, `2M`, `1G`). `-1` = unlimited |
-| `--connect-timeout` | `120` | Seconds to wait for the bot to initiate the DCC transfer |
-| `--stall-timeout` | `60` | Seconds of no transfer progress before aborting. `0` = disabled |
-| `--fallback-channel` | *(none)* | IRC channel to join if WHOIS returns no channels for the bot |
-| `--wait-time` | `0` | Extra seconds to wait before sending the XDCC request |
-| `--username` | *(random)* | IRC nickname (a random suffix is always appended) |
-| `--channel-join-delay` | `-1` | Seconds to wait after connecting before sending WHOIS. `-1` = random 5–10 s |
-| `-v`, `--verbose` | | Increase verbosity (repeatable: `-v`, `-vv`) |
-| `-q`, `--quiet` | | Suppress all output including progress |
+| Flag | Short | Default | Description |
+|---|---|---|---|
+| `--server` | `-s` | *(auto)* | IRC server (`host` or `host:port`). Overrides automatic server detection from bot name |
+| `--out` | `-o` | `.` | Output directory or file path |
+| `--throttle` | `-t` | `-1` | Speed limit in bytes/s (e.g. `512K`, `2M`, `1G`). `-1` = unlimited |
+| `--connect-timeout` | `-c` | `120` | Seconds to wait for the bot to initiate the DCC transfer |
+| `--stall-timeout` | `-S` | `60` | Seconds of no transfer progress before aborting. `0` = disabled |
+| `--fallback-channel` | `-f` | *(none)* | IRC channel to join if WHOIS returns no channels for the bot |
+| `--wait-time` | `-w` | `0` | Extra seconds to wait before sending the XDCC request |
+| `--username` | `-u` | *(random)* | IRC nickname (a random suffix is always appended) |
+| `--channel-join-delay` | `-d` | `-1` | Seconds to wait after connecting before sending WHOIS. `-1` = random 5–10 s |
+| `--dns-server` | | `8.8.8.8:53` | Fallback DNS resolver when system DNS is blocked (`host:port`) |
+| `--verbose` | `-v` | | Increase verbosity (repeatable: `-v`, `-vv`) |
+| `--quiet` | `-q` | | Reduce output (repeatable: `-q`, `-qq`) |
 
 ### Verbosity levels
 
@@ -92,7 +93,10 @@ Pack number supports ranges, steps, and lists:
 | *(default)* | Connecting, download progress, final result |
 | `-v` | + bot notices, channel joins, WHOIS results |
 | `-vv` | + DNS resolution, DCC details, all IRC events |
-| `-q` | nothing |
+| `-q` | Hides connection info; keeps errors, bot notices, and progress |
+| `-qq` | Suppresses all output |
+
+> If `-q` and `-v` are used together, `-q` takes precedence and `-v` is ignored.
 
 ### Examples
 
@@ -129,10 +133,10 @@ Available engines: `xdcc-eu`, `nibl`, `ixirc`, `subsplease`
 
 ### Flags
 
-| Flag | Default | Description |
-|---|---|---|
-| `--search-engine` | `xdcc-eu` | Search engine to use |
-| `-v`, `--verbose` | | Show search engine debug info |
+| Flag | Short | Default | Description |
+|---|---|---|---|
+| `--search-engine` | `-e` | `xdcc-eu` | Search engine to use |
+| `--verbose` | `-v` | | Show search engine debug info |
 
 ### Output format
 
@@ -171,22 +175,25 @@ xdcc-browse <search_term> [flags]
 
 ### Flags
 
-| Flag | Default | Description |
-|---|---|---|
-| `--search-engine` | `xdcc-eu` | Search engine to use: `nibl`, `xdcc-eu`, `ixirc`, `subsplease` |
-| `--ext` | *(none)* | Filter results by file extension(s), comma-separated (e.g. `mkv,avi,mp4`) |
-| `--bot` | *(none)* | Filter results by bot name substring, case-insensitive (e.g. `WOND`) |
-| `-s`, `--server` | *(from search)* | Override IRC server for all selected packs (`host` or `host:port`) |
-| `-o`, `--out` | `.` | Output directory or file path |
-| `-t`, `--throttle` | `-1` | Speed limit in bytes/s (e.g. `512K`, `2M`, `1G`). `-1` = unlimited |
-| `--connect-timeout` | `120` | Seconds to wait for the bot to initiate the DCC transfer |
-| `--stall-timeout` | `60` | Seconds of no transfer progress before aborting. `0` = disabled |
-| `--fallback-channel` | *(none)* | IRC channel to join if WHOIS returns no channels for the bot |
-| `--wait-time` | `0` | Extra seconds to wait before sending the XDCC request |
-| `--username` | *(random)* | IRC nickname (a random suffix is always appended) |
-| `--channel-join-delay` | `-1` | Seconds to wait after connecting before sending WHOIS. `-1` = random 5–10 s |
-| `-v`, `--verbose` | | Increase verbosity (repeatable: `-v`, `-vv`) |
-| `-q`, `--quiet` | | Suppress all output including progress |
+| Flag | Short | Default | Description |
+|---|---|---|---|
+| `--search-engine` | `-e` | `xdcc-eu` | Search engine to use: `nibl`, `xdcc-eu`, `ixirc`, `subsplease` |
+| `--ext` | `-x` | *(none)* | Filter results by file extension(s), comma-separated (e.g. `mkv,avi,mp4`) |
+| `--bot` | `-b` | *(none)* | Filter results by bot name substring, case-insensitive (e.g. `WOND`) |
+| `--server` | `-s` | *(from search)* | Override IRC server for all selected packs (`host` or `host:port`) |
+| `--out` | `-o` | `.` | Output directory or file path |
+| `--throttle` | `-t` | `-1` | Speed limit in bytes/s (e.g. `512K`, `2M`, `1G`). `-1` = unlimited |
+| `--connect-timeout` | `-c` | `120` | Seconds to wait for the bot to initiate the DCC transfer |
+| `--stall-timeout` | `-S` | `60` | Seconds of no transfer progress before aborting. `0` = disabled |
+| `--fallback-channel` | `-f` | *(none)* | IRC channel to join if WHOIS returns no channels for the bot |
+| `--wait-time` | `-w` | `0` | Extra seconds to wait before sending the XDCC request |
+| `--username` | `-u` | *(random)* | IRC nickname (a random suffix is always appended) |
+| `--channel-join-delay` | `-d` | `-1` | Seconds to wait after connecting before sending WHOIS. `-1` = random 5–10 s |
+| `--dns-server` | | `8.8.8.8:53` | Fallback DNS resolver when system DNS is blocked (`host:port`) |
+| `--verbose` | `-v` | | Increase verbosity (repeatable: `-v`, `-vv`) |
+| `--quiet` | `-q` | | Reduce output (repeatable: `-q`, `-qq`) |
+
+> If `-q` and `-v` are used together, `-q` takes precedence and `-v` is ignored.
 
 ### Selection syntax
 
@@ -196,6 +203,7 @@ After the numbered list is shown you will be prompted for a selection:
 |---|---|
 | `3` | single pack |
 | `1-5` | range (packs 1 through 5) |
+| `1+5` | count (5 consecutive packs starting from 1, i.e. packs 1–5) |
 | `1,3,7` | comma-separated list |
 | `all` | download everything in the list |
 
@@ -222,9 +230,13 @@ xdcc-browse "my show" --ext=mkv --server=94.23.150.97
 
 ## Notes
 
+### DNS fallback
+
+When the system DNS returns a blocked address (`0.0.0.0` / `::`) or fails entirely, the client automatically retries the lookup via a public DNS resolver (default: `8.8.8.8:53`). Use `--dns-server` to specify a different resolver (e.g. `1.1.1.1:53`). The resolved IP is passed directly to the IRC library so no further blocked lookups occur during the connection.
+
 ### Automatic server detection
 
-`xdcc-dl` and `xdcc-browse` attempt to detect the correct IRC server from the bot name prefix (e.g. `TLT*` → `irc.williamgattone.it`). Use `--server` to override when automatic detection fails or when your DNS provider blocks the hostname.
+`xdcc-dl` and `xdcc-browse` attempt to detect the correct IRC server from the bot name prefix (e.g. `TLT*` → `irc.williamgattone.it`, `WeC*` → `irc.explosionirc.net`). For all other bots the default server `irc.rizon.net` is used. Use `--server` to override when automatic detection fails or when your DNS provider blocks the hostname.
 
 ### File resume
 

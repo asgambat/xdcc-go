@@ -3,14 +3,15 @@ package search
 import (
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"net/url"
 
 	"xdcc-go/internal/entities"
 )
 
 // IxircEngine searches for XDCC packs on ixirc.com using their JSON API.
-type IxircEngine struct{}
+type IxircEngine struct {
+	baseURL string // override for testing; empty = "https://ixirc.com"
+}
 
 func (e *IxircEngine) Name() string { return "ixirc" }
 
@@ -37,20 +38,24 @@ func (e *IxircEngine) Search(term string) ([]*entities.XDCCPack, error) {
 	pageID := 0
 
 	for {
-		apiURL := fmt.Sprintf("https://ixirc.com/api/?q=%s&pn=%d",
-			url.QueryEscape(term), pageID)
+		base := resolveBaseURL(e.baseURL, "https://ixirc.com")
+		apiURL := fmt.Sprintf("%s/api/?q=%s&pn=%d",
+			base, url.QueryEscape(term), pageID)
 
-		resp, err := http.Get(apiURL)
+		resp, err := httpGet(apiURL)
 		if err != nil {
 			return packs, fmt.Errorf("ixirc request failed: %w", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode >= 400 {
+			return packs, fmt.Errorf("ixirc returned HTTP %d", resp.StatusCode)
 		}
 
 		var data ixircResponse
 		if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-			resp.Body.Close()
 			return packs, fmt.Errorf("ixirc JSON decode failed: %w", err)
 		}
-		resp.Body.Close()
 
 		for _, result := range data.Results {
 			if result.Uname == "" {

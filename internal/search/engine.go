@@ -35,3 +35,12 @@ func EngineByName(name string, verbose bool) Engine {
 func AvailableEngines() []string {
 	return []string{"nibl", "xdcc-eu", "ixirc", "subsplease"}
 }
+
+// resolveBaseURL returns override if non-empty, otherwise defaultURL.
+// Used by search engines to allow test injection of a local HTTP server.
+func resolveBaseURL(override, defaultURL string) string {
+	if override != "" {
+		return override
+	}
+	return defaultURL
+}

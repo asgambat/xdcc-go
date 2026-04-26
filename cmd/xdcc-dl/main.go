@@ -1,10 +1,14 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/spf13/cobra"
+	"xdcc-go/internal/cli"
 	"xdcc-go/internal/downloader"
 	"xdcc-go/internal/entities"
 )
@@ -22,6 +26,7 @@ func main() {
 		channelJoinDelay int
 		verbosity        int
 		quietLevel       int
+		dnsServer        string
 	)
 
 	cmd := &cobra.Command{
@@ -44,9 +49,14 @@ Verbosity levels:
   -v         also show bot notices, channel joins, WHOIS results
   -vv        full debug (DNS, DCC internals, all IRC events)
   -q         hide connection info; show only errors, bot notices and progress
-  -qq        suppress all output`,
+  -qq        suppress all output
+
+If -q and -v are used together, -q takes precedence and -v is ignored.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+			defer cancel()
+
 			message := args[0]
 
 			packs, err := entities.ParseXDCCMessage(message, ".", server)
@@ -59,12 +69,22 @@ Verbosity levels:
 
 			entities.PreparePacks(packs, out)
 
+			// Explicit --server overrides bot-prefix auto-detection
+			// (TLT→williamgattone, WeC→explosionirc). Without this flag,
+			// the correct server is chosen automatically by resolveServer.
+			if cmd.Flags().Changed("server") {
+				srv := entities.ParseIrcServer(server)
+				for _, p := range packs {
+					p.Server = srv
+				}
+			}
+
 			throttleBytes, err := entities.ParseThrottle(throttle)
 			if err != nil {
 				return fmt.Errorf("invalid throttle value %q: %w", throttle, err)
 			}
 
-			downloader.DownloadPacks(packs, downloader.Options{
+			downloader.DownloadPacks(ctx, packs, downloader.Options{
 				ConnectTimeout:   connectTimeout,
 				StallTimeout:     stallTimeout,
 				FallbackChannel:  fallbackChannel,
@@ -72,14 +92,15 @@ Verbosity levels:
 				WaitTime:         waitTime,
 				Username:         username,
 				ChannelJoinDelay: channelJoinDelay,
-				Verbosity:        verbosityLevel(verbosity, quietLevel),
+				Verbosity:        cli.VerbosityLevel(verbosity, quietLevel),
+				DNSServer:        dnsServer,
 			})
 			return nil
 		},
 	}
 
-	cmd.Flags().StringVarP(&server, "server", "s", "irc.rizon.net",
-		"IRC server address (host or host:port). Overrides automatic server detection from bot name")
+	cmd.Flags().StringVarP(&server, "server", "s", "",
+		"Override IRC server (host or host:port). Without this flag, the server is auto-detected from the bot name")
 	cmd.Flags().StringVarP(&out, "out", "o", "",
 		"Output directory or file path (defaults to current directory with pack filename)")
 	cmd.Flags().StringVarP(&throttle, "throttle", "t", "-1",
@@ -98,21 +119,12 @@ Verbosity levels:
 		"Seconds to wait after connecting before sending WHOIS (-1 = random 5-10s)")
 	cmd.Flags().CountVarP(&verbosity, "verbose", "v", "Increase verbosity: -v shows bot notices, -vv shows full debug info")
 	cmd.Flags().CountVarP(&quietLevel, "quiet", "q", "Reduce output: -q hides connection info (keeps errors/notices/progress), -qq suppresses all output")
+	cmd.Flags().StringVar(&dnsServer, "dns-server", "",
+		"Fallback DNS resolver used when system DNS is blocked (host:port, default: 8.8.8.8:53)")
 
 	if err := cmd.Execute(); err != nil {
 		os.Exit(1)
 	}
 }
 
-// verbosityLevel maps verbose count and quiet count to a verbosity int.
-// -qq (quiet>=2) => -2 (suppress all), -q (quiet=1) => -1 (suppress info, keep errors/notices/progress)
-// default => 0, -v => 1, -vv => 2
-func verbosityLevel(verbose, quiet int) int {
-	if quiet >= 2 {
-		return -2
-	}
-	if quiet >= 1 {
-		return -1
-	}
-	return verbose
-}
+// verbosityLevel moved to internal/cli package.
