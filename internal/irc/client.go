@@ -187,10 +187,8 @@ func (c *Client) LastBotNotice() string {
 func (c *Client) connect() error {
 	server := c.packs[0].Server
 
-	// Resolve the hostname to an IP, with fallback to the public DNS resolver
-	// if the system DNS is blocked. Use the IP (not the hostname) when building
-	// the girc config so the library does not redo a potentially blocked lookup.
-	resolvedIP, err := c.resolveHost(server.Address)
+	// Resolve the hostname to all valid IPs so we can try each one in order.
+	resolvedIPs, err := c.resolveAllHosts(server.Address)
 	if err != nil {
 		return err
 	}
@@ -201,43 +199,67 @@ func (c *Client) connect() error {
 	} else {
 		nick = nick + randomSuffix(3)
 	}
-	c.infof("Connecting to %s:%d as '%s'", server.Address, server.Port, nick)
 
-	c.connectedCh = make(chan struct{})
-	c.joinedChannels = make(map[string]bool)
-	c.ircErrCh = make(chan error, 1)
-
-	c.irc = girc.New(girc.Config{
-		Server:      resolvedIP, // use resolved IP to avoid repeating a blocked DNS lookup
-		Port:        server.Port,
-		Nick:        nick,
-		User:        nick,
-		Name:        nick,
-		PingDelay:   30 * time.Second,
-		PingTimeout: 60 * time.Second,
-	})
-	c.registerHandlers()
-	go func() { c.ircErrCh <- c.irc.Connect() }()
-
-	timeout := time.Duration(c.opts.ConnectTimeout+30) * time.Second
-	select {
-	case <-c.connectedCh:
-		return nil
-	case err := <-c.ircErrCh:
-		if err != nil {
-			if isConnectError(err) {
-				return fmt.Errorf("%w: %v", ErrServerUnreachable, err)
-			}
-			return err
+	var lastErr error
+	for i, ip := range resolvedIPs {
+		if len(resolvedIPs) > 1 {
+			c.infof("Connecting to %s:%d as '%s' (IP %d/%d: %s)",
+				server.Address, server.Port, nick, i+1, len(resolvedIPs), ip)
+		} else {
+			c.infof("Connecting to %s:%d as '%s'", server.Address, server.Port, nick)
 		}
-		return fmt.Errorf("IRC connection closed before CONNECTED event")
-	case <-c.ctx.Done():
-		c.irc.Close()
-		return ErrCancelled
-	case <-time.After(timeout):
-		c.irc.Close()
-		return ErrTimeout
+
+		c.connectedCh = make(chan struct{})
+		c.joinedChannels = make(map[string]bool)
+		c.ircErrCh = make(chan error, 1)
+
+		c.irc = girc.New(girc.Config{
+			Server:      ip, // use resolved IP to avoid repeating a blocked DNS lookup
+			Port:        server.Port,
+			Nick:        nick,
+			User:        nick,
+			Name:        nick,
+			PingDelay:   30 * time.Second,
+			PingTimeout: 60 * time.Second,
+		})
+		c.registerHandlers()
+		go func() { c.ircErrCh <- c.irc.Connect() }()
+
+		timeout := time.Duration(c.opts.ConnectTimeout+30) * time.Second
+		select {
+		case <-c.connectedCh:
+			return nil
+		case connErr := <-c.ircErrCh:
+			if connErr != nil {
+				if isConnectError(connErr) {
+					lastErr = connErr
+					if i < len(resolvedIPs)-1 {
+						c.noticef("IP %s failed (%v), trying next IP...", ip, connErr)
+						continue
+					}
+					return fmt.Errorf("%w: all %d IPs for %s failed (last: %v)",
+						ErrServerUnreachable, len(resolvedIPs), server.Address, lastErr)
+				}
+				return connErr
+			}
+			return fmt.Errorf("IRC connection closed before CONNECTED event")
+		case <-c.ctx.Done():
+			c.irc.Close()
+			return ErrCancelled
+		case <-time.After(timeout):
+			c.irc.Close()
+			lastErr = fmt.Errorf("connection to %s timed out", ip)
+			if i < len(resolvedIPs)-1 {
+				c.noticef("IP %s timed out, trying next IP...", ip)
+				continue
+			}
+			return fmt.Errorf("%w: all %d IPs for %s timed out",
+				ErrServerUnreachable, len(resolvedIPs), server.Address)
+		}
 	}
+
+	// Should not be reached, but handle defensively.
+	return fmt.Errorf("%w: %v", ErrServerUnreachable, lastErr)
 }
 
 func (c *Client) reconnect() error {

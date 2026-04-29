@@ -236,7 +236,7 @@ func TestRandomUsername(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// DNS fallback (utils.go resolveHost)
+// DNS resolution (utils.go resolveAllHosts)
 // ---------------------------------------------------------------------------
 
 // startFakeDNSServer starts a minimal UDP DNS server on a random localhost port.
@@ -338,22 +338,22 @@ func TestNewClient_CustomDNSServer(t *testing.T) {
 	}
 }
 
-func TestResolveHost_Localhost(t *testing.T) {
+func TestResolveAllHosts_Localhost(t *testing.T) {
 	c := newTestClient(t)
-	ip, err := c.resolveHost("localhost")
+	ips, err := c.resolveAllHosts("localhost")
 	if err != nil {
-		t.Fatalf("resolveHost(localhost) = %v, want nil", err)
+		t.Fatalf("resolveAllHosts(localhost) = %v, want nil", err)
 	}
-	if ip == "" {
-		t.Error("resolveHost(localhost) returned empty IP")
+	if len(ips) == 0 {
+		t.Error("resolveAllHosts(localhost) returned no IPs")
 	}
 }
 
-func TestResolveHost_NonExistentHost_Error(t *testing.T) {
+func TestResolveAllHosts_NonExistentHost_Error(t *testing.T) {
 	// A .invalid TLD is guaranteed by RFC 2606 to never resolve.
 	// Both system DNS and public fallback should fail.
 	c := newTestClient(t)
-	_, err := c.resolveHost("this.host.does.not.exist.xdccgo.invalid")
+	_, err := c.resolveAllHosts("this.host.does.not.exist.xdccgo.invalid")
 	if err == nil {
 		t.Error("expected error for non-existent host, got nil")
 	}
@@ -362,11 +362,11 @@ func TestResolveHost_NonExistentHost_Error(t *testing.T) {
 	}
 }
 
-// TestResolveHost_FallbackDNS verifies that when the system DNS fails (NXDOMAIN
-// for a non-existent host), resolveHost retries via the configured fallback DNS
-// server. The fallback is a local fake DNS server that returns 192.0.2.1 (a
-// TEST-NET address per RFC 5737) for any query.
-func TestResolveHost_FallbackDNS(t *testing.T) {
+// TestResolveAllHosts_FallbackDNS verifies that when the system DNS fails
+// (NXDOMAIN for a non-existent host), resolveAllHosts retries via the
+// configured fallback DNS server. The fallback is a local fake DNS server
+// that returns 192.0.2.1 (a TEST-NET address per RFC 5737) for any query.
+func TestResolveAllHosts_FallbackDNS(t *testing.T) {
 	const fakeIP = "192.0.2.1"
 	dnsAddr := startFakeDNSServer(t, fakeIP)
 
@@ -374,51 +374,91 @@ func TestResolveHost_FallbackDNS(t *testing.T) {
 	c.opts.DNSServer = dnsAddr
 
 	// Use a non-existent hostname so system DNS fails → fallback is triggered.
-	ip, err := c.resolveHost("xdccgo.fallback.test.invalid")
+	ips, err := c.resolveAllHosts("xdccgo.fallback.test.invalid")
 	if err != nil {
-		t.Fatalf("resolveHost with fallback DNS = %v, want nil", err)
+		t.Fatalf("resolveAllHosts with fallback DNS = %v, want nil", err)
 	}
-	if ip != fakeIP {
-		t.Errorf("resolved IP = %q, want %q", ip, fakeIP)
+	found := false
+	for _, ip := range ips {
+		if ip == fakeIP {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("resolved IPs = %v, want to contain %q", ips, fakeIP)
 	}
 }
 
-// TestResolveHost_BlockedAddress_FallsBackToDNS simulates an ISP that returns
-// 0.0.0.0 for a blocked hostname. The fallback DNS server returns a real IP.
-func TestResolveHost_BlockedAddress_FallsBackToDNS(t *testing.T) {
-	// We cannot make the system DNS return 0.0.0.0 without OS-level mocking,
-	// so we verify the validAddrs helper logic by passing a hostname to our
-	// fake DNS server directly (no system DNS step needed for this path test).
+// TestResolveAllHosts_BlockedAddress_FallsBackToDNS simulates an ISP that
+// returns 0.0.0.0 for a blocked hostname. The fallback DNS server returns
+// a real IP.
+func TestResolveAllHosts_BlockedAddress_FallsBackToDNS(t *testing.T) {
 	const fakeIP = "10.0.0.1"
 	dnsAddr := startFakeDNSServer(t, fakeIP)
 
 	c := newTestClient(t)
 	c.opts.DNSServer = dnsAddr
 
-	// Even if system DNS succeeds for localhost, the test validates that our
-	// fake server would answer correctly if triggered.
-	ip, err := c.resolveHost("xdccgo.blocked.test.invalid")
+	ips, err := c.resolveAllHosts("xdccgo.blocked.test.invalid")
 	if err != nil {
 		t.Fatalf("expected fallback to succeed, got %v", err)
 	}
-	if ip != fakeIP {
-		t.Errorf("ip = %q, want %q", ip, fakeIP)
+	found := false
+	for _, ip := range ips {
+		if ip == fakeIP {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("ips = %v, want to contain %q", ips, fakeIP)
 	}
 }
 
-// TestResolveHost_FallbackServerUnreachable: both system DNS and fallback fail.
-// resolveHost must return ErrServerUnreachable (not panic or hang).
-func TestResolveHost_FallbackServerUnreachable(t *testing.T) {
+// TestResolveAllHosts_FallbackServerUnreachable: both system DNS and fallback
+// fail. resolveAllHosts must return ErrServerUnreachable (not panic or hang).
+func TestResolveAllHosts_FallbackServerUnreachable(t *testing.T) {
 	c := newTestClient(t)
 	// Point fallback to a port that is not listening.
 	c.opts.DNSServer = "127.0.0.1:19999"
 
-	_, err := c.resolveHost("this.host.does.not.exist.xdccgo.invalid")
+	_, err := c.resolveAllHosts("this.host.does.not.exist.xdccgo.invalid")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
 	if !errors.Is(err, ErrServerUnreachable) {
 		t.Errorf("expected ErrServerUnreachable, got %v", err)
+	}
+}
+
+// TestResolveAllHosts_ReturnsMultipleIPs verifies that when the fallback DNS
+// returns a different IP than the system DNS, both are included in the result.
+func TestResolveAllHosts_ReturnsMultipleIPs(t *testing.T) {
+	// localhost resolves via system DNS. Our fake fallback DNS will add a
+	// different IP. The result should contain IPs from both sources.
+	const fakeIP = "198.51.100.1" // TEST-NET-2 per RFC 5737
+	dnsAddr := startFakeDNSServer(t, fakeIP)
+
+	c := newTestClient(t)
+	c.opts.DNSServer = dnsAddr
+
+	ips, err := c.resolveAllHosts("localhost")
+	if err != nil {
+		t.Fatalf("resolveAllHosts(localhost) = %v, want nil", err)
+	}
+	if len(ips) < 2 {
+		t.Errorf("expected at least 2 IPs (system + fallback), got %d: %v", len(ips), ips)
+	}
+	found := false
+	for _, ip := range ips {
+		if ip == fakeIP {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("resolved IPs = %v, want to contain fallback IP %q", ips, fakeIP)
 	}
 }
 

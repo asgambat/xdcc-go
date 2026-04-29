@@ -10,18 +10,19 @@ import (
 	"time"
 )
 
-// resolveHost resolves the IRC server hostname to a usable IP address.
+// resolveAllHosts resolves the IRC server hostname to all usable IP addresses.
 //
 // Strategy:
 //  1. Try the system DNS resolver first (fast path, works for most users).
-//  2. If the system DNS fails or returns a blocked address (0.0.0.0 / ::),
+//  2. If the system DNS fails or returns only blocked addresses (0.0.0.0 / ::),
 //     fall back to the configured public DNS resolver (default 8.8.8.8:53).
+//  3. Merge results from both resolvers, deduplicated, preserving order.
 //
-// Returns the first valid IP address found, or ErrServerUnreachable if both
-// attempts fail.  The caller should use the returned IP (not the original
-// hostname) as the girc Server address so that the blocked DNS lookup does not
+// Returns all valid IP addresses found, or ErrServerUnreachable if both
+// attempts fail.  The caller should use the returned IPs (not the original
+// hostname) as the girc Server address so that a blocked DNS lookup does not
 // recur inside the IRC library.
-func (c *Client) resolveHost(host string) (string, error) {
+func (c *Client) resolveAllHosts(host string) ([]string, error) {
 	// validAddrs filters out blocked sentinel addresses returned by ISP DNS.
 	validAddrs := func(addrs []string) []string {
 		var out []string
@@ -33,19 +34,32 @@ func (c *Client) resolveHost(host string) (string, error) {
 		return out
 	}
 
+	// seen tracks already-collected IPs to avoid duplicates.
+	seen := make(map[string]bool)
+	var allIPs []string
+	addUnique := func(ips []string) {
+		for _, ip := range ips {
+			if !seen[ip] {
+				seen[ip] = true
+				allIPs = append(allIPs, ip)
+			}
+		}
+	}
+
 	// --- Attempt 1: system resolver ---
 	addrs, err := net.LookupHost(host)
 	if err == nil {
 		if valid := validAddrs(addrs); len(valid) > 0 {
-			c.debugf("DNS resolved %s → %s (system)", host, valid[0])
-			return valid[0], nil
+			c.debugf("DNS resolved %s → %v (system)", host, valid)
+			addUnique(valid)
+		} else {
+			c.noticef("System DNS returned blocked address for %s: %v — trying fallback DNS", host, addrs)
 		}
-		c.noticef("System DNS returned blocked address for %s: %v — trying fallback DNS", host, addrs)
 	} else {
 		c.noticef("System DNS failed for %s: %v — trying fallback DNS (%s)", host, err, c.opts.DNSServer)
 	}
 
-	// --- Attempt 2: public DNS resolver ---
+	// --- Attempt 2: public DNS resolver (always tried to collect extra IPs) ---
 	resolver := &net.Resolver{
 		PreferGo: true,
 		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
@@ -62,14 +76,28 @@ func (c *Client) resolveHost(host string) (string, error) {
 	addrs, err = resolver.LookupHost(ctx, host)
 	if err == nil {
 		if valid := validAddrs(addrs); len(valid) > 0 {
-			c.infof("DNS resolved %s → %s via %s (fallback)", host, valid[0], c.opts.DNSServer)
-			return valid[0], nil
+			newCount := 0
+			for _, ip := range valid {
+				if !seen[ip] {
+					newCount++
+				}
+			}
+			if newCount > 0 {
+				c.debugf("Fallback DNS (%s) added %d new IP(s) for %s", c.opts.DNSServer, newCount, host)
+			}
+			addUnique(valid)
 		}
+	} else if len(allIPs) == 0 {
+		c.noticef("Fallback DNS (%s) also failed for %s: %v", c.opts.DNSServer, host, err)
 	}
 
-	c.noticef("Fallback DNS (%s) also failed for %s: %v", c.opts.DNSServer, host, err)
-	return "", fmt.Errorf("%w: cannot resolve %s (system and %s both failed)",
-		ErrServerUnreachable, host, c.opts.DNSServer)
+	if len(allIPs) == 0 {
+		return nil, fmt.Errorf("%w: cannot resolve %s (system and %s both failed)",
+			ErrServerUnreachable, host, c.opts.DNSServer)
+	}
+
+	c.debugf("Resolved %s to %d IP(s): %v", host, len(allIPs), allIPs)
+	return allIPs, nil
 }
 
 func isConnectError(err error) bool {
