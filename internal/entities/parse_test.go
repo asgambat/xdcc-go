@@ -289,3 +289,118 @@ func TestParseThrottle(t *testing.T) {
 		}
 	}
 }
+
+func TestParseXDCCMessage_EmptyMessage(t *testing.T) {
+	_, err := ParseXDCCMessage("", ".", "")
+	if err == nil {
+		t.Error("expected error for empty message")
+	}
+}
+
+func TestParseXDCCMessage_ExtraSpaces(t *testing.T) {
+	// Extra spaces should cause regex to fail
+	_, err := ParseXDCCMessage("/msg  Bot  xdcc  send  #42", ".", "")
+	if err == nil {
+		t.Error("expected error for message with extra spaces")
+	}
+}
+
+func TestParseXDCCMessage_LargeRange(t *testing.T) {
+	packs, err := ParseXDCCMessage("/msg Bot xdcc send #1-100", ".", "irc.rizon.net")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(packs) != 100 {
+		t.Errorf("got %d packs, want 100", len(packs))
+	}
+}
+
+func TestParseXDCCMessage_StepZeroDefaultsToOne(t *testing.T) {
+	// Step 0 should default to 1 (the code checks s >= 1)
+	packs, err := ParseXDCCMessage("/msg Bot xdcc send #1-5;0", ".", "irc.rizon.net")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(packs) != 5 {
+		t.Errorf("got %d packs, want 5 (step=0 defaults to 1)", len(packs))
+	}
+}
+
+func TestByteStringToByteCount_Lowercase(t *testing.T) {
+	tests := []struct {
+		in   string
+		want int64
+	}{
+		{"1 kb", 1024},
+		{"2 mb", 2 * 1024 * 1024},
+		{"1 gb", 1024 * 1024 * 1024},
+		{"500 b", 500},
+		{"1.5 Mb", int64(1.5 * 1024 * 1024)},
+		{"100 kB", 100 * 1024},
+	}
+	for _, tt := range tests {
+		got := ByteStringToByteCount(tt.in)
+		if got != tt.want {
+			t.Errorf("ByteStringToByteCount(%q) = %d, want %d", tt.in, got, tt.want)
+		}
+	}
+}
+
+func TestByteStringToByteCount_ShortSuffixes(t *testing.T) {
+	tests := []struct {
+		in   string
+		want int64
+	}{
+		{"1K", 1024},
+		{"2M", 2 * 1024 * 1024},
+		{"1G", 1024 * 1024 * 1024},
+	}
+	for _, tt := range tests {
+		got := ByteStringToByteCount(tt.in)
+		if got != tt.want {
+			t.Errorf("ByteStringToByteCount(%q) = %d, want %d", tt.in, got, tt.want)
+		}
+	}
+}
+
+func TestParseThrottle_Lowercase(t *testing.T) {
+	tests := []struct {
+		in   string
+		want int64
+	}{
+		{"100k", 100 * 1024},
+		{"2m", 2 * 1024 * 1024},
+		{"1g", 1024 * 1024 * 1024},
+	}
+	for _, tt := range tests {
+		got, err := ParseThrottle(tt.in)
+		if err != nil {
+			t.Errorf("ParseThrottle(%q) error = %v", tt.in, err)
+			continue
+		}
+		if got != tt.want {
+			t.Errorf("ParseThrottle(%q) = %d, want %d", tt.in, got, tt.want)
+		}
+	}
+}
+
+func TestParseThrottle_Decimal(t *testing.T) {
+	got, err := ParseThrottle("1.5M")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := int64(1.5 * 1024 * 1024)
+	if got != want {
+		t.Errorf("ParseThrottle(1.5M) = %d, want %d", got, want)
+	}
+}
+
+func TestParseThrottle_InvalidFormats(t *testing.T) {
+	invalids := []string{"M100", "abc", "1.2.3M"}
+	for _, s := range invalids {
+		_, err := ParseThrottle(s)
+		if err == nil {
+			t.Errorf("ParseThrottle(%q) should return error", s)
+		}
+	}
+}

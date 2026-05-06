@@ -87,9 +87,9 @@ Verbosity levels:
 	}
 
 	cmd.Flags().StringVarP(&engineName, "search-engine", "e", "xdcc-eu",
-		"Search engine to use: nibl, xdcc-eu, ixirc, subsplease. Can also be passed as second positional argument")
+		"Search engine to use: nibl, xdcc-eu, subsplease. Can also be passed as second positional argument")
 	cmd.Flags().CountVarP(&verbosity, "verbose", "v", "Increase verbosity: -v shows search engine debug info")
-	cmd.Flags().BoolVar(&compact, "compact", false,
+	cmd.Flags().BoolVarP(&compact, "compact", "c", false,
 		"Remove duplicate results with same filename, size and bot family")
 
 	if err := cmd.Execute(); err != nil {

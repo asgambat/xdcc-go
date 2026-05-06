@@ -22,8 +22,6 @@ func EngineByName(name string, verbose bool) Engine {
 		return &NiblEngine{}
 	case "xdcc-eu":
 		return &XdccEuEngine{Verbose: verbose}
-	case "ixirc":
-		return &IxircEngine{}
 	case "subsplease":
 		return &SubsPleaseEngine{}
 	default:
@@ -33,7 +31,7 @@ func EngineByName(name string, verbose bool) Engine {
 
 // AvailableEngines returns the list of available engine names.
 func AvailableEngines() []string {
-	return []string{"nibl", "xdcc-eu", "ixirc", "subsplease"}
+	return []string{"nibl", "xdcc-eu", "subsplease"}
 }
 
 // resolveBaseURL returns override if non-empty, otherwise defaultURL.

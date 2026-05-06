@@ -1,6 +1,10 @@
 package search
 
-import "testing"
+import (
+	"net/http"
+	"net/http/httptest"
+	"testing"
+)
 
 func TestEngineByName(t *testing.T) {
 	cases := []struct {
@@ -11,9 +15,9 @@ func TestEngineByName(t *testing.T) {
 		{"nibl", "nibl", false},
 		{"NIBL", "nibl", false}, // case-insensitive
 		{"xdcc-eu", "xdcc-eu", false},
-		{"ixirc", "ixirc", false},
 		{"subsplease", "subsplease", false},
 		{"SUBSPLEASE", "subsplease", false},
+		{"ixirc", "", true}, // ixirc.com is defunct
 		{"unknown", "", true},
 		{"", "", true},
 	}
@@ -75,7 +79,7 @@ func TestResolveBaseURL(t *testing.T) {
 	}{
 		{"", "https://nibl.co.uk", "https://nibl.co.uk"},
 		{"http://localhost:8080", "https://nibl.co.uk", "http://localhost:8080"},
-		{"http://test", "https://ixirc.com", "http://test"},
+		{"http://test", "https://example.com", "http://test"},
 		{"", "https://subsplease.org", "https://subsplease.org"},
 	}
 	for _, tt := range tests {
@@ -93,7 +97,6 @@ func TestEngineNames(t *testing.T) {
 	}{
 		{&NiblEngine{}, "nibl"},
 		{&XdccEuEngine{}, "xdcc-eu"},
-		{&IxircEngine{}, "ixirc"},
 		{&SubsPleaseEngine{}, "subsplease"},
 	}
 	for _, tt := range cases {
@@ -101,4 +104,21 @@ func TestEngineNames(t *testing.T) {
 			t.Errorf("%T.Name() = %q, want %q", tt.engine, got, tt.want)
 		}
 	}
+}
+
+func TestHttpGet_UserAgent(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ua := r.Header.Get("User-Agent")
+		if ua != "xdcc-go/1.0" {
+			t.Errorf("User-Agent = %q, want xdcc-go/1.0", ua)
+		}
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	resp, err := httpGet(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
 }

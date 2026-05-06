@@ -76,13 +76,13 @@ Pack number supports ranges, steps, and lists:
 | `--server` | `-s` | *(auto)* | IRC server (`host` or `host:port`). Overrides automatic server detection from bot name |
 | `--out` | `-o` | `.` | Output directory or file path |
 | `--throttle` | `-t` | `-1` | Speed limit in bytes/s (e.g. `512K`, `2M`, `1G`). `-1` = unlimited |
-| `--connect-timeout` | `-c` | `120` | Seconds to wait for the bot to initiate the DCC transfer |
+| `--connect-timeout` | `-C` | `120` | Seconds to wait for the bot to initiate the DCC transfer |
 | `--stall-timeout` | `-S` | `60` | Seconds of no transfer progress before aborting. `0` = disabled |
 | `--fallback-channel` | `-f` | *(none)* | IRC channel to join if WHOIS returns no channels for the bot |
 | `--wait-time` | `-w` | `0` | Extra seconds to wait before sending the XDCC request |
 | `--username` | `-u` | *(random)* | IRC nickname (a random suffix is always appended) |
-| `--channel-join-delay` | `-d` | `-1` | Seconds to wait after connecting before sending WHOIS. `-1` = random 5–10 s |
-| `--dns-server` | | `8.8.8.8:53` | Fallback DNS resolver when system DNS is blocked (`host:port`) |
+| `--channel-join-delay` | `-D` | `-1` | Seconds to wait after connecting before sending WHOIS. `-1` = random 5–10 s |
+| `--dns-server` | `-d` | `8.8.8.8:53` | Fallback DNS resolver when system DNS is blocked (`host:port`) |
 | `--verbose` | `-v` | | Increase verbosity (repeatable: `-v`, `-vv`) |
 | `--quiet` | `-q` | | Reduce output (repeatable: `-q`, `-qq`) |
 
@@ -129,13 +129,14 @@ xdcc-search <search_term> [engine] [flags]
 
 The engine can be passed as a second positional argument or via `--search-engine`. Default is `xdcc-eu`.
 
-Available engines: `xdcc-eu`, `nibl`, `ixirc`, `subsplease`
+Available engines: `xdcc-eu`, `nibl`, `subsplease`
 
 ### Flags
 
 | Flag | Short | Default | Description |
 |---|---|---|---|
 | `--search-engine` | `-e` | `xdcc-eu` | Search engine to use |
+| `--compact` | `-c` | `false` | Remove duplicate results with same filename, size and bot family |
 | `--verbose` | `-v` | | Show search engine debug info |
 
 ### Output format
@@ -153,10 +154,7 @@ xdcc-search "my show"
 # Specify engine as positional argument
 xdcc-search "my show" nibl
 
-# Specify engine as flag
-xdcc-search "my show" --search-engine=ixirc
-
-# Verbose (shows HTTP requests and parsing details)
+# Verbose(shows HTTP requests and parsing details)
 xdcc-search "my show" -v
 
 # Pipe into grep
@@ -177,19 +175,20 @@ xdcc-browse <search_term> [flags]
 
 | Flag | Short | Default | Description |
 |---|---|---|---|
-| `--search-engine` | `-e` | `xdcc-eu` | Search engine to use: `nibl`, `xdcc-eu`, `ixirc`, `subsplease` |
+| `--search-engine` | `-e` | `xdcc-eu` | Search engine to use: `nibl`, `xdcc-eu`, `subsplease` |
 | `--ext` | `-x` | *(none)* | Filter results by file extension(s), comma-separated (e.g. `mkv,avi,mp4`) |
 | `--bot` | `-b` | *(none)* | Filter results by bot name substring, case-insensitive (e.g. `WOND`) |
 | `--server` | `-s` | *(from search)* | Override IRC server for all selected packs (`host` or `host:port`) |
 | `--out` | `-o` | `.` | Output directory or file path |
 | `--throttle` | `-t` | `-1` | Speed limit in bytes/s (e.g. `512K`, `2M`, `1G`). `-1` = unlimited |
-| `--connect-timeout` | `-c` | `120` | Seconds to wait for the bot to initiate the DCC transfer |
+| `--connect-timeout` | `-C` | `120` | Seconds to wait for the bot to initiate the DCC transfer |
 | `--stall-timeout` | `-S` | `60` | Seconds of no transfer progress before aborting. `0` = disabled |
 | `--fallback-channel` | `-f` | *(none)* | IRC channel to join if WHOIS returns no channels for the bot |
 | `--wait-time` | `-w` | `0` | Extra seconds to wait before sending the XDCC request |
 | `--username` | `-u` | *(random)* | IRC nickname (a random suffix is always appended) |
-| `--channel-join-delay` | `-d` | `-1` | Seconds to wait after connecting before sending WHOIS. `-1` = random 5–10 s |
-| `--dns-server` | | `8.8.8.8:53` | Fallback DNS resolver when system DNS is blocked (`host:port`) |
+| `--channel-join-delay` | `-D` | `-1` | Seconds to wait after connecting before sending WHOIS. `-1` = random 5–10 s |
+| `--dns-server` | `-d` | `8.8.8.8:53` | Fallback DNS resolver when system DNS is blocked (`host:port`) |
+| `--compact` | `-c` | `false` | Remove duplicate results with same filename, size and bot family |
 | `--verbose` | `-v` | | Increase verbosity (repeatable: `-v`, `-vv`) |
 | `--quiet` | `-q` | | Reduce output (repeatable: `-q`, `-qq`) |
 
@@ -234,6 +233,10 @@ xdcc-browse "my show" --ext=mkv --server=94.23.150.97
 
 When the system DNS returns a blocked address (`0.0.0.0` / `::`) or fails entirely, the client automatically retries the lookup via a public DNS resolver (default: `8.8.8.8:53`). Use `--dns-server` to specify a different resolver (e.g. `1.1.1.1:53`). The resolved IP is passed directly to the IRC library so no further blocked lookups occur during the connection.
 
+### Multi-IP connection failover
+
+The hostname is resolved to **all** available IPs (system DNS + fallback DNS combined). If the connection to the first IP fails or times out, the client automatically tries the next IP in the list until one succeeds or all have been exhausted. Progress is reported in the log (e.g. `IP 2/3: …`). This makes connections resilient to partially unreachable servers or round-robin DNS entries where some addresses are down.
+
 ### Automatic server detection
 
 `xdcc-dl` and `xdcc-browse` attempt to detect the correct IRC server from the bot name prefix (e.g. `TLT*` → `irc.williamgattone.it`, `WeC*` → `irc.explosionirc.net`). For all other bots the default server `irc.rizon.net` is used. Use `--server` to override when automatic detection fails or when your DNS provider blocks the hostname.
@@ -254,5 +257,5 @@ Once the transfer starts, a stall watchdog checks for progress every few seconds
 | Pack already requested | Wait 60 s, then retry |
 | Bot denied / slot busy | Abort, show bot message |
 | Bot not found | Abort |
-| Server unreachable (DNS block) | Abort, suggest `--server` |
+| Server unreachable | Try all resolved IPs, then abort and suggest `--server` |
 | File already downloaded | Skip |

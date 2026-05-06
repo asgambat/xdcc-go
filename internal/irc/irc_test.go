@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -841,5 +842,173 @@ func TestReceiveData_FullTransfer(t *testing.T) {
 	}
 	if info.Size() != dataSize {
 		t.Errorf("file size = %d, want %d", info.Size(), dataSize)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// DCC gap tests
+// ---------------------------------------------------------------------------
+
+// TestHandleDCCSend_PassiveDCC_UsesSourceHost: IP 0.0.0.0 with sourceHost set
+func TestHandleDCCSend_PassiveDCC_UsesSourceHost(t *testing.T) {
+	c := newTestClient(t)
+	// IP "0" → 0.0.0.0 → passive DCC → should use sourceHost
+	c.handleDCC("SEND test.mkv 0 19999 1024", "192.168.1.1")
+	select {
+	case <-c.downloadDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout")
+	}
+	c.mu.Lock()
+	addr := c.peerAddr
+	c.mu.Unlock()
+	if !strings.Contains(addr, "192.168.1.1") {
+		t.Errorf("peerAddr = %q, want to contain 192.168.1.1", addr)
+	}
+}
+
+// TestHandleDCCSend_PassiveDCC_FallbackToServer: IP 0.0.0.0, no sourceHost
+func TestHandleDCCSend_PassiveDCC_FallbackToServer(t *testing.T) {
+	c := newTestClient(t)
+	c.handleDCC("SEND test.mkv 0 19998 1024", "")
+	select {
+	case <-c.downloadDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout")
+	}
+	c.mu.Lock()
+	addr := c.peerAddr
+	c.mu.Unlock()
+	if !strings.Contains(addr, "irc.rizon.net") {
+		t.Errorf("peerAddr = %q, want to contain server address", addr)
+	}
+}
+
+// TestHandleDCCSend_QuotedFilename: filename with spaces in quotes
+func TestHandleDCCSend_QuotedFilename(t *testing.T) {
+	c := newTestClient(t)
+	c.currentPack().Filename = "" // clear so DCC SEND sets it
+	c.handleDCC(`SEND "my file.mkv" 0 19997 512`, "127.0.0.1")
+	select {
+	case <-c.downloadDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout")
+	}
+	if c.currentPack().Filename != "my file.mkv" {
+		t.Errorf("Filename = %q, want 'my file.mkv'", c.currentPack().Filename)
+	}
+}
+
+// TestHandleDCCSend_ZeroFilesize
+func TestHandleDCCSend_ZeroFilesize(t *testing.T) {
+	c := newTestClient(t)
+	c.handleDCC("SEND test.mkv 0 19996 0", "127.0.0.1")
+	select {
+	case <-c.downloadDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout")
+	}
+	if c.filesize != 0 {
+		t.Errorf("filesize = %d, want 0", c.filesize)
+	}
+}
+
+// TestHandleDCCSend_ResumePartialFile: existing file smaller than remote → sends RESUME
+func TestHandleDCCSend_ResumePartialFile(t *testing.T) {
+	c := newTestClient(t)
+	path := c.currentPack().GetFilepath()
+	if err := os.WriteFile(path, make([]byte, 100), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// c.irc is nil so CTCP RESUME will panic — skip
+	t.Skip("requires IRC client for CTCP RESUME")
+}
+
+// TestHandleDCCAccept_ValidParts: 4+ parts, peerAddr set → calls startDownloadAppend
+func TestHandleDCCAccept_ValidParts(t *testing.T) {
+	c := newTestClient(t)
+	c.mu.Lock()
+	c.peerAddr = "127.0.0.1:19995"
+	c.mu.Unlock()
+	c.handleDCC("ACCEPT test.mkv 19995 100 1024", "")
+	select {
+	case <-c.downloadDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for downloadDone after ACCEPT")
+	}
+	if c.downloadError == nil {
+		t.Error("expected error (no listener), got nil")
+	}
+}
+
+// TestStartDownload_AppendMode: startDownload with appendMode=true creates file in append mode
+func TestStartDownload_AppendMode(t *testing.T) {
+	c := newTestClient(t)
+	c.filesize = 200
+
+	path := c.currentPack().GetFilepath()
+	if err := os.WriteFile(path, []byte("existing"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		conn.Write([]byte("appended"))
+		conn.Close()
+		ln.Close()
+	}()
+
+	c.startDownload(ln.Addr().String(), true)
+	select {
+	case <-c.downloadDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout")
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(data), "existing") {
+		t.Errorf("file content = %q, want prefix 'existing'", string(data))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// utils.go edge cases
+// ---------------------------------------------------------------------------
+
+func TestFormatSpeed_Zero(t *testing.T) {
+	got := formatSpeed(0)
+	if got != "0.0 KB/s" {
+		t.Errorf("formatSpeed(0) = %q, want '0.0 KB/s'", got)
+	}
+}
+
+func TestFormatSpeed_SmallValue(t *testing.T) {
+	got := formatSpeed(100)
+	if got != "0.1 KB/s" {
+		t.Errorf("formatSpeed(100) = %q, want '0.1 KB/s'", got)
+	}
+}
+
+func TestIpNumToQuad_NonNumeric(t *testing.T) {
+	got := ipNumToQuad("abc")
+	if got != "0.0.0.0" {
+		t.Errorf("ipNumToQuad(abc) = %q, want '0.0.0.0'", got)
+	}
+}
+
+func TestRandomSuffix_Zero(t *testing.T) {
+	s := randomSuffix(0)
+	if s != "" {
+		t.Errorf("randomSuffix(0) = %q, want empty string", s)
 	}
 }

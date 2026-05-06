@@ -68,3 +68,37 @@ func TestSplitHostPort_IPv6Bracketed(t *testing.T) {
 		t.Errorf("got host=%q port=%q err=%v", host, port, err)
 	}
 }
+
+func TestNewIrcServer(t *testing.T) {
+	s := NewIrcServer("irc.example.com")
+	if s.Address != "irc.example.com" {
+		t.Errorf("Address = %q, want irc.example.com", s.Address)
+	}
+	if s.Port != 6667 {
+		t.Errorf("Port = %d, want 6667", s.Port)
+	}
+}
+
+func TestParseIrcServer_NegativePort(t *testing.T) {
+	s := ParseIrcServer("host:-1")
+	if s.Port != 6667 {
+		t.Errorf("Port = %d, want 6667 for negative port", s.Port)
+	}
+}
+
+func TestParseIrcServer_ZeroPort(t *testing.T) {
+	s := ParseIrcServer("host:0")
+	if s.Port != 6667 {
+		t.Errorf("Port = %d, want 6667 for zero port", s.Port)
+	}
+}
+
+func TestParseIrcServer_BareIPv6Long(t *testing.T) {
+	s := ParseIrcServer("2001:db8::8a2e:370:7334")
+	if s.Address != "2001:db8::8a2e:370:7334" {
+		t.Errorf("Address = %q, want bare IPv6", s.Address)
+	}
+	if s.Port != 6667 {
+		t.Errorf("Port = %d, want 6667", s.Port)
+	}
+}

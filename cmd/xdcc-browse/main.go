@@ -157,14 +157,14 @@ If -q and -v are used together, -q takes precedence and -v is ignored.`,
 	}
 
 	cmd.Flags().StringVarP(&engineName, "search-engine", "e", "xdcc-eu",
-		"Search engine to use: nibl, xdcc-eu, ixirc, subsplease")
+		"Search engine to use: nibl, xdcc-eu, subsplease")
 	cmd.Flags().StringVarP(&server, "server", "s", "",
 		"Override IRC server for all selected packs (host or host:port). Default: use server from search result")
 	cmd.Flags().StringVarP(&out, "out", "o", "",
 		"Output directory or file path (defaults to current directory with pack filename)")
 	cmd.Flags().StringVarP(&throttle, "throttle", "t", "-1",
 		"Download speed limit in bytes/s (e.g. 512K, 2M, 1G). -1 = unlimited")
-	cmd.Flags().IntVarP(&connectTimeout, "connect-timeout", "c", 120,
+	cmd.Flags().IntVarP(&connectTimeout, "connect-timeout", "C", 120,
 		"Seconds to wait for the bot to initiate the DCC transfer")
 	cmd.Flags().IntVarP(&stallTimeout, "stall-timeout", "S", 60,
 		"Seconds of no transfer progress before aborting. 0 = disabled")
@@ -174,7 +174,7 @@ If -q and -v are used together, -q takes precedence and -v is ignored.`,
 		"Extra seconds to wait before sending the XDCC request")
 	cmd.Flags().StringVarP(&username, "username", "u", "",
 		"IRC nickname to use (a random suffix is always appended; default: random)")
-	cmd.Flags().IntVarP(&channelJoinDelay, "channel-join-delay", "d", -1,
+	cmd.Flags().IntVarP(&channelJoinDelay, "channel-join-delay", "D", -1,
 		"Seconds to wait after connecting before sending WHOIS (-1 = random 5-10s)")
 	cmd.Flags().CountVarP(&verbosity, "verbose", "v", "Increase verbosity: -v shows bot notices, -vv shows full debug info")
 	cmd.Flags().CountVarP(&quietLevel, "quiet", "q", "Reduce output: -q hides connection info (keeps errors/notices/progress), -qq suppresses all output")
@@ -182,9 +182,9 @@ If -q and -v are used together, -q takes precedence and -v is ignored.`,
 		"Filter results by file extension(s), comma-separated (e.g. mkv,avi,mp4)")
 	cmd.Flags().StringVarP(&botFilter, "bot", "b", "",
 		"Filter results by bot name substring, case-insensitive (e.g. WOND)")
-	cmd.Flags().StringVar(&dnsServer, "dns-server", "",
+	cmd.Flags().StringVarP(&dnsServer, "dns-server", "d", "",
 		"Fallback DNS resolver used when system DNS is blocked (host:port, default: 8.8.8.8:53)")
-	cmd.Flags().BoolVar(&compact, "compact", false,
+	cmd.Flags().BoolVarP(&compact, "compact", "c", false,
 		"Remove duplicate results with same filename, size and bot family")
 
 	if err := cmd.Execute(); err != nil {

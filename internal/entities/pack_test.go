@@ -2,6 +2,7 @@ package entities
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -151,5 +152,62 @@ func TestHumanReadableBytes(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("HumanReadableBytes(%d) = %q, want %q", tt.in, got, tt.want)
 		}
+	}
+}
+
+func TestString_ContainsAllParts(t *testing.T) {
+	p := NewXDCCPack(NewIrcServer("irc.rizon.net"), "TestBot", 42)
+	p.SetFilename("episode.mkv", true)
+	p.SetSize(1024 * 1024)
+	got := p.String()
+	if !strings.Contains(got, "episode.mkv") {
+		t.Errorf("String() = %q, want to contain filename", got)
+	}
+	if !strings.Contains(got, "TestBot") {
+		t.Errorf("String() = %q, want to contain bot name", got)
+	}
+	if !strings.Contains(got, "#42") {
+		t.Errorf("String() = %q, want to contain pack number", got)
+	}
+	if !strings.Contains(got, "MB") || !strings.Contains(got, "1.0") {
+		t.Errorf("String() = %q, want to contain human-readable size", got)
+	}
+}
+
+func TestHumanReadableBytes_TB(t *testing.T) {
+	tb := int64(1024) * 1024 * 1024 * 1024
+	got := HumanReadableBytes(tb)
+	if got != "1.0 TB" {
+		t.Errorf("HumanReadableBytes(1TB) = %q, want '1.0 TB'", got)
+	}
+}
+
+func TestHumanReadableBytes_Negative(t *testing.T) {
+	got := HumanReadableBytes(-1)
+	// Negative values: the function uses int64, -1 < unit(1024) → falls into first branch
+	if got != "-1 B" {
+		t.Errorf("HumanReadableBytes(-1) = %q, want '-1 B'", got)
+	}
+}
+
+func TestGetRequestMessage_LargePackNumber(t *testing.T) {
+	p := NewXDCCPack(NewIrcServer("irc.rizon.net"), "Bot", 999999)
+	full := p.GetRequestMessage(true)
+	if full != "/msg Bot xdcc send #999999" {
+		t.Errorf("GetRequestMessage = %q", full)
+	}
+}
+
+func TestSetOriginalFilename_Direct(t *testing.T) {
+	p := NewXDCCPack(NewIrcServer("irc.rizon.net"), "Bot", 1)
+	p.SetOriginalFilename("expected.mkv")
+	if p.OriginalFilename != "expected.mkv" {
+		t.Errorf("OriginalFilename = %q, want expected.mkv", p.OriginalFilename)
+	}
+	if !p.IsFilenameValid("expected.mkv") {
+		t.Error("IsFilenameValid should return true for matching filename")
+	}
+	if p.IsFilenameValid("other.mkv") {
+		t.Error("IsFilenameValid should return false for non-matching filename")
 	}
 }

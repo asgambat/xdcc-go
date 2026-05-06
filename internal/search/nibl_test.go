@@ -80,3 +80,51 @@ func TestNiblSearch_NetworkError(t *testing.T) {
 		t.Error("expected error for unreachable server, got nil")
 	}
 }
+
+func TestNiblSearch_EmptyTerm(t *testing.T) {
+	// Nibl doesn't check for empty term, but the URL should still work
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintln(w, `<html><body><table></table></body></html>`)
+	}))
+	defer srv.Close()
+
+	e := &NiblEngine{baseURL: srv.URL}
+	packs, err := e.Search("")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(packs) != 0 {
+		t.Errorf("expected 0 packs, got %d", len(packs))
+	}
+}
+
+func TestNiblSearch_EmptyTable(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintln(w, `<html><body><table>
+			<tr><th>Bot</th><th>Pack</th><th>Size</th><th>File</th></tr>
+		</table></body></html>`)
+	}))
+	defer srv.Close()
+
+	e := &NiblEngine{baseURL: srv.URL}
+	packs, err := e.Search("test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(packs) != 0 {
+		t.Errorf("expected 0 packs for empty table, got %d", len(packs))
+	}
+}
+
+func TestNiblSearch_HTTP400(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+	}))
+	defer srv.Close()
+
+	e := &NiblEngine{baseURL: srv.URL}
+	_, err := e.Search("test")
+	if err == nil {
+		t.Error("expected error for HTTP 400")
+	}
+}

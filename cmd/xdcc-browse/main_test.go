@@ -212,3 +212,88 @@ func makePacks(n int) []*entities.XDCCPack {
 	}
 	return packs
 }
+
+func TestParseSelection_EmptyInput(t *testing.T) {
+	packs := []*entities.XDCCPack{
+		entities.NewXDCCPack(entities.NewIrcServer("irc.rizon.net"), "Bot", 1),
+	}
+	_, err := parseSelection("", packs)
+	if err == nil {
+		t.Error("expected error for empty input")
+	}
+}
+
+func TestParseSelection_WhitespaceOnly(t *testing.T) {
+	packs := []*entities.XDCCPack{
+		entities.NewXDCCPack(entities.NewIrcServer("irc.rizon.net"), "Bot", 1),
+	}
+	_, err := parseSelection("   ", packs)
+	if err == nil {
+		t.Error("expected error for whitespace-only input")
+	}
+}
+
+func TestParseSelection_SameStartEnd(t *testing.T) {
+	packs := make([]*entities.XDCCPack, 10)
+	for i := range packs {
+		packs[i] = entities.NewXDCCPack(entities.NewIrcServer("irc.rizon.net"), "Bot", i+1)
+	}
+	selected, err := parseSelection("5-5", packs)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(selected) != 1 {
+		t.Errorf("expected 1 pack for range 5-5, got %d", len(selected))
+	}
+}
+
+func TestParseSelection_CountExceedsResults(t *testing.T) {
+	packs := make([]*entities.XDCCPack, 5)
+	for i := range packs {
+		packs[i] = entities.NewXDCCPack(entities.NewIrcServer("irc.rizon.net"), "Bot", i+1)
+	}
+	_, err := parseSelection("1+100", packs)
+	if err == nil {
+		t.Error("expected error when count exceeds available packs")
+	}
+}
+
+func TestFilterByExtension_NoExtension(t *testing.T) {
+	p := entities.NewXDCCPack(entities.NewIrcServer("irc.rizon.net"), "Bot", 1)
+	p.SetFilename("README", true)
+	result := filterByExtension([]*entities.XDCCPack{p}, "mkv")
+	if len(result) != 0 {
+		t.Error("file without extension should not match")
+	}
+}
+
+func TestFilterByExtension_DoubleExtension(t *testing.T) {
+	p := entities.NewXDCCPack(entities.NewIrcServer("irc.rizon.net"), "Bot", 1)
+	p.SetFilename("archive.tar.gz", true)
+	result := filterByExtension([]*entities.XDCCPack{p}, "gz")
+	if len(result) != 1 {
+		t.Error("should match .gz extension")
+	}
+	result2 := filterByExtension([]*entities.XDCCPack{p}, "tar.gz")
+	if len(result2) != 0 {
+		// filepath.Ext returns ".gz", not ".tar.gz"
+		t.Error("tar.gz should not match (only last ext is checked)")
+	}
+}
+
+func TestFilterByExtension_EmptyExtList(t *testing.T) {
+	p := entities.NewXDCCPack(entities.NewIrcServer("irc.rizon.net"), "Bot", 1)
+	p.SetFilename("file.mkv", true)
+	result := filterByExtension([]*entities.XDCCPack{p}, "")
+	if len(result) != 0 {
+		t.Error("empty extList should match nothing")
+	}
+}
+
+func TestFilterByBot_EmptySubstring(t *testing.T) {
+	p := entities.NewXDCCPack(entities.NewIrcServer("irc.rizon.net"), "AnyBot", 1)
+	result := filterByBot([]*entities.XDCCPack{p}, "")
+	if len(result) != 1 {
+		t.Error("empty substring should match all bots")
+	}
+}

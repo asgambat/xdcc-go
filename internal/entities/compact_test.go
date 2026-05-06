@@ -90,3 +90,72 @@ func TestCompactPacks_Empty(t *testing.T) {
 		t.Fatalf("expected 0 results, got %d", len(result))
 	}
 }
+
+func TestCompactPacks_ZeroSize(t *testing.T) {
+	srv := IrcServer{Address: "irc.rizon.net"}
+	p1 := NewXDCCPack(srv, "Bot1234567890", 1)
+	p1.Filename = "file.mkv"
+	p1.Size = 0
+	p2 := NewXDCCPack(srv, "Bot1234567XXX", 2)
+	p2.Filename = "file.mkv"
+	p2.Size = 0
+	result := CompactPacks([]*XDCCPack{p1, p2})
+	if len(result) != 1 {
+		t.Errorf("expected 1 (compacted), got %d", len(result))
+	}
+}
+
+func TestCompactPacks_EmptyFilename(t *testing.T) {
+	srv := IrcServer{Address: "irc.rizon.net"}
+	p1 := NewXDCCPack(srv, "BotA", 1)
+	p1.Filename = ""
+	p1.Size = 100
+	p2 := NewXDCCPack(srv, "BotB", 2)
+	p2.Filename = ""
+	p2.Size = 200
+	result := CompactPacks([]*XDCCPack{p1, p2})
+	// Different sizes → both kept
+	if len(result) != 2 {
+		t.Errorf("expected 2, got %d", len(result))
+	}
+}
+
+func TestCompactPacks_AllIdentical(t *testing.T) {
+	srv := IrcServer{Address: "irc.rizon.net"}
+	var packs []*XDCCPack
+	for i := 0; i < 5; i++ {
+		p := NewXDCCPack(srv, "Bot1234567890", i+1)
+		p.Filename = "same.mkv"
+		p.Size = 1000
+		packs = append(packs, p)
+	}
+	result := CompactPacks(packs)
+	if len(result) != 1 {
+		t.Errorf("expected 1 (all identical), got %d", len(result))
+	}
+	if result[0].PackNumber != 1 {
+		t.Errorf("expected first pack (1), got %d", result[0].PackNumber)
+	}
+}
+
+func TestBotFamily_ExactBoundaries(t *testing.T) {
+	tests := []struct {
+		name string
+		want string
+	}{
+		// Exactly 3 chars → full name
+		{"ABC", "ABC"},
+		// Exactly 4 chars → first 1
+		{"ABCD", "A"},
+		// Exactly 12 chars → first 9
+		{"123456789012", "123456789"},
+		// Exactly 13 chars → first 10
+		{"1234567890123", "1234567890"},
+	}
+	for _, tt := range tests {
+		got := BotFamily(tt.name)
+		if got != tt.want {
+			t.Errorf("BotFamily(%q) = %q, want %q", tt.name, got, tt.want)
+		}
+	}
+}

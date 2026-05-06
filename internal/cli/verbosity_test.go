@@ -26,3 +26,18 @@ func TestVerbosityLevel(t *testing.T) {
 		}
 	}
 }
+
+func TestVerbosityLevel_NegativeVerbose(t *testing.T) {
+	// Negative verbose with no quiet → passed through
+	got := VerbosityLevel(-5, 0)
+	if got != -5 {
+		t.Errorf("VerbosityLevel(-5, 0) = %d, want -5", got)
+	}
+}
+
+func TestVerbosityLevel_LargeVerbose(t *testing.T) {
+	got := VerbosityLevel(100, 0)
+	if got != 100 {
+		t.Errorf("VerbosityLevel(100, 0) = %d, want 100", got)
+	}
+}
