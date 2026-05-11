@@ -297,3 +297,54 @@ func TestFilterByBot_EmptySubstring(t *testing.T) {
 		t.Error("empty substring should match all bots")
 	}
 }
+
+// --- filterByPrefix ---
+
+func TestFilterByPrefix_MatchesPrefix(t *testing.T) {
+	packs := []*entities.XDCCPack{
+		mkPackWithName("My Show - S01E01.mkv", 1),
+		mkPackWithName("My Show - S01E02.mkv", 2),
+		mkPackWithName("Other Show - S01E01.mkv", 3),
+	}
+	result := filterByPrefix(packs, "my show")
+	if len(result) != 2 {
+		t.Fatalf("got %d packs, want 2", len(result))
+	}
+}
+
+func TestFilterByPrefix_CaseInsensitive(t *testing.T) {
+	packs := []*entities.XDCCPack{
+		mkPackWithName("My Show - S01E01.mkv", 1),
+	}
+	result := filterByPrefix(packs, "MY SHOW")
+	if len(result) != 1 {
+		t.Fatalf("got %d packs, want 1", len(result))
+	}
+}
+
+func TestFilterByPrefix_NoMatch(t *testing.T) {
+	packs := []*entities.XDCCPack{
+		mkPackWithName("Other Show - S01E01.mkv", 1),
+	}
+	result := filterByPrefix(packs, "My Show")
+	if len(result) != 0 {
+		t.Errorf("expected 0 results, got %d", len(result))
+	}
+}
+
+func TestFilterByPrefix_EmptyList(t *testing.T) {
+	result := filterByPrefix(nil, "test")
+	if len(result) != 0 {
+		t.Errorf("expected 0 results for nil input, got %d", len(result))
+	}
+}
+
+func TestFilterByPrefix_SubstringNotPrefix(t *testing.T) {
+	packs := []*entities.XDCCPack{
+		mkPackWithName("[SubGroup] My Show - S01E01.mkv", 1),
+	}
+	result := filterByPrefix(packs, "My Show")
+	if len(result) != 0 {
+		t.Errorf("substring match should not pass prefix filter, got %d", len(result))
+	}
+}

@@ -137,6 +137,7 @@ Available engines: `xdcc-eu`, `nibl`, `subsplease`
 |---|---|---|---|
 | `--search-engine` | `-e` | `xdcc-eu` | Search engine to use |
 | `--compact` | `-c` | `false` | Remove duplicate results with same filename, size and bot family |
+| `--prefix` | `-p` | `false` | Keep only results whose filename starts with the search term (case-insensitive) |
 | `--verbose` | `-v` | | Show search engine debug info |
 
 ### Output format
@@ -153,6 +154,9 @@ xdcc-search "my show"
 
 # Specify engine as positional argument
 xdcc-search "my show" nibl
+
+# Only results whose filename starts with the search term
+xdcc-search "my show" --prefix
 
 # Verbose(shows HTTP requests and parsing details)
 xdcc-search "my show" -v
@@ -178,6 +182,7 @@ xdcc-browse <search_term> [flags]
 | `--search-engine` | `-e` | `xdcc-eu` | Search engine to use: `nibl`, `xdcc-eu`, `subsplease` |
 | `--ext` | `-x` | *(none)* | Filter results by file extension(s), comma-separated (e.g. `mkv,avi,mp4`) |
 | `--bot` | `-b` | *(none)* | Filter results by bot name substring, case-insensitive (e.g. `WOND`) |
+| `--prefix` | `-p` | `false` | Keep only results whose filename starts with the search term (case-insensitive) |
 | `--server` | `-s` | *(from search)* | Override IRC server for all selected packs (`host` or `host:port`) |
 | `--out` | `-o` | `.` | Output directory or file path |
 | `--throttle` | `-t` | `-1` | Speed limit in bytes/s (e.g. `512K`, `2M`, `1G`). `-1` = unlimited |
@@ -214,6 +219,9 @@ xdcc-browse "my show"
 
 # Filter to MKV files only from bots containing "WOND"
 xdcc-browse "my show" --ext=mkv --bot=WOND
+
+# Only results whose filename starts with the search term
+xdcc-browse "my show" --prefix
 
 # Use a different engine and save to a specific directory
 xdcc-browse "my show" --search-engine=nibl -o /downloads

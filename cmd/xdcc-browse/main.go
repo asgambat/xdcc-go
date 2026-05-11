@@ -36,6 +36,7 @@ func main() {
 		botFilter        string
 		dnsServer        string
 		compact          bool
+		prefixFilter     bool
 	)
 
 	cmd := &cobra.Command{
@@ -45,8 +46,9 @@ func main() {
 displays a numbered list, and then downloads the selected pack(s).
 
 Filters (applied before the selection menu):
-  --ext   keep only files with the given extension(s)  (e.g. --ext=mkv,avi)
-  --bot   keep only packs from bots whose name contains the given substring
+  --ext      keep only files with the given extension(s)  (e.g. --ext=mkv,avi)
+  --bot      keep only packs from bots whose name contains the given substring
+  --prefix   keep only files whose name starts with the search term (case-insensitive)
 
 Selection syntax (after the list is shown):
   3        single pack
@@ -86,6 +88,11 @@ If -q and -v are used together, -q takes precedence and -v is ignored.`,
 			// Filter by bot name if requested
 			if botFilter != "" {
 				results = filterByBot(results, botFilter)
+			}
+
+			// Filter by filename prefix if requested
+			if prefixFilter {
+				results = filterByPrefix(results, term)
 			}
 
 			// Compact results if requested
@@ -186,10 +193,24 @@ If -q and -v are used together, -q takes precedence and -v is ignored.`,
 		"Fallback DNS resolver used when system DNS is blocked (host:port, default: 8.8.8.8:53)")
 	cmd.Flags().BoolVarP(&compact, "compact", "c", false,
 		"Remove duplicate results with same filename, size and bot family")
+	cmd.Flags().BoolVarP(&prefixFilter, "prefix", "p", false,
+		"Keep only results whose filename starts with the search term (case-insensitive)")
 
 	if err := cmd.Execute(); err != nil {
 		os.Exit(1)
 	}
+}
+
+// filterByPrefix returns only packs whose filename starts with the given term (case-insensitive).
+func filterByPrefix(packs []*entities.XDCCPack, term string) []*entities.XDCCPack {
+	prefix := strings.ToLower(term)
+	var out []*entities.XDCCPack
+	for _, p := range packs {
+		if strings.HasPrefix(strings.ToLower(p.Filename), prefix) {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // filterByBot returns only packs whose bot name contains the given substring (case-insensitive).

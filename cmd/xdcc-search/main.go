@@ -12,9 +12,10 @@ import (
 
 func main() {
 	var (
-		engineName string
-		verbosity  int
-		compact    bool
+		engineName   string
+		verbosity    int
+		compact      bool
+		prefixFilter bool
 	)
 
 	cmd := &cobra.Command{
@@ -28,6 +29,10 @@ Available engines: ` + strings.Join(search.AvailableEngines(), ", ") + `
 
 Output format per result:
   <filename> [<size>] (xdcc-dl "<message>" [--server <host>])
+
+Filters:
+  --compact  remove duplicate results with same filename, size and bot family
+  --prefix   keep only files whose name starts with the search term (case-insensitive)
 
 Verbosity levels:
   (default)  results only
@@ -48,6 +53,11 @@ Verbosity levels:
 			results, err := engine.Search(term)
 			if err != nil {
 				return fmt.Errorf("search failed: %w", err)
+			}
+
+			// Filter by filename prefix if requested
+			if prefixFilter {
+				results = filterByPrefix(results, term)
 			}
 
 			if compact {
@@ -91,8 +101,22 @@ Verbosity levels:
 	cmd.Flags().CountVarP(&verbosity, "verbose", "v", "Increase verbosity: -v shows search engine debug info")
 	cmd.Flags().BoolVarP(&compact, "compact", "c", false,
 		"Remove duplicate results with same filename, size and bot family")
+	cmd.Flags().BoolVarP(&prefixFilter, "prefix", "p", false,
+		"Keep only results whose filename starts with the search term (case-insensitive)")
 
 	if err := cmd.Execute(); err != nil {
 		os.Exit(1)
 	}
+}
+
+// filterByPrefix returns only packs whose filename starts with the given term (case-insensitive).
+func filterByPrefix(packs []*entities.XDCCPack, term string) []*entities.XDCCPack {
+	prefix := strings.ToLower(term)
+	var out []*entities.XDCCPack
+	for _, p := range packs {
+		if strings.HasPrefix(strings.ToLower(p.Filename), prefix) {
+			out = append(out, p)
+		}
+	}
+	return out
 }
