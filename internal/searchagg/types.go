@@ -29,23 +29,23 @@ type SearchOptions struct {
 
 // SearchResult is the aggregated response from a search request.
 type SearchResult struct {
-	Packs      []*entities.XDCCPack `json:\"packs\"`
-	Total      int                  `json:\"total\"`
-	Page       int                  `json:\"page\"`
-	PageSize   int                  `json:\"page_size\"`
-	TotalPages int                  `json:\"total_pages\"`
+	Packs      []*entities.XDCCPack `json:"packs"`
+	Total      int                  `json:"total"`
+	Page       int                  `json:"page"`
+	PageSize   int                  `json:"page_size"`
+	TotalPages int                  `json:"total_pages"`
 
 	// Provenance indicates the data source: "live", "cache_fresh", "cache_stale"
-	Provenance string `json:\"provenance\"`
+	Provenance string `json:"provenance"`
 
 	// Providers carries per-provider status information.
-	Providers []ProviderStatus `json:\"providers\"`
+	Providers []ProviderStatus `json:"providers"`
 
 	// CacheAge holds the age of the cached data when served from cache.
-	CacheAge *time.Duration `json:\"cache_age,omitempty\"`
+	CacheAge *time.Duration `json:"cache_age,omitempty"`
 
 	// Warnings carries non-fatal messages (e.g. partial results).
-	Warnings []string `json:\"warnings,omitempty\"`
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // ---------------------------------------------------------------------------
@@ -54,11 +54,11 @@ type SearchResult struct {
 
 // ProviderStatus summarises the result of querying a single provider.
 type ProviderStatus struct {
-	Name       string `json:\"name\"`
-	Status     string `json:\"status\"`     // ok | timeout | failed | skipped_cache_hit
-	LatencyMs  int64  `json:\"latency_ms,omitempty"`
-	ResultCount int   `json:\"result_count,omitempty"`
-	Error      string `json:\"error,omitempty"`
+	Name        string `json:"name"`
+	Status      string `json:"status"` // ok | timeout | failed | skipped_cache_hit
+	LatencyMs   int64  `json:"latency_ms,omitempty"`
+	ResultCount int    `json:"result_count,omitempty"`
+	Error       string `json:"error,omitempty"`
 }
 
 // Provider status constants.
