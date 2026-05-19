@@ -10,9 +10,10 @@ Aggiunta di una modalità client-server all'attuale tool CLI. Il server gestisce
 
 ```
 ┌──────────────────────────────┐       ┌──────────────────────────────────┐
-│         WEB CLIENT           │       │            SERVER                 │
+│         WEB CLIENT           │       │            SERVER                │
 │  (SPA PWA - responsive)      │◄─────►│  REST API + SSE stream           │
-│  HTML/CSS/JS (embedded)      │       │                                  │
+│  HTML/CSS/JS/Svelte          |       |                                  |
+|      (embedded)              │       |                                  │
 └──────────────────────────────┘       │  ┌────────────────────────────┐  │
                                        │  │   IRC Connection Manager   │  │
                                        │  │  - Persistent connections  │  │
@@ -40,7 +41,7 @@ Aggiunta di una modalità client-server all'attuale tool CLI. Il server gestisce
 ### Fase 1 — Configurazione e Struttura Progetto
 
 - [ ] **1.1** Creare il file di configurazione `config.yaml` con struttura per: server IRC di default (con canali), directory di download (temp e destinazione), porta HTTP del server, timeout ricerca provider, page size di default, credenziali IRC (nickname base), livello log, path file log, policy conflitti file (`skip` di default), modalita' fallback download fallito (`suggest_only` default), limiti banda (`downloads.max_rate_bps`) e fasce orarie, provider ricerca abilitati/disabilitati, stato setup guidato (`ui.setup_completed`).
-- [ ] **1.2** Creare il package `internal/config` che carica e valida la configurazione da file YAML + variabili d'ambiente + flag CLI. le variabili di ambiente vincono su tutto, poi i flag cli ed infine viene il file YAML.
+- [ ] **1.2** Creare il package `internal/config` che carica e valida la configurazione da file YAML + variabili d'ambiente + flag CLI. l'ordine di priorità deve essere flag cli poi variabili di ambiente ed infine viene il file YAML.
 - [ ] **1.3** Creare la struttura del comando `cmd/xdcc-server/main.go` con cobra, che avvia il server HTTP e il gestore connessioni IRC. Deve accettare flag `--config`, `--port`, `--download-dir`, `--temp-dir`.
 - [ ] **1.4** Aggiornare `go.mod` con le nuove dipendenze: un router HTTP: `chi` , `go-yaml`, `modernc.org/sqlite` (CGO-free). Nota: SSE non richiede librerie aggiuntive, si implementa con la stdlib.
 
@@ -53,7 +54,6 @@ Aggiunta di una modalità client-server all'attuale tool CLI. Il server gestisce
   - Tabella `downloads`: id, pack_message, bot, server_address, channel, filename, filesize, status (queued/downloading/completed/failed/paused), progress_bytes, speed_bps, created_at, started_at, completed_at, error_message, priority/position.
   - Tabella `search_cache`: query_key, provider, payload_json, fetched_at, expires_at, stale_expires_at.
   - Tabella `schema_version`: version, applied_at.
-  - Tabella `config_kv`: key, value (per configurazione runtime).
   - Tabella `search_presets`: id, name, query, filters_json, is_default, created_at, updated_at.
   - Tabella `watchlists`: id, name, query, filters_json, enabled, auto_enqueue, last_checked_at, last_match_fingerprint, last_notified_at.
   - Tabella `provider_stats`: provider, window_start, window_end, requests, successes, timeouts, failures, avg_latency_ms, updated_at.
@@ -91,13 +91,13 @@ Aggiunta di una modalità client-server all'attuale tool CLI. Il server gestisce
 
 - [ ] **4.1** Creare il package `internal/queue` che gestisce la coda di download. Regola: max 1 download attivo per canale IRC, download paralleli tra canali diversi.
 - [ ] **4.2** Implementare `Enqueue(pack)`: aggiunge alla coda. Se nessun download è attivo per quel canale, avvia subito; altrimenti mette in coda.
-- [ ] **4.3** Implementare `onDownloadComplete(channel)`: quando un download finisce (successo o fallimento), prende il prossimo dalla coda dello stesso canale e lo avvia.
-- [ ] **4.4** Integrare con il client IRC esistente (`internal/irc`) per eseguire il download effettivo. Riusare la logica di `DownloadAll` adattandola per operare su singoli pack con reporting del progresso via callback.
-- [ ] **4.5** Implementare il reporting del progresso in tempo reale: bytes scaricati, velocità, ETA per aggiornare il client via SSE.
-- [ ] **4.6** Implementare la persistenza della coda: ogni cambio di stato (enqueue, start, progress, complete, fail) viene scritto nel DB SQLite.
-- [ ] **4.7** Implementare il recovery all'avvio: leggere dal DB i download incompleti e rimetterli in coda.
-- [ ] **4.8** Supportare le directory configurabili: temp dir per file in corso di download, destination dir per file completati. Spostare il file da temp a destination al completamento.
-- [ ] **4.9** Aggiungere un limite globale ai download paralleli: oltre al vincolo `1 download per canale`, introdurre `downloads.max_parallel_total` configurabile (default: 5). I job eccedenti restano in coda anche se il loro canale e' libero.
+- [ ] **4.3** Prevedere un limite globale ai download paralleli: oltre al vincolo `1 download per canale`, introdurre `downloads.max_parallel_total` configurabile (default: 5). I job eccedenti restano in coda anche se il loro canale e' libero.
+- [ ] **4.4** Implementare `onDownloadComplete(channel)`: quando un download finisce (successo o fallimento), prende il prossimo dalla coda dello stesso canale e lo avvia rispettando il limite globale del numero massimo di download paralleli. Prevedere un job che monitora i download attivi e avvia nuovi job dalla coda quando si liberano slot disponibili, schedulato ogni 10 secondi (configurabile), la priorità all'avvio del download è data dall'ordine di enqueue (FIFO) ma con rispetto del vincolo 1 per canale e del limite globale.
+- [ ] **4.5** Integrare con il client IRC esistente (`internal/irc`) per eseguire il download effettivo. Riusare la logica di `DownloadAll` adattandola per operare su singoli pack con reporting del progresso via callback.
+- [ ] **4.6** Implementare il reporting del progresso in tempo reale: bytes scaricati, velocità, ETA per aggiornare il client via SSE.
+- [ ] **4.7** Implementare la persistenza della coda: ogni cambio di stato (enqueue, start, progress, complete, fail) viene scritto nel DB SQLite.
+- [ ] **4.8** Implementare il recovery all'avvio: leggere dal DB i download incompleti e rimetterli in coda.
+- [ ] **4.9** Supportare le directory configurabili: temp dir per file in corso di download, destination dir per file completati. Spostare il file da temp a destination al completamento.
 - [ ] **4.10** Definire la policy sui conflitti file finali: se il file di destinazione esiste gia', comportamento di default `skip` con stato esplicito (`skipped_existing`). La policy deve essere coerente tra UI, API e CLI delegata.
 - [ ] **4.11** Implementare fallback intelligente su download fallito:
   - Quando un download fallisce, cercare alternative compatibili (filename/size simile) su provider/bot diversi.
@@ -161,12 +161,13 @@ Aggiunta di una modalità client-server all'attuale tool CLI. Il server gestisce
   - `POST /api/downloads` — avvia/accoda un download (body: pack info).
   - `GET /api/downloads` — lista download attivi + in coda.
   - `GET /api/downloads/history?page=...&pageSize=...` — cronologia download completati/falliti (paginata).
+  - `GET /api/downloads/:id` — ottieni stato e progresso di un singolo download.
   - `DELETE /api/downloads/:id` — cancella/rimuovi download dalla coda.
   - `POST /api/downloads/:id/pause` — mette in pausa un download o una entry in coda.
   - `POST /api/downloads/:id/resume` — riprende un download pausato.
   - `POST /api/downloads/:id/retry` — rimette in coda un download fallito.
   - `GET /api/config` — configurazione corrente.
-  - `PUT /api/config` — aggiorna configurazione runtime.
+  - `PUT /api/config` — aggiorna la configurazione runtime (scrive su `config.yaml` con backup).
   - `GET /api/stats` — statistiche: totale scaricato, conteggi, velocità media, uptime, spazio disco.
   - `GET /api/status` — stato operativo sintetico: connessioni IRC, coda, spazio disco, eventuali warning attivi.
   - `POST /api/admin/export` — esporta configurazione e stato.
@@ -180,7 +181,7 @@ Aggiunta di una modalità client-server all'attuale tool CLI. Il server gestisce
   - `PATCH /api/search/providers/:name` — enable/disable provider a runtime.
   - `POST /api/xdcc/parse` — parse di stringhe XDCC raw (`/msg Bot XDCC SEND #123`) in payload download.
   - `GET /api/setup/status` / `POST /api/setup/bootstrap` — stato setup guidato e bootstrap iniziale.
-- [ ] **6.2** Implementare middleware: CORS, logging, error handling standardizzato (JSON errors), request ID e logging strutturato.
+- [ ] **6.2** Implementare middleware: CORS, logging, error handling standardizzato (JSON errors), request ID e logging strutturato. Definire una struttura di errore standard (es. `{"error": {"code": "...", "message": "...", "request_id": "..."}}`) per garantire una gestione coerente lato client.
 - [ ] **6.3** Servire i file statici della web app dalla stessa porta HTTP (embedded nel binario con `embed`).
 
 ### Fase 7 — SSE (Server-Sent Events) per Aggiornamenti Real-Time
@@ -197,13 +198,13 @@ Aggiunta di una modalità client-server all'attuale tool CLI. Il server gestisce
 - [ ] **7.3** Implementare hub di broadcast: gestione connessioni SSE multiple (ogni client ha una goroutine dedicata), fan-out degli eventi a tutti i client connessi. Gestione graceful close quando il client si disconnette.
 - [ ] **7.4** Per `download_progress`, inviare aggiornamenti a intervalli regolari (es. ogni 500ms) con: bytes scaricati, filesize, velocità, ETA.
 - [ ] **7.5** Rendere SSE piu' robusti in caso di reconnessione:
-  - Attribuire un `event id` progressivo agli eventi.
-  - Supportare `Last-Event-ID` o strategia equivalente per riprendere lo stream dopo una disconnessione breve.
-  - Definire una strategia chiara snapshot+stream per riallineare il client se ha perso eventi.
+  - Attribuire un `event id` progressivo agli eventi e mantenere un buffer degli ultimi N eventi (es. 100) in memoria sul server.
+  - Supportare l'header `Last-Event-ID`: se un client si riconnette e il suo ID è nel buffer, il server invia solo gli eventi mancanti.
+  - Se l'ID è troppo vecchio (non più nel buffer), il server invia un evento speciale `resync_required` che istruisce il client a ricaricare lo stato completo via API prima di riprendere lo stream.
 
 ### Fase 8 — Web App (Frontend PWA)
 
-- [ ] **8.1** Creare la struttura del frontend in `web/` (HTML, CSS, JS vanilla o framework leggero). Il frontend verrà incorporato nel binario Go con `go:embed`.
+- [ ] **8.1** Creare la struttura del frontend in `web/` utilizzando **Svelte/SvelteKit**. Questo garantirà una UI reattiva, manutenibile e performante. Il frontend verrà compilato e i suoi asset statici verranno incorporati nel binario Go con `go:embed`.
 - [ ] **8.2** Implementare la pagina principale: lista dei server connessi con indicatore di stato (verde/rosso/giallo per connesso/disconnesso/reconnecting).
 - [ ] **8.3** Implementare la vista server: cliccando un server si mostra la lista canali joinati, con possibilità di joinare nuovi canali o lasciare quelli esistenti.
 - [ ] **8.4** Implementare la vista canale: cliccando un canale si mostra il topic del canale.
@@ -299,6 +300,7 @@ Aggiunta di una modalità client-server all'attuale tool CLI. Il server gestisce
   - Fallback intelligente (mode `suggest_only` default e `auto_retry_best`).
   - Provider insights e toggle runtime.
   - Parse quick-add da stringa XDCC.
+- [ ] **10.10** Scrivere test End-to-End (E2E) per i flussi utente critici. Utilizzando un framework come **Playwright** o **Cypress**, simulare azioni nella Web UI (es. ricerca, avvio download, verifica progresso) per validare l'integrazione completa tra frontend e backend.
 
 ### Fase 11 — Delegazione CLI → Server (`--command-server`)
 
@@ -307,7 +309,7 @@ Aggiunta di una modalità client-server all'attuale tool CLI. Il server gestisce
   - Verifica la compatibilita' col server tramite `GET /api/version` prima di usare `--command-server`.
   - Invia `POST /api/downloads` con le informazioni del pack (bot, pack number, server, filename, directory di output).
   - Per `xdcc-browse`: prima fa la ricerca via `GET /api/search`, mostra i risultati con la stessa UI interattiva, poi invia i pack selezionati al server.
-- [ ] **11.3** Implementare il feedback da terminale quando si delega al server: connettersi all'endpoint SSE `/api/events` (filtrato per il download ID ricevuto) e stampare barra di avanzamento, velocità ed ETA nel terminale — stessa UX del download standalone.
+- [ ] **11.3** Implementare il feedback da terminale quando si delega al server (Approccio V1): dopo aver ricevuto il download ID, la CLI esegue polling sull'endpoint `GET /api/downloads/:id` a intervalli regolari (es. 1s) per recuperare e stampare barra di avanzamento, velocità ed ETA — stessa UX del download standalone. L'uso di SSE può essere un miglioramento futuro.
 - [ ] **11.4** Gestire il caso di server non raggiungibile: se `--command-server` è specificato ma il server non risponde, restituire un errore chiaro (non fallback silenzioso a standalone, perché l'utente ha scelto esplicitamente di delegare).
 - [ ] **11.5** Per `xdcc-browse` con `--command-server`: **ricerca e download passano sempre dal server**. Nessun fallback locale silenzioso. Se il server non e' raggiungibile o restituisce errore, il comando termina con errore esplicito.
 
