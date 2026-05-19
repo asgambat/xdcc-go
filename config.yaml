@@ -1,0 +1,69 @@
+# xdcc-server configuration file
+# Priority: CLI flags > environment variables > this file
+
+irc:
+  # Base nickname (a random suffix is always appended)
+  nickname: "xdcc-user"
+  # Default IRC servers to connect to on startup
+  default_servers:
+    - address: "irc.rizon.net"
+      port: 6667
+      auto_connect: true
+      channels:
+        - name: "#news"
+          auto_join: true
+    - address: "irc.williamgattone.it"
+      port: 6667
+      auto_connect: false
+      channels:
+        - name: "#xdcc"
+          auto_join: true
+
+http:
+  # Port for the REST API and web UI
+  port: 8080
+
+download:
+  # Directory for in-progress partial files
+  temp_dir: "./downloads/tmp"
+  # Directory for completed files
+  dest_dir: "./downloads/complete"
+  # File conflict policy: skip | overwrite | rename
+  conflict_policy: "skip"
+  # Fallback mode on download failure: suggest_only | auto_retry_best
+  fail_fallback: "suggest_only"
+  # Global max parallel downloads across all channels
+  max_parallel_total: 5
+  # Max download rate in bytes/second (0 = unlimited)
+  max_rate_bps: 0
+
+search:
+  # Timeout per provider in seconds
+  provider_timeout: 5
+  # Default page size for search results
+  page_size: 50
+  # Enabled search providers (empty = all enabled)
+  enabled_providers: []
+  cache:
+    # Enable search result caching
+    enabled: true
+    # TTL for fresh cache (results returned without contacting providers)
+    fresh_ttl: "30m"
+    # TTL for stale cache (fallback when providers are unreachable)
+    stale_ttl: "24h"
+
+storage:
+  # Retention period for completed/failed downloads before auto-deletion
+  downloads_retention: "30d"
+  # Interval between periodic cleanup runs
+  cleanup_interval: "12h"
+
+logging:
+  # Log level: debug | info | warn | error
+  level: "info"
+  # Log file path (empty = stderr)
+  file_path: ""
+
+ui:
+  # Whether the first-time setup wizard has been completed
+  setup_completed: false
