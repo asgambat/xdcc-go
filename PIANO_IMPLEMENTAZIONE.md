@@ -244,6 +244,7 @@ Aggiunta di una modalità client-server all'attuale tool CLI. Il server gestisce
   - Toggle enable/disable provider.
 - [ ] **8.20** Implementare quick-add da stringa XDCC:
   - Campo `incolla comando` (es. `/msg Bot XDCC SEND #123`).
+  - Chiedere server e canale tramite combo box, nella combo dei server mostrare i server a cui si è connessi nella combo dei canali mostrare i canali joinati su quel server.
   - Parser server-side e proposta conferma prima dell'enqueue.
 - [ ] **8.21** Implementare setup wizard primo avvio:
   - Step guidati per directory, server default, nickname, test connessione, test scrittura.
