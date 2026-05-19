@@ -3,6 +3,9 @@ package store
 import (
 	"database/sql"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -210,9 +213,25 @@ func (s *SQLiteStore) CurrentSchemaVersion() (int, error) {
 // backupDB creates a snapshot backup of the database at the given path.
 // It uses the backup API for live databases.
 func backupDB(db *sql.DB, destPath string) error {
+	// Validate path: must be absolute and contain no SQL-special characters
+	// that could be used for injection
+	if !filepath.IsAbs(destPath) {
+		return fmt.Errorf("backup path must be absolute: %s", destPath)
+	}
+
+	// Ensure parent directory exists
+	dir := filepath.Dir(destPath)
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		return fmt.Errorf("backup directory does not exist: %s", dir)
+	}
+
+	// SQLite VACUUM INTO doesn't support placeholders, so we must escape.
+	// Replace single quotes with two single quotes (SQL standard escaping).
+	escapedPath := strings.ReplaceAll(destPath, "'", "''")
+
 	// Use VACUUM INTO for simple file-level backup (requires SQLite 3.27+)
 	// modernc.org/sqlite supports this.
-	_, err := db.Exec(fmt.Sprintf(`VACUUM INTO '%s'`, destPath))
+	_, err := db.Exec(fmt.Sprintf(`VACUUM INTO '%s'`, escapedPath))
 	if err != nil {
 		return fmt.Errorf("backing up database to %s: %w", destPath, err)
 	}

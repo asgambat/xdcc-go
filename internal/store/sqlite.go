@@ -562,6 +562,22 @@ func (s *SQLiteStore) DeleteExpiredSearchCache(staleBefore time.Time) error {
 	return err
 }
 
+// CleanupSearchCache removes stale cache entries beyond their stale TTL.
+// Returns the number of entries deleted.
+func (s *SQLiteStore) CleanupSearchCache() (int, error) {
+	now := time.Now()
+	result, err := s.db.Exec(
+		`DELETE FROM search_cache WHERE stale_expires_at < ?`,
+		now.Format(time.RFC3339),
+	)
+	if err != nil {
+		return 0, fmt.Errorf("cleaning up search cache: %w", err)
+	}
+	
+	affected, _ := result.RowsAffected()
+	return int(affected), nil
+}
+
 // =========================================================================
 // Search Presets
 // =========================================================================

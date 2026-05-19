@@ -168,27 +168,41 @@ func (c *searchCache) getFresh(queryKey string) map[string]*cacheEntry {
 
 	// Also check SQLite for fresh entries not in memory
 	if c.enabled && c.st != nil && len(result) == 0 {
-		// Query each known provider individually via SQLite
-		for _, provider := range []string{"nibl", "xdcc-eu", "subsplease"} {
-			sqlEntry, err := c.st.GetSearchCache(queryKey, provider)
-			if err == nil && sqlEntry != nil && time.Now().Before(sqlEntry.ExpiresAt) {
-				var packs []*entities.XDCCPack
-				if err := json.Unmarshal([]byte(sqlEntry.PayloadJSON), &packs); err == nil {
-					entry := &cacheEntry{
-						Packs:     packs,
-						FetchedAt: sqlEntry.FetchedAt,
-						ExpiresAt: sqlEntry.ExpiresAt,
-						StaleAt:   sqlEntry.StaleExpiresAt,
-					}
-					// Promote to memory
-					c.mu.Lock()
-					if c.entries[queryKey] == nil {
-						c.entries[queryKey] = make(map[string]*cacheEntry)
-					}
-					c.entries[queryKey][provider] = entry
-					c.mu.Unlock()
-					if entry.isFresh() {
-						result[provider] = entry
+		// Query distinct providers from SQLite for this query
+		// This avoids hardcoded provider list and discovers all available providers dynamically
+		rows, err := c.st.(*store.SQLiteStore).DB().Query(
+			`SELECT DISTINCT provider FROM search_cache WHERE query_key = ?`,
+			queryKey,
+		)
+		if err == nil {
+			defer rows.Close()
+			
+			for rows.Next() {
+				var provider string
+				if err := rows.Scan(&provider); err != nil {
+					continue
+				}
+				
+				sqlEntry, err := c.st.GetSearchCache(queryKey, provider)
+				if err == nil && sqlEntry != nil && time.Now().Before(sqlEntry.ExpiresAt) {
+					var packs []*entities.XDCCPack
+					if err := json.Unmarshal([]byte(sqlEntry.PayloadJSON), &packs); err == nil {
+						entry := &cacheEntry{
+							Packs:     packs,
+							FetchedAt: sqlEntry.FetchedAt,
+							ExpiresAt: sqlEntry.ExpiresAt,
+							StaleAt:   sqlEntry.StaleExpiresAt,
+						}
+						// Promote to memory
+						c.mu.Lock()
+						if c.entries[queryKey] == nil {
+							c.entries[queryKey] = make(map[string]*cacheEntry)
+						}
+						c.entries[queryKey][provider] = entry
+						c.mu.Unlock()
+						if entry.isFresh() {
+							result[provider] = entry
+						}
 					}
 				}
 			}

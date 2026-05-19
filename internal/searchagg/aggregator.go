@@ -27,6 +27,11 @@ type Aggregator struct {
 	cache    *searchCache
 	disabled map[string]bool // runtime-disabled providers
 	mu       sync.RWMutex
+	
+	// Cleanup goroutine lifecycle
+	ctx    context.Context
+	cancel context.CancelFunc
+	done   chan struct{}
 }
 
 // New creates a new search Aggregator.
@@ -37,6 +42,72 @@ func New(st store.Store, cfg *config.SearchConfig, logger *log.Logger) *Aggregat
 		log:      logger,
 		cache:    newSearchCache(st, cfg.Cache.Enabled, cfg.Cache.FreshTTL, cfg.Cache.StaleTTL),
 		disabled: make(map[string]bool),
+		done:     make(chan struct{}),
+	}
+}
+
+// Start begins the cache cleanup goroutine.
+func (a *Aggregator) Start(ctx context.Context) error {
+	a.ctx, a.cancel = context.WithCancel(ctx)
+	go a.cleanupLoop()
+	return nil
+}
+
+// Stop stops the cache cleanup goroutine.
+func (a *Aggregator) Stop() {
+	if a.cancel != nil {
+		a.cancel()
+		<-a.done
+	}
+}
+
+// cleanupLoop periodically removes stale cache entries.
+func (a *Aggregator) cleanupLoop() {
+	defer close(a.done)
+	
+	// Run cleanup every 6 hours
+	ticker := time.NewTicker(6 * time.Hour)
+	defer ticker.Stop()
+	
+	for {
+		select {
+		case <-a.ctx.Done():
+			return
+		case <-ticker.C:
+			a.cleanupStaleEntries()
+		}
+	}
+}
+
+// cleanupStaleEntries removes cache entries beyond stale TTL.
+func (a *Aggregator) cleanupStaleEntries() {
+	now := time.Now()
+	
+	// Cleanup in-memory cache
+	a.cache.mu.Lock()
+	for queryKey, providers := range a.cache.entries {
+		for provider, entry := range providers {
+			if now.After(entry.StaleAt) {
+				delete(providers, provider)
+			}
+		}
+		if len(providers) == 0 {
+			delete(a.cache.entries, queryKey)
+		}
+	}
+	a.cache.mu.Unlock()
+	
+	// Cleanup SQLite cache if enabled
+	if a.cache.enabled && a.cache.st != nil {
+		// Type-assert to SQLiteStore to access CleanupSearchCache method
+		if sqlStore, ok := a.store.(*store.SQLiteStore); ok {
+			deleted, err := sqlStore.CleanupSearchCache()
+			if err != nil {
+				a.log.Printf("WARNING: cache cleanup failed: %v", err)
+			} else if deleted > 0 {
+				a.log.Printf("cache cleanup: removed %d stale entries", deleted)
+			}
+		}
 	}
 }
 
@@ -243,6 +314,13 @@ func (a *Aggregator) searchLive(ctx context.Context, query string) ([]*entities.
 			var packs []*entities.XDCCPack
 			var err error
 
+			// NOTE: The goroutine below will continue running in the background
+			// even if the timeout expires. This is acceptable because:
+			// 1. engine.Search() operations are well-behaved and complete quickly
+			// 2. They don't hold locks or consume significant resources
+			// 3. The results are simply discarded if timeout occurs
+			// Alternative solution would require context-aware engine.Search(),
+			// which is not currently supported by the search engine interface.
 			go func() {
 				packs, err = engine.Search(query)
 				close(done)

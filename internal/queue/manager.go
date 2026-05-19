@@ -13,6 +13,15 @@ import (
 	"xdcc-go/internal/store"
 )
 
+// normalizeChannel lowercases and ensures a leading '#'.
+func normalizeChannel(ch string) string {
+	ch = strings.ToLower(strings.TrimSpace(ch))
+	if ch != "" && !strings.HasPrefix(ch, "#") {
+		ch = "#" + ch
+	}
+	return ch
+}
+
 // ---------------------------------------------------------------------------
 // QueueManager
 // ---------------------------------------------------------------------------
@@ -151,6 +160,12 @@ func (qm *QueueManager) emitEvent(evt Event) {
 // packMessage is the raw XDCC message (e.g. "xdcc send #123").
 // The caller should already have validated it.
 func (qm *QueueManager) Enqueue(d store.DownloadRecord) (int64, error) {
+	// Normalize and validate channel
+	d.Channel = normalizeChannel(d.Channel)
+	if d.Channel == "" {
+		return 0, fmt.Errorf("channel name is required")
+	}
+	
 	// Check for duplicate by bot + pack message
 	dupByMsg, err := qm.store.GetDownloadByBotMessage(d.Bot, d.PackMessage)
 	if err == nil && dupByMsg != nil && dupByMsg.Status != store.DownloadStatusCompleted {
@@ -194,7 +209,10 @@ func (qm *QueueManager) Enqueue(d store.DownloadRecord) (int64, error) {
 func (qm *QueueManager) CancelDownload(id int64, reason string) error {
 	qm.mu.Lock()
 	cancelFn, active := qm.activeJobs[id]
-	delete(qm.activeJobs, id)
+	if active {
+		delete(qm.activeJobs, id)
+		qm.globalCount--
+	}
 	qm.mu.Unlock()
 
 	if active {
@@ -223,6 +241,7 @@ func (qm *QueueManager) PauseDownload(id int64) error {
 	cancelFn, active := qm.activeJobs[id]
 	if active {
 		delete(qm.activeJobs, id)
+		qm.globalCount--
 	}
 	qm.mu.Unlock()
 
@@ -271,6 +290,7 @@ func (qm *QueueManager) RemoveDownload(id int64) error {
 	cancelFn, active := qm.activeJobs[id]
 	if active {
 		delete(qm.activeJobs, id)
+		qm.globalCount--
 	}
 	qm.mu.Unlock()
 
@@ -393,8 +413,11 @@ func (qm *QueueManager) tryDispatch() {
 			break
 		}
 
+		// Normalize channel for consistent slot checking
+		normalizedCh := normalizeChannel(d.Channel)
+		
 		qm.mu.RLock()
-		_, channelBusy := qm.channelSlots[d.Channel]
+		_, channelBusy := qm.channelSlots[normalizedCh]
 		qm.mu.RUnlock()
 
 		if channelBusy {
@@ -420,9 +443,12 @@ func (qm *QueueManager) startDownload(d store.DownloadRecord) {
 
 	ctx, cancel := context.WithCancel(qm.ctx)
 
+	// Normalize channel for consistent slot tracking
+	normalizedCh := normalizeChannel(d.Channel)
+
 	qm.mu.Lock()
 	qm.activeJobs[d.ID] = cancel
-	qm.channelSlots[d.Channel] = d.ID
+	qm.channelSlots[normalizedCh] = d.ID
 	qm.globalCount++
 	qm.mu.Unlock()
 
@@ -555,10 +581,14 @@ func (qm *QueueManager) startDownload(d store.DownloadRecord) {
 // releaseChannelSlot removes a channel from the active slots map if the
 // download ID matches.
 func (qm *QueueManager) releaseChannelSlot(channel string, downloadID int64) {
+	// Normalize channel for consistent slot release
+	normalizedCh := normalizeChannel(channel)
+	
 	qm.mu.Lock()
 	defer qm.mu.Unlock()
-	if existingID, ok := qm.channelSlots[channel]; ok && existingID == downloadID {
-		delete(qm.channelSlots, channel)
+	
+	if existingID, ok := qm.channelSlots[normalizedCh]; ok && existingID == downloadID {
+		delete(qm.channelSlots, normalizedCh)
 	}
 }
 

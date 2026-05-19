@@ -200,19 +200,17 @@ func (m *Manager) ConnectServerByID(serverID int64) error {
 // If the server is already connected, it returns nil.
 func (m *Manager) ConnectServer(srv *store.ServerRecord) error {
 	m.mu.Lock()
-	// Check if already connected or connecting.
-	// If there is an existing connection entry, remove it from the map
-	// while still holding the lock to prevent race conditions when
-	// two goroutines try to connect the same server concurrently.
+	// Check if already connected or connecting
 	if existing, ok := m.conns[srv.ID]; ok {
-		delete(m.conns, srv.ID)
 		m.mu.Unlock()
 		if existing.Status() == "connected" {
-			// Still connected — no need to reconnect
+			// Already connected — return without modification
 			return nil
 		}
-		// Cancel the old connection attempt
+		// Cancel the old stale connection outside critical section
 		existing.cancel()
+		// Wait briefly for cleanup
+		time.Sleep(10 * time.Millisecond)
 	} else {
 		m.mu.Unlock()
 	}
@@ -242,8 +240,8 @@ func (m *Manager) ConnectServer(srv *store.ServerRecord) error {
 	m.conns[srv.ID] = conn
 	m.mu.Unlock()
 
-	// Update DB status
-	if err := m.store.SetServerConnected(srv.ID); err != nil {
+	// Update DB status to 'connecting' (not 'connected' yet)
+	if err := m.store.SetServerStatus(srv.ID, "connecting"); err != nil {
 		m.logger.Printf("WARNING: updating server status in DB failed: %v", err)
 	}
 
@@ -401,39 +399,64 @@ func (mc *managedConnection) setStatus(s string) {
 	mc.mu.Unlock()
 }
 
-// run is the main loop for a managed connection.
-// It connects, waits for disconnection, then reconnects with exponential backoff.
+// connectResult represents the outcome of a connection attempt.
+type connectResult int
+
+const (
+	connectResultExplicitCancel connectResult = iota // User requested disconnect
+	connectResultInitialFailure                      // Failed on first attempt
+	connectResultDropped                             // Connection dropped after being established
+)
+
+// run is the main loop for a managed connection. It connects, waits for
+// disconnection, then reconnects with exponential backoff unless explicitly cancelled.
 func (mc *managedConnection) run() {
 	mc.done = make(chan struct{})
 	defer close(mc.done)
 
 	for {
-		mc.connect()
+		result := mc.connect()
 		if mc.ctx.Err() != nil {
 			// Context cancelled — server was explicitly disconnected
 			mc.setStatus("disconnected")
+			_ = mc.manager.store.SetServerStatus(mc.id, "disconnected")
+			mc.manager.emitEvent(Event{
+				Type:       EventServerDisconnected,
+				ServerID:   mc.id,
+				ServerAddr: mc.address,
+			})
 			return
 		}
 
-		// connect() returned due to disconnection.
-		// If the server was explicitly disconnected, stop the loop.
-		if mc.Status() == "disconnected" {
+		// Handle result based on disconnect reason
+		switch result {
+		case connectResultExplicitCancel:
+			// User explicitly disconnected — stop reconnecting
+			mc.setStatus("disconnected")
+			_ = mc.manager.store.SetServerStatus(mc.id, "disconnected")
+			mc.manager.emitEvent(Event{
+				Type:       EventServerDisconnected,
+				ServerID:   mc.id,
+				ServerAddr: mc.address,
+			})
 			return
-		}
-
-		// Reconnect with exponential backoff
-		mc.manager.logger.Printf("IRC connection to %s lost, reconnecting...", mc.address)
-		if !mc.reconnectBackoff() {
-			return // context cancelled
+		case connectResultInitialFailure, connectResultDropped:
+			// Automatic reconnect for failures and drops
+			mc.manager.logger.Printf("IRC connection to %s lost, reconnecting...", mc.address)
+			mc.manager.emitEvent(Event{
+				Type:       EventServerDisconnected,
+				ServerID:   mc.id,
+				ServerAddr: mc.address,
+			})
+			if !mc.reconnectBackoff() {
+				return // context cancelled during backoff
+			}
 		}
 	}
 }
 
-// connect establishes a single IRC connection and blocks until either:
-// - The connection is established AND subsequently lost (returns nil)
-// - The context is cancelled (returns)
-// - The initial connection attempt fails (returns immediately)
-func (mc *managedConnection) connect() {
+// connect establishes a single IRC connection and returns the disconnect reason.
+func (mc *managedConnection) connect() connectResult {
 	// Clear stale channel state before new connection attempt
 	mc.mu.Lock()
 	mc.joinedChs = make(map[string]string)
@@ -611,19 +634,14 @@ func (mc *managedConnection) connect() {
 	case <-mc.ctx.Done():
 		client.Close()
 		<-disconnected // drain
-		return
+		return connectResultExplicitCancel
 	case <-connected:
 		// Connected successfully — proceed to Phase 2
 	case err := <-disconnected:
 		// Connection failed on first attempt
 		mc.manager.logger.Printf("connection to %s failed: %v", mc.address, err)
-		mc.mu.Lock()
-		mc.status = "disconnected"
-		mc.mu.Unlock()
-
-		_ = mc.manager.store.SetServerStatus(mc.id, "disconnected")
 		_ = mc.manager.store.IncrementServerRetry(mc.id)
-		return
+		return connectResultInitialFailure
 	}
 
 	// Phase 2: Connection is established. Wait for disconnection or cancellation.
@@ -633,16 +651,13 @@ func (mc *managedConnection) connect() {
 		client.Close()
 		// Drain the disconnected channel (buffered with capacity 1, so drain succeeds)
 		<-disconnected
-		return
+		return connectResultExplicitCancel
 	case err := <-disconnected:
 		// Connection dropped — will trigger reconnect in run()
 		if err != nil {
 			mc.manager.logger.Printf("connection to %s lost: %v", mc.address, err)
 		}
-		mc.mu.Lock()
-		mc.status = "disconnected"
-		mc.mu.Unlock()
-		return
+		return connectResultDropped
 	}
 }
 
@@ -704,9 +719,34 @@ func (mc *managedConnection) joinChannel(channel string) error {
 		return fmt.Errorf("not connected")
 	}
 
+	// Normalize channel name
+	channel = normalizeChannel(channel)
+
+	// Persist to DB: create or update channel record
+	existingCh, err := mc.manager.store.GetChannelsByServerAndName(mc.id, channel)
+	if err != nil || existingCh == nil {
+		// Channel doesn't exist — create it
+		_, err = mc.manager.store.AddChannel(store.ChannelRecord{
+			ServerID: mc.id,
+			Name:     channel,
+			AutoJoin: true,
+			Joined:   false, // Will be set to true by JOIN handler
+		})
+		if err != nil {
+			mc.manager.logger.Printf("WARNING: failed to add channel %s to DB: %v", channel, err)
+		}
+	} else {
+		// Channel exists — update auto_join to true
+		existingCh.AutoJoin = true
+		if err := mc.manager.store.UpdateChannel(*existingCh); err != nil {
+			mc.manager.logger.Printf("WARNING: failed to update channel %s in DB: %v", channel, err)
+		}
+	}
+
+	// Send JOIN command to IRC
 	client.Cmd.Join(channel)
 
-	// Add to auto-join for reconnection
+	// Add to auto-join for reconnection (in-memory)
 	mc.mu.Lock()
 	found := false
 	for _, ch := range mc.autoJoinChs {
@@ -733,9 +773,23 @@ func (mc *managedConnection) leaveChannel(channel string) error {
 		return fmt.Errorf("not connected")
 	}
 
+	// Normalize channel name
+	channel = normalizeChannel(channel)
+
+	// Update DB: set auto_join=false and joined=false
+	existingCh, err := mc.manager.store.GetChannelsByServerAndName(mc.id, channel)
+	if err == nil && existingCh != nil {
+		existingCh.AutoJoin = false
+		existingCh.Joined = false
+		if err := mc.manager.store.UpdateChannel(*existingCh); err != nil {
+			mc.manager.logger.Printf("WARNING: failed to update channel %s in DB: %v", channel, err)
+		}
+	}
+
+	// Send PART command to IRC
 	client.Cmd.Part(channel)
 
-	// Remove from auto-join list
+	// Remove from auto-join list (in-memory)
 	mc.mu.Lock()
 	for i, ch := range mc.autoJoinChs {
 		if ch == channel {

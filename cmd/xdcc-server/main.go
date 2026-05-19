@@ -152,6 +152,10 @@ See config.yaml in the project root for all available settings.`,
 
 	// Start search aggregator
 	searchAgg := searchagg.New(st, &cfg.Search, logger)
+	if err := searchAgg.Start(context.Background()); err != nil {
+		return fmt.Errorf("starting search aggregator: %w", err)
+	}
+	defer searchAgg.Stop()
 	logger.Printf("search aggregator ready (%d provider(s), cache=%v)",
 		len(cfg.Search.EnabledProviders), cfg.Search.Cache.Enabled)
 
