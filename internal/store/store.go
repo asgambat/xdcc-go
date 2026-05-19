@@ -43,6 +43,7 @@ type Store interface {
 	MarkDownloadStarted(id int64) error
 	MarkDownloadCompleted(id int64) error
 	MarkDownloadFailed(id int64, errMsg string) error
+	MarkDownloadSkipped(id int64) error
 	MarkDownloadPaused(id int64) error
 	MarkDownloadRetry(id int64, newStatus string) error
 	DeleteDownload(id int64) error

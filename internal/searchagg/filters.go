@@ -1,0 +1,171 @@
+package searchagg
+
+import (
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
+
+	"xdcc-go/internal/entities"
+)
+
+// ---------------------------------------------------------------------------
+// Filter functions
+// ---------------------------------------------------------------------------
+
+// filterPacks applies the search options filters (prefix, bot, ext, compact)
+// to a list of packs and returns the filtered list.
+func filterPacks(packs []*entities.XDCCPack, opts SearchOptions) []*entities.XDCCPack {
+	result := packs
+
+	if opts.Prefix != "" {
+		result = filterByPrefix(result, opts.Prefix)
+	}
+	if opts.Bot != "" {
+		result = filterByBot(result, opts.Bot)
+	}
+	if len(opts.Ext) > 0 {
+		result = filterByExt(result, opts.Ext)
+	}
+	if opts.Compact {
+		result = compactPacks(result)
+	}
+
+	return result
+}
+
+// filterByPrefix keeps only packs whose filename starts with the given prefix.
+func filterByPrefix(packs []*entities.XDCCPack, prefix string) []*entities.XDCCPack {
+	prefixLower := strings.ToLower(prefix)
+	var out []*entities.XDCCPack
+	for _, p := range packs {
+		if strings.HasPrefix(strings.ToLower(p.Filename), prefixLower) {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// filterByBot keeps only packs whose bot name contains the substring (case-insensitive).
+func filterByBot(packs []*entities.XDCCPack, bot string) []*entities.XDCCPack {
+	botLower := strings.ToLower(bot)
+	var out []*entities.XDCCPack
+	for _, p := range packs {
+		if strings.Contains(strings.ToLower(p.Bot), botLower) {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// filterByExt keeps only packs whose filename has one of the given extensions.
+func filterByExt(packs []*entities.XDCCPack, exts []string) []*entities.XDCCPack {
+	extSet := make(map[string]bool, len(exts))
+	for _, e := range exts {
+		e = strings.TrimSpace(e)
+		if !strings.HasPrefix(e, ".") {
+			e = "." + e
+		}
+		extSet[strings.ToLower(e)] = true
+	}
+	var out []*entities.XDCCPack
+	for _, p := range packs {
+		ext := strings.ToLower(filepath.Ext(p.Filename))
+		if extSet[ext] {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// ---------------------------------------------------------------------------
+// Deduplication / compact
+// ---------------------------------------------------------------------------
+
+// compactPacks removes duplicates by (filename, size, bot family).
+// "Bot family" is the bot name with trailing digits stripped,
+// so e.g. "MyBot|123" and "MyBot|456" are considered the same family.
+func compactPacks(packs []*entities.XDCCPack) []*entities.XDCCPack {
+	seen := make(map[string]bool)
+	var out []*entities.XDCCPack
+
+	for _, p := range packs {
+		botFamily := botFamily(p.Bot)
+		key := strings.ToLower(p.Filename) + "|" + botFamily + "|" + itoa(p.Size)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, p)
+	}
+
+	return out
+}
+
+// botFamily extracts the bot family name by stripping trailing digits.
+// E.g. "MyBot123" → "MyBot", "SubsPlease" → "SubsPlease".
+func botFamily(bot string) string {
+	bot = strings.TrimRight(bot, "0123456789")
+	return bot
+}
+
+// itoa is a fast int64 → string for dedup keys.
+func itoa(n int64) string {
+	return strconv.FormatInt(n, 10)
+}
+
+// ---------------------------------------------------------------------------
+// Sorting
+// ---------------------------------------------------------------------------
+
+// sortPacks sorts packs by relevance: exact filename prefix match first,
+// then by size (larger first), then by filename alphabetically.
+func sortPacks(packs []*entities.XDCCPack, query string) {
+	queryLower := strings.ToLower(query)
+	sort.Slice(packs, func(i, j int) bool {
+		a, b := packs[i], packs[j]
+
+		// Exact prefix match gets priority
+		aPrefix := strings.HasPrefix(strings.ToLower(a.Filename), queryLower)
+		bPrefix := strings.HasPrefix(strings.ToLower(b.Filename), queryLower)
+		if aPrefix != bPrefix {
+			return aPrefix
+		}
+
+		// Larger files first (more likely to be the actual content)
+		if a.Size != b.Size {
+			return a.Size > b.Size
+		}
+
+		// Alphabetical by filename
+		return strings.ToLower(a.Filename) < strings.ToLower(b.Filename)
+	})
+}
+
+// ---------------------------------------------------------------------------
+// Pagination
+// ---------------------------------------------------------------------------
+
+// paginatePacks returns a slice of packs for the given page.
+// page is 1-based. Returns the slice and total count.
+func paginatePacks(packs []*entities.XDCCPack, page, pageSize int) ([]*entities.XDCCPack, int) {
+	total := len(packs)
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 50
+	}
+
+	start := (page - 1) * pageSize
+	if start >= total {
+		return []*entities.XDCCPack{}, total
+	}
+
+	end := start + pageSize
+	if end > total {
+		end = total
+	}
+
+	return packs[start:end], total
+}

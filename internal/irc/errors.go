@@ -46,6 +46,13 @@ type DownloadOptions struct {
 	// blocked address (0.0.0.0 / ::). Format: "host:port". Default: "8.8.8.8:53".
 	DNSServer string
 	Logger    Logger // custom logger; nil = default (log.New with "[xdcc] " prefix)
+
+	// ProgressCallback is called periodically during a download with the current
+	// progress. bytesReceived and totalBytes are in bytes; speedBPS is the
+	// transfer speed in bytes/second averaged over the last interval.
+	// If nil, no progress reporting occurs (default CLI progress printing is
+	// is unaffected — it still prints to stdout based on verbosity).
+	ProgressCallback func(bytesReceived, totalBytes int64, speedBPS float64)
 }
 
 // PackResult holds the outcome of a single pack download.

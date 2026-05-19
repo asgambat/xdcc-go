@@ -270,30 +270,38 @@ func (c *Client) progressPrinter() {
 			lastProgress = prog
 			lastTime = time.Now()
 
-			pct := 0.0
-			if total > 0 {
-				pct = float64(prog) / float64(total) * 100
+			// Call external progress callback if set
+			if cb := c.opts.ProgressCallback; cb != nil && total > 0 {
+				cb(prog, total, speed)
 			}
 
-			eta := ""
-			if speed > 0 && total > prog {
-				remaining := time.Duration(float64(total-prog)/speed) * time.Second
-				if remaining < 90*time.Second {
-					eta = fmt.Sprintf(" remaining: %ds", int(remaining.Seconds()))
-				} else {
-					eta = fmt.Sprintf(" remaining: %dm %ds",
-						int(remaining.Minutes()), int(remaining.Seconds())%60)
+			if c.opts.ProgressCallback == nil && c.verbosity >= 0 {
+				// Only print to stdout when not using a callback
+				pct := 0.0
+				if total > 0 {
+					pct = float64(prog) / float64(total) * 100
 				}
+
+				eta := ""
+				if speed > 0 && total > prog {
+					remaining := time.Duration(float64(total-prog)/speed) * time.Second
+					if remaining < 90*time.Second {
+						eta = fmt.Sprintf(" remaining: %ds", int(remaining.Seconds()))
+					} else {
+						eta = fmt.Sprintf(" remaining: %dm %ds",
+							int(remaining.Minutes()), int(remaining.Seconds())%60)
+					}
+				}
+
+				speedStr := formatSpeed(speed)
+
+				fmt.Printf("\r  %.1f%% [%s / %s] %s%s    ",
+					pct,
+					entities.HumanReadableBytes(prog),
+					entities.HumanReadableBytes(total),
+					speedStr,
+					eta)
 			}
-
-			speedStr := formatSpeed(speed)
-
-			fmt.Printf("\r  %.1f%% [%s / %s] %s%s    ",
-				pct,
-				entities.HumanReadableBytes(prog),
-				entities.HumanReadableBytes(total),
-				speedStr,
-				eta)
 
 			c.mu.Lock()
 			dl := c.downloading

@@ -14,8 +14,11 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"xdcc-go/internal/api"
 	"xdcc-go/internal/config"
 	"xdcc-go/internal/ircmanager"
+	"xdcc-go/internal/queue"
+	"xdcc-go/internal/searchagg"
 	"xdcc-go/internal/store"
 )
 
@@ -131,36 +134,35 @@ See config.yaml in the project root for all available settings.`,
 				defer close(stopCleanup)
 			}
 
-			// Start IRC connection manager
-			ircMgr := ircmanager.New(st, cfg, logger)
-			if err := ircMgr.Start(); err != nil {
-				return fmt.Errorf("starting IRC manager: %w", err)
-			}
-			defer ircMgr.Stop()
-			logger.Printf("IRC manager started with %d default server(s)", len(cfg.IRC.DefaultServers))
+	// Start IRC connection manager
+	ircMgr := ircmanager.New(st, cfg, logger)
+	if err := ircMgr.Start(); err != nil {
+		return fmt.Errorf("starting IRC manager: %w", err)
+	}
+	defer ircMgr.Stop()
+	logger.Printf("IRC manager started with %d default server(s)", len(cfg.IRC.DefaultServers))
 
-			// Create HTTP server (placeholder for now — will be expanded in Phase 6)
-			mux := http.NewServeMux()
-			mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusOK)
-				w.Write([]byte(`{"status":"ok"}`))
-			})
-			mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusOK)
-				w.Write([]byte(`{"status":"ready"}`))
-			})
-			mux.HandleFunc("/api/version", func(w http.ResponseWriter, r *http.Request) {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusOK)
-				w.Write([]byte(`{"version":"0.2.0","min_compatible_client_version":"0.2.0"}`))
-			})
+	// Start download queue manager
+	queueMgr := queue.New(st, cfg, logger)
+	if err := queueMgr.Start(); err != nil {
+		return fmt.Errorf("starting queue manager: %w", err)
+	}
+	defer queueMgr.Stop()
+	logger.Printf("queue manager started (max_parallel=%d)", cfg.Download.MaxParallelTotal)
 
-			srv := &http.Server{
-				Addr:    fmt.Sprintf(":%d", cfg.HTTP.Port),
-				Handler: mux,
-			}
+	// Start search aggregator
+	searchAgg := searchagg.New(st, &cfg.Search, logger)
+	logger.Printf("search aggregator ready (%d provider(s), cache=%v)",
+		len(cfg.Search.EnabledProviders), cfg.Search.Cache.Enabled)
+
+	// Build REST API and wire it into the HTTP server
+	apiHandler := api.New(st, ircMgr, queueMgr, searchAgg, cfg, logger)
+	mux := apiHandler.Router()
+
+	srv := &http.Server{
+		Addr:    fmt.Sprintf(":%d", cfg.HTTP.Port),
+		Handler: mux,
+	}
 
 			// Graceful shutdown
 			quit := make(chan os.Signal, 1)

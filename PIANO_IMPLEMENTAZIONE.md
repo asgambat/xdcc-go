@@ -38,17 +38,17 @@ Aggiunta di una modalità client-server all'attuale tool CLI. Il server gestisce
 
 ## Punti di Implementazione
 
-### Fase 1 — Configurazione e Struttura Progetto
+### Fase 1 — Configurazione e Struttura Progetto ✅
 
-- [ ] **1.1** Creare il file di configurazione `config.yaml` con struttura per: server IRC di default (con canali), directory di download (temp e destinazione), porta HTTP del server, timeout ricerca provider, page size di default, credenziali IRC (nickname base), livello log, path file log, policy conflitti file (`skip` di default), modalita' fallback download fallito (`suggest_only` default), limiti banda (`downloads.max_rate_bps`) e fasce orarie, provider ricerca abilitati/disabilitati, stato setup guidato (`ui.setup_completed`).
-- [ ] **1.2** Creare il package `internal/config` che carica e valida la configurazione da file YAML + variabili d'ambiente + flag CLI. l'ordine di priorità deve essere flag cli poi variabili di ambiente ed infine viene il file YAML.
-- [ ] **1.3** Creare la struttura del comando `cmd/xdcc-server/main.go` con cobra, che avvia il server HTTP e il gestore connessioni IRC. Deve accettare flag `--config`, `--port`, `--download-dir`, `--temp-dir`.
-- [ ] **1.4** Aggiornare `go.mod` con le nuove dipendenze: un router HTTP: `chi` , `go-yaml`, `modernc.org/sqlite` (CGO-free). Nota: SSE non richiede librerie aggiuntive, si implementa con la stdlib.
+- [x] **1.1** Creare il file di configurazione `config.yaml` con struttura per: server IRC di default (con canali), directory di download (temp e destinazione), porta HTTP del server, timeout ricerca provider, page size di default, credenziali IRC (nickname base), livello log, path file log, policy conflitti file (`skip` di default), modalita' fallback download fallito (`suggest_only` default), limiti banda (`downloads.max_rate_bps`) e fasce orarie, provider ricerca abilitati/disabilitati, stato setup guidato (`ui.setup_completed`).
+- [x] **1.2** Creare il package `internal/config` che carica e valida la configurazione da file YAML + variabili d'ambiente + flag CLI. l'ordine di priorità deve essere flag cli poi variabili di ambiente ed infine viene il file YAML.
+- [x] **1.3** Creare la struttura del comando `cmd/xdcc-server/main.go` con cobra, che avvia il server HTTP e il gestore connessioni IRC. Deve accettare flag `--config`, `--port`, `--download-dir`, `--temp-dir`.
+- [x] **1.4** Aggiornare `go.mod` con le nuove dipendenze: un router HTTP: `chi` , `go-yaml`, `modernc.org/sqlite` (CGO-free). Nota: SSE non richiede librerie aggiuntive, si implementa con la stdlib.
 
-### Fase 2 — Persistenza (SQLite)
+### Fase 2 — Persistenza (SQLite) ✅
 
-- [ ] **2.1** Creare il package `internal/store` con interfaccia per la persistenza. Usare SQLite (CGO-free con `modernc.org/sqlite`) come backend.
-- [ ] **2.2** Definire lo schema del database:
+- [x] **2.1** Creare il package `internal/store` con interfaccia per la persistenza. Usare SQLite (CGO-free con `modernc.org/sqlite`) come backend.
+- [x] **2.2** Definire lo schema del database:
   - Tabella `irc_servers`: id, address, port, auto_connect (bool), status, last_connected_at, retry_count.
   - Tabella `irc_channels`: id, server_id (FK), name, auto_join (bool), topic, joined (bool).
   - Tabella `downloads`: id, pack_message, bot, server_address, channel, filename, filesize, status (queued/downloading/completed/failed/paused), progress_bytes, speed_bps, created_at, started_at, completed_at, error_message, priority/position.
@@ -57,71 +57,71 @@ Aggiunta di una modalità client-server all'attuale tool CLI. Il server gestisce
   - Tabella `search_presets`: id, name, query, filters_json, is_default, created_at, updated_at.
   - Tabella `watchlists`: id, name, query, filters_json, enabled, auto_enqueue, last_checked_at, last_match_fingerprint, last_notified_at.
   - Tabella `provider_stats`: provider, window_start, window_end, requests, successes, timeouts, failures, avg_latency_ms, updated_at.
-- [ ] **2.3** Implementare le operazioni CRUD per servers, channels e downloads. Metodi: `EnqueueDownload`, `GetQueue(channel)`, `UpdateProgress`, `MarkCompleted`, `MarkFailed`, `GetActiveDownloads`, `GetPendingByChannel`, `RecoverOnStartup`, `GetDownloadHistory(page, pageSize)`.
-- [ ] **2.4** Implementare la logica di recovery: all'avvio del server, i download con status `downloading` vengono rimessi in coda come `queued` per essere ritentati.
-- [ ] **2.5** Implementare lo svecchiamento periodico del database:
+- [x] **2.3** Implementare le operazioni CRUD per servers, channels e downloads. Metodi: `EnqueueDownload`, `GetQueue(channel)`, `UpdateProgress`, `MarkCompleted`, `MarkFailed`, `GetActiveDownloads`, `GetPendingByChannel`, `RecoverOnStartup`, `GetDownloadHistory(page, pageSize)`.
+- [x] **2.4** Implementare la logica di recovery: all'avvio del server, i download con status `downloading` vengono rimessi in coda come `queued` per essere ritentati.
+- [x] **2.5** Implementare lo svecchiamento periodico del database:
   - **Downloads completati/falliti**: eliminati dopo un TTL configurabile (default 30 giorni). Configurazione: `config.yaml` → `storage.downloads_retention: 30d`. I download con status `queued`/`downloading` non vengono mai eliminati.
   - **Cache ricerca**: eliminazione entry oltre il TTL stale (24h) — già gestito dalla goroutine di pulizia del search cache (punto 5.6).
   - **Goroutine background**: eseguire la pulizia ogni 12 ore (intervallo configurabile). `DELETE FROM downloads WHERE status IN ('completed','failed') AND completed_at < datetime('now', '-30 days')`.
   - **VACUUM**: 1 volta alla settimana eseguire `VACUUM` per recuperare spazio disco o su richiesta via API.
-- [ ] **2.6** Implementare migrazioni SQLite versionate:
+- [x] **2.6** Implementare migrazioni SQLite versionate:
   - Runner migrazioni all'avvio con tabella `schema_version`.
   - Migrazioni incrementali e idempotenti.
   - Backup automatico del DB prima di migrazioni distruttive.
   - Errore esplicito e stop dell'avvio se una migrazione fallisce.
-- [ ] **2.7** Implementare riconciliazione DB <-> filesystem all'avvio:
+- [x] **2.7** Implementare riconciliazione DB <-> filesystem all'avvio:
   - Se esistono file temporanei parziali e relativo record `downloads`, riaccodarli per resume.
   - Se esistono record `downloading` ma il file temporaneo manca, riportarli a `queued`.
   - Se esistono file temporanei orfani senza record DB, eliminarli o spostarli in una cartella `orphaned/` secondo policy configurabile.
-- [ ] **2.8** Implementare backup/export/import di configurazione e stato:
+- [x] **2.8** Implementare backup/export/import di configurazione e stato:
   - Export di `config.yaml` + subset SQLite rilevante (server, canali, queue, history, cache opzionale).
   - Import controllato con validazione della versione schema.
   - Snapshot/backup del DB prima di upgrade o operazioni distruttive.
 
-### Fase 3 — IRC Connection Manager
+### Fase 3 — IRC Connection Manager ✅
 
-- [ ] **3.1** Creare il package `internal/ircmanager` che gestisce connessioni IRC persistenti multiple (una per server). Deve riusare la libreria `girc` già in uso.
-- [ ] **3.2** Implementare la connessione automatica ai server di default (da config) all'avvio del server.
-- [ ] **3.3** Implementare il join automatico ai canali di default per ciascun server.
-- [ ] **3.4** Implementare la logica di reconnect con backoff esponenziale: al fallimento della connessione o disconnessione, ritentare fino a 5 volte con delay esponenziale (es. 5s, 10s, 20s, 40s, 80s). Dopo 5 fallimenti, ritentare ogni ora.
-- [ ] **3.5** Esporre metodi pubblici: `ConnectServer(address, port)`, `DisconnectServer(id)`, `JoinChannel(serverId, channel)`, `LeaveChannel(serverId, channel)`, `GetServers()`, `GetChannels(serverId)`, `GetChannelTopic(serverId, channel)`.
-- [ ] **3.6** Emettere eventi (via channel Go o callback) per cambiamenti di stato: server connected/disconnected, channel joined/left, topic updated. Questi eventi saranno propagati ai client via SSE.
+- [x] **3.1** Creare il package `internal/ircmanager` che gestisce connessioni IRC persistenti multiple (una per server). Deve riusare la libreria `girc` già in uso.
+- [x] **3.2** Implementare la connessione automatica ai server di default (da config) all'avvio del server.
+- [x] **3.3** Implementare il join automatico ai canali di default per ciascun server.
+- [x] **3.4** Implementare la logica di reconnect con backoff esponenziale: al fallimento della connessione o disconnessione, ritentare fino a 5 volte con delay esponenziale (es. 5s, 10s, 20s, 40s, 80s). Dopo 5 fallimenti, ritentare ogni ora.
+- [x] **3.5** Esporre metodi pubblici: `ConnectServer(address, port)`, `DisconnectServer(id)`, `JoinChannel(serverId, channel)`, `LeaveChannel(serverId, channel)`, `GetServers()`, `GetChannels(serverId)`, `GetChannelTopic(serverId, channel)`.
+- [x] **3.6** Emettere eventi (via channel Go o callback) per cambiamenti di stato: server connected/disconnected, channel joined/left, topic updated. Questi eventi saranno propagati ai client via SSE.
 
-### Fase 4 — Download Queue Manager
+### Fase 4 — Download Queue Manager ✅
 
-- [ ] **4.1** Creare il package `internal/queue` che gestisce la coda di download. Regola: max 1 download attivo per canale IRC, download paralleli tra canali diversi.
-- [ ] **4.2** Implementare `Enqueue(pack)`: aggiunge alla coda. Se nessun download è attivo per quel canale, avvia subito; altrimenti mette in coda.
-- [ ] **4.3** Prevedere un limite globale ai download paralleli: oltre al vincolo `1 download per canale`, introdurre `downloads.max_parallel_total` configurabile (default: 5). I job eccedenti restano in coda anche se il loro canale e' libero.
-- [ ] **4.4** Implementare `onDownloadComplete(channel)`: quando un download finisce (successo o fallimento), prende il prossimo dalla coda dello stesso canale e lo avvia rispettando il limite globale del numero massimo di download paralleli. Prevedere un job che monitora i download attivi e avvia nuovi job dalla coda quando si liberano slot disponibili, schedulato ogni 10 secondi (configurabile), la priorità all'avvio del download è data dall'ordine di enqueue (FIFO) ma con rispetto del vincolo 1 per canale e del limite globale.
-- [ ] **4.5** Integrare con il client IRC esistente (`internal/irc`) per eseguire il download effettivo. Riusare la logica di `DownloadAll` adattandola per operare su singoli pack con reporting del progresso via callback.
-- [ ] **4.6** Implementare il reporting del progresso in tempo reale: bytes scaricati, velocità, ETA per aggiornare il client via SSE.
-- [ ] **4.7** Implementare la persistenza della coda: ogni cambio di stato (enqueue, start, progress, complete, fail) viene scritto nel DB SQLite.
-- [ ] **4.8** Implementare il recovery all'avvio: leggere dal DB i download incompleti e rimetterli in coda.
-- [ ] **4.9** Supportare le directory configurabili: temp dir per file in corso di download, destination dir per file completati. Spostare il file da temp a destination al completamento.
-- [ ] **4.10** Definire la policy sui conflitti file finali: se il file di destinazione esiste gia', comportamento di default `skip` con stato esplicito (`skipped_existing`). La policy deve essere coerente tra UI, API e CLI delegata.
-- [ ] **4.11** Implementare fallback intelligente su download fallito:
+- [x] **4.1** Creare il package `internal/queue` che gestisce la coda di download. Regola: max 1 download attivo per canale IRC, download paralleli tra canali diversi.
+- [x] **4.2** Implementare `Enqueue(pack)`: aggiunge alla coda. Se nessun download è attivo per quel canale, avvia subito; altrimenti mette in coda.
+- [x] **4.3** Prevedere un limite globale ai download paralleli: oltre al vincolo `1 download per canale`, introdurre `downloads.max_parallel_total` configurabile (default: 5). I job eccedenti restano in coda anche se il loro canale e' libero.
+- [x] **4.4** Implementare `onDownloadComplete(channel)`: quando un download finisce (successo o fallimento), prende il prossimo dalla coda dello stesso canale e lo avvia rispettando il limite globale del numero massimo di download paralleli. Prevedere un job che monitora i download attivi e avvia nuovi job dalla coda quando si liberano slot disponibili, schedulato ogni 10 secondi (configurabile), la priorità all'avvio del download è data dall'ordine di enqueue (FIFO) ma con rispetto del vincolo 1 per canale e del limite globale.
+- [x] **4.5** Integrare con il client IRC esistente (`internal/irc`) per eseguire il download effettivo. Riusare la logica di `DownloadAll` adattandola per operare su singoli pack con reporting del progresso via callback.
+- [x] **4.6** Implementare il reporting del progresso in tempo reale: bytes scaricati, velocità, ETA per aggiornare il client via SSE.
+- [x] **4.7** Implementare la persistenza della coda: ogni cambio di stato (enqueue, start, progress, complete, fail) viene scritto nel DB SQLite.
+- [x] **4.8** Implementare il recovery all'avvio: leggere dal DB i download incompleti e rimetterli in coda.
+- [x] **4.9** Supportare le directory configurabili: temp dir per file in corso di download, destination dir per file completati. Spostare il file da temp a destination al completamento.
+- [x] **4.10** Definire la policy sui conflitti file finali: se il file di destinazione esiste gia', comportamento di default `skip` con stato esplicito (`skipped_existing`). La policy deve essere coerente tra UI, API e CLI delegata.
+- [x] **4.11** Implementare fallback intelligente su download fallito:
   - Quando un download fallisce, cercare alternative compatibili (filename/size simile) su provider/bot diversi.
   - Modalita' configurabile: `suggest_only` (default) o `auto_retry_best`.
   - Tracciare nel DB il legame tra job originale e fallback proposto/usato.
-- [ ] **4.12** Implementare limitazione banda e fasce orarie:
+- [x] **4.12** Implementare limitazione banda e fasce orarie:
   - Throttle globale e/o per singolo download.
   - Profilo orario (quiet hours) applicato senza interrompere in modo distruttivo i download in corso.
-- [ ] **4.13** Esporre operazioni bulk sul queue manager:
+- [x] **4.13** Esporre operazioni bulk sul queue manager:
   - `pause/resume/remove` per lista ID o per canale.
   - Risultato per-item (success/fail/skipped) per feedback chiaro lato UI.
 
-### Fase 5 — Search Aggregator
+### Fase 5 — Search Aggregator ✅
 
-- [ ] **5.1** Creare il package `internal/searchagg` che esegue ricerche in parallelo su tutti i provider disponibili (nibl, xdcc-eu, subsplease, + eventuali futuri).
-- [ ] **5.2** Implementare il timeout configurabile per provider (default 5 secondi). Se un provider non risponde entro il timeout, il suo risultato viene ignorato e si procede con quelli ricevuti.
-- [ ] **5.3** Aggregare i risultati: deduplicare (stesso filename + size + bot family), ordinare per rilevanza/dimensione.
-- [ ] **5.4** Supportare i filtri già presenti nel CLI:
+- [x] **5.1** Creare il package `internal/searchagg` che esegue ricerche in parallelo su tutti i provider disponibili (nibl, xdcc-eu, subsplease, + eventuali futuri).
+- [x] **5.2** Implementare il timeout configurabile per provider (default 5 secondi). Se un provider non risponde entro il timeout, il suo risultato viene ignorato e si procede con quelli ricevuti.
+- [x] **5.3** Aggregare i risultati: deduplicare (stesso filename + size + bot family), ordinare per rilevanza/dimensione.
+- [x] **5.4** Supportare i filtri già presenti nel CLI:
   - `-p` / `--prefix`: solo risultati il cui filename inizia con il termine di ricerca.
   - `-b` / `--bot`: filtro per nome bot (substring, case-insensitive).
   - `-c` / `--compact`: rimuovi duplicati (stesso filename, size, bot family).
   - `-x` / `--ext`: filtro per estensione file (comma-separated).
-- [ ] **5.5** Implementare la paginazione dei risultati: page size configurabile (default 50), restituire page + total count nella risposta API.
-- [ ] **5.6** Implementare cache dei risultati di ricerca (solo server, non CLI standalone):
+- [x] **5.5** Implementare la paginazione dei risultati: page size configurabile (default 50), restituire page + total count nella risposta API.
+- [x] **5.6** Implementare cache dei risultati di ricerca (solo server, non CLI standalone):
   - **Storage**: in-memory con persistenza opzionale su SQLite (abilitabile tramite configurazione di default spento) per il fallback stale (i risultati "freschi" stanno in RAM, quelli stale vengono scritti anche su DB per sopravvivere a un restart).
   - **Chiave di cache**: query normalizzata (lowercase + trim). Ogni entry memorizza i risultati grezzi (pre-filtro) + timestamp + provider di origine.
   - **TTL fresco**: 30 minuti di default (configurabile in `config.yaml`). Se la cache è fresca, si ritorna direttamente senza contattare i provider.
@@ -129,60 +129,44 @@ Aggiunta di una modalità client-server all'attuale tool CLI. Il server gestisce
   - **Filtri**: sempre applicati DOPO il recupero dalla cache (la cache contiene risultati grezzi). Questo massimizza la riusabilità: una singola entry in cache serve query con filtri diversi.
   - **Invalidazione**: pulizia periodica (goroutine background) delle entry oltre il TTL stale (24h). Le entry oltre le 24h vengono eliminate.
   - **Configurazione**: `config.yaml` → `search.cache.fresh_ttl: 30m`, `search.cache.stale_ttl: 24h`, `search.cache.enabled: true`.
-- [ ] **5.7** Esporre provenance e stato dei provider nella ricerca:
+- [x] **5.7** Esporre provenance e stato dei provider nella ricerca:
   - Per ogni risposta API indicare se i risultati arrivano da `live`, `cache_fresh` o `cache_stale`.
   - Includere lo stato per provider (`ok`, `timeout`, `failed`, `skipped_cache_hit`).
   - Restituire metadati utili a UI e CLI delegata: eta' della cache, numero provider rispondenti, warning su risultati parziali.
-- [ ] **5.8** Implementare preset ricerca riusabili:
+- [x] **5.8** Implementare preset ricerca riusabili:
   - Salvataggio preset (nome + query + filtri) e applicazione rapida.
   - Possibilita' di marcare preset preferiti/default.
-- [ ] **5.9** Implementare watchlist con rilevamento novita':
+- [x] **5.9** Implementare watchlist con rilevamento novita':
   - Esecuzione manuale (`run now`) e periodica configurabile.
   - Confronto fingerprint risultati rispetto all'ultimo run per individuare nuove entry.
   - Opzione `auto_enqueue` per accodare automaticamente i nuovi match.
-- [ ] **5.10** Implementare provider insights:
+- [x] **5.10** Implementare provider insights:
   - Raccolta metriche per provider (latenza media, timeout rate, success rate).
   - Supporto enable/disable provider a runtime (senza riavvio server).
 
-### Fase 6 — REST API
+### Fase 6 — REST API ✅
 
-- [ ] **6.1** Creare il package `internal/api` con router HTTP. Endpoint:
-  - `GET /healthz` — processo vivo.
-  - `GET /readyz` — dipendenze minime pronte (DB ok, config valida, sottosistemi avviati).
-  - `GET /api/version` — versione server e versione minima compatibile per i client CLI.
-  - `GET /api/servers` — lista server con stato connessione.
-  - `POST /api/servers` — connetti a nuovo server.
-  - `DELETE /api/servers/:id` — disconnetti da server.
-  - `GET /api/servers/:id/channels` — lista canali per server.
-  - `POST /api/servers/:id/channels` — join a canale.
-  - `DELETE /api/servers/:id/channels/:name` — leave da canale.
-  - `GET /api/servers/:id/channels/:name/topic` — topic del canale.
-  - `GET /api/search?q=...&prefix=...&bot=...&ext=...&compact=...&page=...&pageSize=...` — ricerca aggregata.
-  - `POST /api/downloads` — avvia/accoda un download (body: pack info).
-  - `GET /api/downloads` — lista download attivi + in coda.
-  - `GET /api/downloads/history?page=...&pageSize=...` — cronologia download completati/falliti (paginata).
-  - `GET /api/downloads/:id` — ottieni stato e progresso di un singolo download.
-  - `DELETE /api/downloads/:id` — cancella/rimuovi download dalla coda.
-  - `POST /api/downloads/:id/pause` — mette in pausa un download o una entry in coda.
-  - `POST /api/downloads/:id/resume` — riprende un download pausato.
-  - `POST /api/downloads/:id/retry` — rimette in coda un download fallito.
-  - `GET /api/config` — configurazione corrente.
-  - `PUT /api/config` — aggiorna la configurazione runtime (scrive su `config.yaml` con backup).
-  - `GET /api/stats` — statistiche: totale scaricato, conteggi, velocità media, uptime, spazio disco.
-  - `GET /api/status` — stato operativo sintetico: connessioni IRC, coda, spazio disco, eventuali warning attivi.
-  - `POST /api/admin/export` — esporta configurazione e stato.
-  - `POST /api/admin/import` — importa configurazione e stato da backup compatibile.
-  - `PATCH /api/downloads/:id/position` — riordinamento priorità download in coda.
-  - `POST /api/downloads/bulk` — azioni bulk su download/coda (`pause`, `resume`, `remove`) con risposta per-item.
-  - `GET /api/search/presets` / `POST /api/search/presets` / `PUT /api/search/presets/:id` / `DELETE /api/search/presets/:id` — gestione preset ricerca.
-  - `GET /api/watchlists` / `POST /api/watchlists` / `PUT /api/watchlists/:id` / `DELETE /api/watchlists/:id` — gestione watchlist.
-  - `POST /api/watchlists/:id/run` — esecuzione immediata di una watchlist.
-  - `GET /api/search/providers` — stato e metriche provider.
-  - `PATCH /api/search/providers/:name` — enable/disable provider a runtime.
-  - `POST /api/xdcc/parse` — parse di stringhe XDCC raw (`/msg Bot XDCC SEND #123`) in payload download.
-  - `GET /api/setup/status` / `POST /api/setup/bootstrap` — stato setup guidato e bootstrap iniziale.
-- [ ] **6.2** Implementare middleware: CORS, logging, error handling standardizzato (JSON errors), request ID e logging strutturato. Definire una struttura di errore standard (es. `{"error": {"code": "...", "message": "...", "request_id": "..."}}`) per garantire una gestione coerente lato client.
-- [ ] **6.3** Servire i file statici della web app dalla stessa porta HTTP (embedded nel binario con `embed`).
+- [x] **6.1** Creare il package `internal/api` con router HTTP. Endpoint implementati:
+  - `GET /healthz`, `GET /readyz`, `GET /api/version`
+  - `GET /api/servers`, `POST /api/servers`, `DELETE /api/servers/:id`
+  - `GET /api/servers/:id/channels`, `POST /api/servers/:id/channels`
+  - `DELETE /api/servers/:id/channels/:name`, `GET /api/servers/:id/channels/:name/topic`
+  - `GET /api/search?q=...&prefix=...&bot=...&ext=...&compact=...&page=...&pageSize=...`
+  - `POST /api/downloads`, `GET /api/downloads`, `GET /api/downloads/history`
+  - `GET /api/downloads/:id`, `DELETE /api/downloads/:id`
+  - `POST /api/downloads/:id/pause`, `POST /api/downloads/:id/resume`, `POST /api/downloads/:id/retry`
+  - `PATCH /api/downloads/:id/position`, `POST /api/downloads/bulk`
+  - `GET /api/config`, `PUT /api/config`
+  - `GET /api/stats`, `GET /api/status`
+  - `POST /api/admin/export`, `POST /api/admin/import`
+  - `GET /api/search/presets`, `POST /api/search/presets`, `PUT /api/search/presets/:id`, `DELETE /api/search/presets/:id`
+  - `GET /api/watchlists`, `POST /api/watchlists`, `PUT /api/watchlists/:id`, `DELETE /api/watchlists/:id`
+  - `POST /api/watchlists/:id/run`
+  - `GET /api/search/providers`, `PATCH /api/search/providers/:name`
+  - `POST /api/xdcc/parse`
+  - `GET /api/setup/status`, `POST /api/setup/bootstrap`
+- [x] **6.2** Implementati middleware: CORS, logging, request ID, error recovery (chi Recoverer). Struttura errore standard JSON `{"error": {"code": ..., "message": ..., "request_id": ...}}`.
+- [ ] **6.3** Servire i file statici della web app dalla stessa porta HTTP (embedded nel binario con `embed`). (Da implementare in Fase 8)
 
 ### Fase 7 — SSE (Server-Sent Events) per Aggiornamenti Real-Time
 

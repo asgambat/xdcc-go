@@ -368,6 +368,14 @@ func (s *SQLiteStore) MarkDownloadCompleted(id int64) error {
 	return err
 }
 
+func (s *SQLiteStore) MarkDownloadSkipped(id int64) error {
+	_, err := s.db.Exec(
+		`UPDATE downloads SET status='skipped_existing', updated_at=datetime('now') WHERE id=? AND status IN ('downloading','queued')`,
+		id,
+	)
+	return err
+}
+
 func (s *SQLiteStore) MarkDownloadFailed(id int64, errMsg string) error {
 	_, err := s.db.Exec(
 		`UPDATE downloads SET status='failed', error_message=?, completed_at=datetime('now') WHERE id=?`,
