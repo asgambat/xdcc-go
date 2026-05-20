@@ -45,6 +45,7 @@ func (c *Client) registerHandlers() {
 	})
 
 	// WHOIS channels: join only channels we have not yet joined.
+	// If the bot is in exactly one channel, that will be automatically joined.
 	c.irc.Handlers.Add(girc.RPL_WHOISCHANNELS, func(client *girc.Client, e girc.Event) {
 		if len(e.Params) < 2 {
 			return

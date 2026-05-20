@@ -86,7 +86,7 @@
     try {
       await DownloadsAPI.enqueue({
         bot: pack.bot,
-        channel: pack.channel || '#xdcc',
+        channel: pack.channel || '',  // Empty channel - WHOIS will discover it
         pack_number: pack.pack_number,
         filename: pack.filename,
         file_size: pack.size,

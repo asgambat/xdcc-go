@@ -118,26 +118,12 @@ func itoa(n int64) string {
 // Sorting
 // ---------------------------------------------------------------------------
 
-// sortPacks sorts packs by relevance: exact filename prefix match first,
-// then by size (larger first), then by filename alphabetically.
+// sortPacks sorts packs alphabetically by filename.
 func sortPacks(packs []*entities.XDCCPack, query string) {
-	queryLower := strings.ToLower(query)
 	sort.Slice(packs, func(i, j int) bool {
 		a, b := packs[i], packs[j]
 
-		// Exact prefix match gets priority
-		aPrefix := strings.HasPrefix(strings.ToLower(a.Filename), queryLower)
-		bPrefix := strings.HasPrefix(strings.ToLower(b.Filename), queryLower)
-		if aPrefix != bPrefix {
-			return aPrefix
-		}
-
-		// Larger files first (more likely to be the actual content)
-		if a.Size != b.Size {
-			return a.Size > b.Size
-		}
-
-		// Alphabetical by filename
+		// Sort alphabetically by filename
 		return strings.ToLower(a.Filename) < strings.ToLower(b.Filename)
 	})
 }

@@ -61,6 +61,7 @@ func runDownload(
 
 	// --- Resolve channels ---
 	// Use the channel from the download record as the WHOIS fallback channel.
+	// If empty, WHOIS will discover the bot's channel(s) automatically.
 	channel := rec.Channel
 	if channel != "" && channel[0] != '#' {
 		channel = "#" + channel

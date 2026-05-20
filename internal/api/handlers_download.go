@@ -69,10 +69,7 @@ func (a *API) handleEnqueueDownload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "MISSING_SERVER", "server_address is required")
 		return
 	}
-	if body.Channel == "" {
-		writeError(w, http.StatusBadRequest, "MISSING_CHANNEL", "channel is required")
-		return
-	}
+	// Channel is optional - if not provided, WHOIS will discover it
 
 	rec := store.DownloadRecord{
 		PackMessage:   body.PackMessage,
