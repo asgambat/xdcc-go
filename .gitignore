@@ -7,6 +7,10 @@
 *.dll
 *.so
 *.dylib
+xdcc-server
+xdcc-browser
+
+downloads/*
 
 # Test binary, built with `go test -c`
 *.test
