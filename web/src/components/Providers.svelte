@@ -12,8 +12,28 @@
   async function load() {
     try {
       const data = await ProvidersAPI.list();
-      providers.set(data?.providers || data || []);
-    } catch {}
+      // Backend returns { states: [...], insights: [...] }
+      // Merge them for display
+      const states = data?.states || [];
+      const insights = data?.insights || [];
+      
+      // Merge states with insights by name
+      const merged = states.map(state => {
+        const insight = insights.find(i => i.name === state.name);
+        return {
+          name: state.name,
+          status: state.status,
+          enabled: insight?.enabled !== false,
+          latency_ms: state.latency_ms || insight?.avg_latency_ms_24h,
+          result_count: insight?.successes_24h || 0,
+          last_checked_at: null, // not provided by backend
+        };
+      });
+      
+      providers.set(merged);
+    } catch (e) {
+      console.error('Failed to load providers:', e);
+    }
   }
 
   async function toggleProvider(name, enabled) {
