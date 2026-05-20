@@ -107,6 +107,7 @@ func (m *Monitor) SetThreshold(threshold int64) {
 func (m *Monitor) StartPeriodicCheck(onChange func(lowSpace bool, available int64)) (stop func(), done <-chan struct{}) {
 	stopCh := make(chan struct{})
 	doneCh := make(chan struct{})
+	var once sync.Once
 
 	// Do an initial check
 	if available, _, low, err := m.Check(); err == nil {
@@ -149,7 +150,7 @@ func (m *Monitor) StartPeriodicCheck(onChange func(lowSpace bool, available int6
 		}
 	}()
 
-	return func() { close(stopCh) }, doneCh
+	return func() { once.Do(func() { close(stopCh) }) }, doneCh
 }
 
 // ---------------------------------------------------------------------------
