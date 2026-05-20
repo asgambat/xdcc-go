@@ -10,7 +10,7 @@
 xdcc-server
 xdcc-browser
 
-downloads/*
+downloads/
 
 # Test binary, built with `go test -c`
 *.test
