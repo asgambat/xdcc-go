@@ -8,8 +8,8 @@ import (
 
 // IrcServer models an IRC server connection target.
 type IrcServer struct {
-	Address string
-	Port    int
+	Address string `json:"address"`
+	Port    int    `json:"port"`
 }
 
 // NewIrcServer creates a new IrcServer with the default IRC port 6667.

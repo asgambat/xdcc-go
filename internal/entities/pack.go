@@ -8,13 +8,14 @@ import (
 
 // XDCCPack models an XDCC pack to be downloaded from an IRC bot.
 type XDCCPack struct {
-	Server           IrcServer
-	Bot              string
-	PackNumber       int
-	Directory        string
-	Filename         string
-	OriginalFilename string
-	Size             int64
+	Server           IrcServer `json:"server"`
+	Bot              string    `json:"bot"`
+	Channel          string    `json:"channel,omitempty"`
+	PackNumber       int       `json:"pack_number"`
+	Directory        string    `json:"directory,omitempty"`
+	Filename         string    `json:"filename"`
+	OriginalFilename string    `json:"original_filename,omitempty"`
+	Size             int64     `json:"size"`
 }
 
 // NewXDCCPack creates a new XDCCPack.

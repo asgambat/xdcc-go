@@ -85,14 +85,14 @@
   async function downloadPack(pack) {
     try {
       await DownloadsAPI.enqueue({
-        bot: pack.bot || pack.bot_name,
-        channel: pack.channel,
-        pack_number: pack.pack_number || pack.number,
+        bot: pack.bot,
+        channel: pack.channel || '#xdcc',
+        pack_number: pack.pack_number,
         filename: pack.filename,
-        file_size: pack.file_size || pack.size,
-        server_address: pack.server_address || pack.network,
+        file_size: pack.size,
+        server_address: pack.server?.address || 'unknown',
       });
-      addToast(`Download queued: ${pack.filename || pack.pack_number}`, 'success');
+      addToast(`Download queued: ${pack.filename}`, 'success');
     } catch (e) { addToast(e.message, 'error'); }
   }
 
@@ -175,11 +175,11 @@
           <tbody>
             {#each results.packs as pack}
               <tr>
-                <td class="truncate" style="max-width:250px" title={pack.filename || pack.name}>{pack.filename || pack.name || 'Unknown'}</td>
-                <td>{pack.bot || pack.bot_name || '—'}</td>
+                <td class="truncate" style="max-width:250px" title={pack.filename}>{pack.filename || 'Unknown'}</td>
+                <td>{pack.bot || '—'}</td>
                 <td>{pack.channel || '—'}</td>
-                <td class="text-sm">{formatBytes(pack.file_size || pack.size)}</td>
-                <td><span class="badge badge-info">{pack.provider || pack.source || '?'}</span></td>
+                <td class="text-sm">{formatBytes(pack.size)}</td>
+                <td><span class="badge badge-info">{pack.server?.address || '?'}</span></td>
                 <td>
                   <button class="btn btn-sm btn-primary" onclick={() => downloadPack(pack)}>⬇️ Download</button>
                 </td>
