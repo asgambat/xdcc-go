@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -297,9 +298,19 @@ See config.yaml in the project root for all available settings.`,
 	apiHandler := api.New(st, ircMgr, queueMgr, searchAgg, sseHub, cfg, logger)
 	mux := apiHandler.Router()
 
+	// Create global shutdown context for request cancellation (Phase 1.1)
+	// This context will be the parent of all HTTP request contexts
+	globalShutdownCtx, globalShutdownCancel := context.WithCancel(context.Background())
+	defer globalShutdownCancel()
+
 	srv := &http.Server{
 		Addr:    fmt.Sprintf(":%d", cfg.HTTP.Port),
 		Handler: mux,
+		// BaseContext provides the base context for all incoming requests (Phase 1.2)
+		// When we cancel globalShutdownCtx, all active request contexts are cancelled
+		BaseContext: func(net.Listener) context.Context {
+			return globalShutdownCtx
+		},
 	}
 
 			// Graceful shutdown (Fase 9.1)
@@ -341,13 +352,18 @@ See config.yaml in the project root for all available settings.`,
 			logger.Printf("shutdown: closing SSE hub...")
 			sseHub.Close()
 
-			// 2. Stop the HTTP server (can now close cleanly without waiting for SSE)
+			// 2. Cancel all active HTTP request contexts (Phase 1.3)
+			logger.Printf("shutdown: cancelling all active requests...")
+			globalShutdownCancel()
+			time.Sleep(100 * time.Millisecond) // Give handlers time to see cancellation
+
+			// 3. Stop the HTTP server (handlers should exit quickly now)
 			logger.Printf("shutdown: stopping HTTP server...")
 			if err := srv.Shutdown(shutdownCtx); err != nil {
 				logger.Printf("shutdown: HTTP server forced shutdown: %v", err)
 			}
 
-			// 3. Cancel the search aggregator context (with timeout)
+			// 4. Cancel the search aggregator context (with timeout)
 			logger.Printf("shutdown: stopping search aggregator...")
 			stopWithTimeout("search aggregator", 2*time.Second, func() {
 				searchAgg.Stop()

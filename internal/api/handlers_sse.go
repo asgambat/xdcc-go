@@ -92,6 +92,7 @@ func (a *API) handleEvents(w http.ResponseWriter, r *http.Request) {
 	defer keepalive.Stop()
 
 	// Main event loop
+	a.Logger.Printf("[SSE] entering main event loop [%s]", reqID)
 	for {
 		select {
 		case <-r.Context().Done():
@@ -105,10 +106,11 @@ func (a *API) handleEvents(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 		case evt, ok := <-ch:
 			if !ok {
-				// Hub closed
-				a.Logger.Printf("[SSE] channel closed [%s]", reqID)
+				// Hub closed - channel was closed
+				a.Logger.Printf("[SSE] channel closed (hub shutdown) [%s]", reqID)
 				return
 			}
+			a.Logger.Printf("[SSE] received event type=%s [%s]", evt.Type, reqID)
 			writeSSEEvent(w, evt)
 			flusher.Flush()
 		}
