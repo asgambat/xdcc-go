@@ -4,7 +4,7 @@ import { svelte } from '@sveltejs/vite-plugin-svelte';
 export default defineConfig({
   plugins: [svelte()],
   root: '.',
-  base: '',
+  base: '/',
   publicDir: 'public',
   build: {
     outDir: 'dist',
