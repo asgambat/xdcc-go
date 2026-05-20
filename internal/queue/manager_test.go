@@ -344,12 +344,17 @@ func TestEnqueue_Success(t *testing.T) {
 		t.Errorf("expected positive id, got %d", id)
 	}
 
+	// Wait a bit for the download to start (async dispatch)
+	time.Sleep(50 * time.Millisecond)
+
 	d, _ := ms.GetDownload(id)
 	if d == nil {
 		t.Fatal("expected download in store")
 	}
-	if d.Status != store.DownloadStatusQueued {
-		t.Errorf("expected status 'queued', got %s", d.Status)
+	// Since no other downloads are active on this channel and we're under global limit,
+	// the download should start immediately (status: downloading)
+	if d.Status != store.DownloadStatusDownloading {
+		t.Errorf("expected status 'downloading' (auto-started), got %s", d.Status)
 	}
 	if d.Priority != 100 {
 		t.Errorf("expected default priority 100, got %d", d.Priority)
