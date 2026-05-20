@@ -18,6 +18,7 @@ import (
 	"xdcc-go/internal/config"
 	"xdcc-go/internal/ircmanager"
 	"xdcc-go/internal/queue"
+	"xdcc-go/internal/search"
 	"xdcc-go/internal/searchagg"
 	"xdcc-go/internal/sse"
 	"xdcc-go/internal/store"
@@ -157,8 +158,12 @@ See config.yaml in the project root for all available settings.`,
 		return fmt.Errorf("starting search aggregator: %w", err)
 	}
 	defer searchAgg.Stop()
+	providerCount := len(cfg.Search.EnabledProviders)
+	if providerCount == 0 {
+		providerCount = len(search.AvailableEngines())
+	}
 	logger.Printf("search aggregator ready (%d provider(s), cache=%v)",
-		len(cfg.Search.EnabledProviders), cfg.Search.Cache.Enabled)
+		providerCount, cfg.Search.Cache.Enabled)
 
 	// Start SSE event hub (Fase 7)
 	sseHub := sse.NewHub(100) // buffer last 100 events
