@@ -84,7 +84,14 @@ func (h *Hub) Subscribe() chan Event {
 		return ch
 	}
 	h.clients[ch] = struct{}{}
+	clientCount := len(h.clients)
 	h.mu.Unlock()
+	
+	// Log subscription for diagnostics
+	// Note: This package doesn't have a logger, so we can't log here
+	// The API handler will log the connection
+	_ = clientCount
+	
 	return ch
 }
 
@@ -103,7 +110,16 @@ func (h *Hub) Unsubscribe(ch chan Event) {
 			break
 		}
 	}
+	clientCount := len(h.clients)
 	h.mu.Unlock()
+	_ = clientCount
+}
+
+// ClientCount returns the number of currently connected SSE clients.
+func (h *Hub) ClientCount() int {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return len(h.clients)
 }
 
 // Close shuts down the hub and all client connections.

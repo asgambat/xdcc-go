@@ -14,6 +14,18 @@ import (
 // =========================================================================
 
 func (a *API) handleEvents(w http.ResponseWriter, r *http.Request) {
+	reqID := r.Context().Value("request-id").(string)
+	start := time.Now()
+	
+	// Log SSE client connection with current client count
+	clientsBefore := a.SSEHub.ClientCount()
+	a.Logger.Printf("[SSE] client connected [%s] remote=%s clients_before=%d", reqID, r.RemoteAddr, clientsBefore)
+	defer func() {
+		duration := time.Since(start)
+		clientsAfter := a.SSEHub.ClientCount()
+		a.Logger.Printf("[SSE] client disconnected [%s] duration=%v clients_after=%d", reqID, duration, clientsAfter)
+	}()
+	
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		writeError(w, http.StatusInternalServerError, "SSE_UNSUPPORTED",
@@ -30,6 +42,10 @@ func (a *API) handleEvents(w http.ResponseWriter, r *http.Request) {
 	// Subscribe to the SSE hub
 	ch := a.SSEHub.Subscribe()
 	defer a.SSEHub.Unsubscribe(ch)
+	
+	// Log after subscription
+	clientsAfterSub := a.SSEHub.ClientCount()
+	a.Logger.Printf("[SSE] subscribed [%s] total_clients=%d", reqID, clientsAfterSub)
 
 	// Handle Last-Event-ID reconnection (Fase 7.5)
 	lastEventIDStr := r.Header.Get("Last-Event-ID")
@@ -73,14 +89,17 @@ func (a *API) handleEvents(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-r.Context().Done():
 			// Client disconnected
+			a.Logger.Printf("[SSE] context canceled [%s]: %v", reqID, r.Context().Err())
 			return
 		case <-keepalive.C:
 			// Send keepalive comment to prevent connection timeout
+			a.Logger.Printf("[SSE] sending keepalive [%s]", reqID)
 			fmt.Fprintf(w, ": keepalive\n\n")
 			flusher.Flush()
 		case evt, ok := <-ch:
 			if !ok {
 				// Hub closed
+				a.Logger.Printf("[SSE] channel closed [%s]", reqID)
 				return
 			}
 			writeSSEEvent(w, evt)
