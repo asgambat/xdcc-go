@@ -47,7 +47,7 @@
     searching = true;
     error = '';
     try {
-      const params = { query: query.trim() };
+      const params = { q: query.trim() };  // Changed from 'query' to 'q'
       if (selectedProviders.length > 0 && selectedProviders.length < providers.length) {
         params.providers = selectedProviders;
       }
