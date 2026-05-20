@@ -75,7 +75,7 @@ func NewHub(bufferSize int) *Hub {
 // Subscribe adds a new client channel. The returned channel should be used
 // by the HTTP handler to receive events for writing to the SSE stream.
 // The channel has a buffer of 256 events to absorb temporary back-pressure.
-func (h *Hub) Subscribe() <-chan Event {
+func (h *Hub) Subscribe() chan Event {
 	ch := make(chan Event, 256)
 	h.mu.Lock()
 	if h.closed {
@@ -89,7 +89,7 @@ func (h *Hub) Subscribe() <-chan Event {
 }
 
 // Unsubscribe removes a client channel and closes it.
-func (h *Hub) Unsubscribe(ch <-chan Event) {
+func (h *Hub) Unsubscribe(ch chan Event) {
 	h.mu.Lock()
 	// We need to find and remove the bidirectional channel from the map.
 	// Since Go channels are reference types, we iterate to find the match.
@@ -125,9 +125,9 @@ func (h *Hub) Close() {
 // client's channel buffer is full, the event is dropped for that client
 // to prevent slow readers from blocking the hub.
 func (h *Hub) Publish(eventType string, payload map[string]interface{}) {
-	h.mu.RLock()
+	h.mu.Lock()
 	if h.closed {
-		h.mu.RUnlock()
+		h.mu.Unlock()
 		return
 	}
 
@@ -155,7 +155,7 @@ func (h *Hub) Publish(eventType string, payload map[string]interface{}) {
 			// Client too slow — drop event
 		}
 	}
-	h.mu.RUnlock()
+	h.mu.Unlock()
 }
 
 // ---------------------------------------------------------------------------

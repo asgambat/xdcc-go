@@ -103,9 +103,10 @@ func (m *Monitor) SetThreshold(threshold int64) {
 
 // StartPeriodicCheck starts a goroutine that periodically checks disk space.
 // The callback is invoked (non-blocking) whenever the low-space status changes.
-// Returns a function to stop the periodic checks.
-func (m *Monitor) StartPeriodicCheck(onChange func(lowSpace bool, available int64)) func() {
+// Returns a stop function and a done channel that closes when the goroutine exits.
+func (m *Monitor) StartPeriodicCheck(onChange func(lowSpace bool, available int64)) (stop func(), done <-chan struct{}) {
 	stopCh := make(chan struct{})
+	doneCh := make(chan struct{})
 
 	// Do an initial check
 	if available, _, low, err := m.Check(); err == nil {
@@ -115,6 +116,7 @@ func (m *Monitor) StartPeriodicCheck(onChange func(lowSpace bool, available int6
 	}
 
 	go func() {
+		defer close(doneCh) // Signal goroutine exit
 		ticker := time.NewTicker(m.interval)
 		defer ticker.Stop()
 
@@ -123,16 +125,19 @@ func (m *Monitor) StartPeriodicCheck(onChange func(lowSpace bool, available int6
 			case <-stopCh:
 				return
 			case <-ticker.C:
+				// Read OLD value BEFORE Check() updates it
+				m.mu.RLock()
+				prevLow := m.lowSpace
+				m.mu.RUnlock()
+
+				// Check() updates m.lowSpace to NEW value
 				available, _, low, err := m.Check()
 				if err != nil {
 					m.logger.Printf("WARNING: disk space check failed: %v", err)
 					continue
 				}
 
-				m.mu.RLock()
-				prevLow := m.lowSpace
-				m.mu.RUnlock()
-
+				// Now comparison works: OLD vs NEW
 				if low != prevLow && onChange != nil {
 					onChange(low, available)
 				}
@@ -144,9 +149,7 @@ func (m *Monitor) StartPeriodicCheck(onChange func(lowSpace bool, available int6
 		}
 	}()
 
-	return func() {
-		close(stopCh)
-	}
+	return func() { close(stopCh) }, doneCh
 }
 
 // ---------------------------------------------------------------------------

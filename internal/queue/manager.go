@@ -54,12 +54,11 @@ type QueueManager struct {
 	cancel context.CancelFunc
 	done   chan struct{}
 
-	// diskMon monitors disk space; nil = no monitoring
-	diskMon *diskmon.Monitor
-	// diskLow is true when we've paused due to low disk space
-	diskLow bool
-	// stopDiskCheck stops the periodic disk space checker
+	// Disk monitor for available space checks
+	diskMon       *diskmon.Monitor
+	diskLow       bool
 	stopDiskCheck func()
+	diskCheckDone <-chan struct{}
 }
 
 // New creates a new QueueManager.
@@ -81,7 +80,7 @@ func New(st store.Store, cfg *config.Config, logger *log.Logger) *QueueManager {
 	if cfg.Download.MinDiskSpace > 0 {
 		qm.diskMon = diskmon.New(cfg.Download.TempDir, cfg.Download.MinDiskSpace, nil, logger)
 		// Start periodic check — auto-resume when space recovers
-		qm.stopDiskCheck = qm.diskMon.StartPeriodicCheck(func(low bool, _ int64) {
+		qm.stopDiskCheck, qm.diskCheckDone = qm.diskMon.StartPeriodicCheck(func(low bool, _ int64) {
 			qm.mu.Lock()
 			qm.diskLow = low
 			qm.mu.Unlock()
@@ -125,9 +124,10 @@ func (qm *QueueManager) Start() error {
 
 // Stop cancels all active downloads and stops the monitor.
 func (qm *QueueManager) Stop() {
-	// Stop disk monitor first
+	// Stop disk monitor first and wait for goroutine to exit
 	if qm.stopDiskCheck != nil {
 		qm.stopDiskCheck()
+		<-qm.diskCheckDone
 	}
 
 	qm.cancel()

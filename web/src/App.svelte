@@ -59,6 +59,13 @@
   let notificationHandlers = [];
 
   onMount(async () => {
+    // Register service worker for PWA
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js')
+        .then(reg => console.log('[App] Service worker registered:', reg))
+        .catch(err => console.warn('[App] SW registration failed:', err));
+    }
+
     // Request notification permission on first visit
     if ('Notification' in window && Notification.permission === 'default') {
       Notification.requestPermission();

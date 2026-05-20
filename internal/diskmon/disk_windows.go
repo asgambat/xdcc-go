@@ -12,14 +12,14 @@ func getDiskUsage(path string) (available, total int64, err error) {
 		return 0, 0, err
 	}
 
-	var freeBytes int64
-	var totalBytes int64
-	var availBytes int64
+	var freeBytes uint64
+	var totalBytes uint64
+	var availBytes uint64
 
 	err = windows.GetDiskFreeSpaceEx(pathPtr, &availBytes, &totalBytes, &freeBytes)
 	if err != nil {
 		return 0, 0, err
 	}
 
-	return availBytes, totalBytes, nil
+	return int64(availBytes), int64(totalBytes), nil
 }

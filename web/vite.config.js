@@ -5,9 +5,11 @@ export default defineConfig({
   plugins: [svelte()],
   root: '.',
   base: '',
+  publicDir: 'public',
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    copyPublicDir: true,
     sourcemap: false,
   },
 });
