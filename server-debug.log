@@ -9,3 +9,23 @@
 2026/05/20 12:59:52 [xdcc-server] SSE hub started (buffer=100)
 2026/05/20 12:59:52 [xdcc-server] HTTP server listening on :8080
 2026/05/20 12:59:56 [xdcc-server] connected to irc.rizon.net:6667
+2026/05/20 13:00:01 [xdcc-server] [SSE] client connected [req-1779274801762534100] remote=[::1]:59957 clients_before=0
+2026/05/20 13:00:01 [xdcc-server] [SSE] subscribed [req-1779274801762534100] total_clients=1
+2026/05/20 13:00:31 [xdcc-server] [SSE] sending keepalive [req-1779274801762534100]
+2026/05/20 13:00:56 [xdcc-server] GET /api/search/providers 200 2ms [req-1779274856186576500]
+2026/05/20 13:00:56 [xdcc-server] GET /api/search/providers 200 1ms [req-1779274856190160100]
+2026/05/20 13:01:01 [xdcc-server] [SSE] sending keepalive [req-1779274801762534100]
+2026/05/20 13:01:15 [xdcc-server] [SSE] context canceled [req-1779274801762534100]: context canceled
+2026/05/20 13:01:15 [xdcc-server] [SSE] client disconnected [req-1779274801762534100] duration=1m13.5083648s clients_after=0
+2026/05/20 13:01:15 [xdcc-server] GET /api/events 200 1m13.508s [req-1779274801762534100]
+2026/05/20 13:03:29 [xdcc-server] starting xdcc-server on port 8080
+2026/05/20 13:03:29 [xdcc-server] initializing database at C:\progetti\altro\xdcc-go\downloads\xdcc-server.db
+2026/05/20 13:03:29 [xdcc-server] database migrations complete (schema v1)
+2026/05/20 13:03:29 [xdcc-server] connecting to irc.rizon.net:6667 as 'xdcc-userDzF'
+2026/05/20 13:03:29 [xdcc-server] IRC manager started with 2 default server(s)
+2026/05/20 13:03:29 [xdcc-server] DISK OK: space recovered, resuming queue
+2026/05/20 13:03:29 [xdcc-server] queue manager started (max_parallel=5)
+2026/05/20 13:03:29 [xdcc-server] search aggregator ready (3 provider(s), cache=true)
+2026/05/20 13:03:29 [xdcc-server] SSE hub started (buffer=100)
+2026/05/20 13:03:29 [xdcc-server] HTTP server listening on :8080
+2026/05/20 13:03:29 [xdcc-server] HTTP server error: listen tcp :8080: bind: Only one usage of each socket address (protocol/network address/port) is normally permitted.

@@ -115,6 +115,12 @@ func (a *API) Router() http.Handler {
 	r.Get("/api/events", a.handleEvents)                     // GET /api/events
 
 	// =====================================================================
+	// Debug endpoints (goroutine profiling)
+	// =====================================================================
+	r.Get("/debug/goroutines", a.handleDebugGoroutines)      // GET /debug/goroutines (JSON summary)
+	r.Get("/debug/goroutines/dump", a.handleDebugGoroutinesDump) // GET /debug/goroutines/dump (full stack traces)
+
+	// =====================================================================
 	// Setup wizard
 	// =====================================================================
 	r.Get("/api/setup/status", a.handleSetupStatus)          // GET  /api/setup/status
