@@ -40,7 +40,7 @@ export const ServersAPI = {
   },
   disconnect(id)  { return api.del(`/servers/${id}`); },
   listChannels(id){ return api.get(`/servers/${id}/channels`); },
-  joinChannel(sid, ch)  { return api.post(`/servers/${sid}/channels`, { channel: ch }); },
+  joinChannel(sid, ch)  { return api.post(`/servers/${sid}/channels`, { name: ch }); },
   leaveChannel(sid, ch) { return api.del(`/servers/${sid}/channels/${encodeURIComponent(ch)}`); },
   topic(sid, ch)  { return api.get(`/servers/${sid}/channels/${encodeURIComponent(ch)}/topic`); },
 };
