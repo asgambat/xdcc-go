@@ -106,17 +106,28 @@ func (a *API) handleStats(w http.ResponseWriter, r *http.Request) {
 	servers, _ := a.Store.ListServers()
 	serverCount := len(servers)
 
-	uptime := time.Since(a.StartTime).Round(time.Second).String()
+	uptimeSeconds := int64(time.Since(a.StartTime).Seconds())
+
+	// Get disk info
+	di, err := getDiskInfo(a.Config.Download.DestDir)
+	diskFreeBytes := int64(0)
+	diskTotalBytes := int64(0)
+	if err == nil {
+		diskFreeBytes = di.available
+		diskTotalBytes = di.total
+	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"active_downloads":  activeCount,
-		"queued_downloads":  queueCount,
-		"total_completed":   totalHistory,
-		"connected_servers": serverCount,
-		"uptime":            uptime,
-		"started_at":        a.StartTime.Format(time.RFC3339),
-		"go_version":        runtime.Version(),
-		"os":                runtime.GOOS + "/" + runtime.GOARCH,
+		"active_downloads":     activeCount,
+		"queued_downloads":     queueCount,
+		"total_completed":      totalHistory,
+		"connected_servers":    serverCount,
+		"uptime_seconds":       uptimeSeconds,
+		"disk_free_bytes":      diskFreeBytes,
+		"disk_total_bytes":     diskTotalBytes,
+		"started_at":           a.StartTime.Format(time.RFC3339),
+		"go_version":           runtime.Version(),
+		"os":                   runtime.GOOS + "/" + runtime.GOARCH,
 	})
 }
 
@@ -129,8 +140,14 @@ func (a *API) handleStatus(w http.ResponseWriter, r *http.Request) {
 	info := make(map[string]interface{})
 
 	di, err := getDiskInfo(a.Config.Download.DestDir)
-	if err == nil && di.available < 1*1024*1024*1024 {
-		warnings = append(warnings, "Low disk space in download directory")
+	diskFreeBytes := int64(0)
+	diskTotalBytes := int64(0)
+	if err == nil {
+		diskFreeBytes = di.available
+		diskTotalBytes = di.total
+		if di.available < 1*1024*1024*1024 {
+			warnings = append(warnings, "Low disk space in download directory")
+		}
 	}
 
 	servers, _ := a.Store.ListServers()
@@ -152,6 +169,8 @@ func (a *API) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	info["active_downloads"] = activeDownloads
 
+	uptimeSeconds := int64(time.Since(a.StartTime).Seconds())
+
 	status := "healthy"
 	if len(warnings) > 0 {
 		status = "degraded"
@@ -161,9 +180,12 @@ func (a *API) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"status":   status,
-		"warnings": warnings,
-		"info":     info,
+		"status":           status,
+		"warnings":         warnings,
+		"info":             info,
+		"uptime_seconds":   uptimeSeconds,
+		"disk_free_bytes":  diskFreeBytes,
+		"disk_total_bytes": diskTotalBytes,
 	})
 }
 
