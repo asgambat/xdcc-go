@@ -1,4 +1,5 @@
 <script>
+  import { onMount } from 'svelte';
   import { searchResults } from '../lib/stores.js';
   import { SearchAPI, DownloadsAPI, ProvidersAPI } from '../lib/api.js';
   import { formatBytes, statusBadge } from '../lib/utils.js';
@@ -15,12 +16,30 @@
   let error = $state('');
   let results = $state(null);
 
+  onMount(async () => {
+    await loadProviders();
+  });
+
   async function loadProviders() {
     try {
       const data = await ProvidersAPI.list();
-      providers = (data?.providers || data || []).filter(p => p.enabled !== false);
+      // Backend returns { states: [...], insights: [...] }
+      const states = data?.states || [];
+      const insights = data?.insights || [];
+      
+      // Merge states with insights
+      providers = states.map(state => {
+        const insight = insights.find(i => i.name === state.name);
+        return {
+          name: state.name,
+          enabled: insight?.enabled !== false,
+        };
+      }).filter(p => p.enabled);
+      
       selectedProviders = providers.map(p => p.name);
-    } catch {}
+    } catch (e) {
+      console.error('Failed to load providers:', e);
+    }
   }
 
   async function doSearch() {
