@@ -91,19 +91,12 @@ func (a *API) handleEvents(w http.ResponseWriter, r *http.Request) {
 	keepalive := time.NewTicker(30 * time.Second)
 	defer keepalive.Stop()
 
-	// Main event loop with shutdown timeout protection
-	shutdownTimeout := time.NewTimer(35 * time.Second) // Max time to wait during shutdown
-	defer shutdownTimeout.Stop()
-	
+	// Main event loop
 	for {
 		select {
 		case <-r.Context().Done():
-			// Client disconnected
+			// Client disconnected or server shutting down
 			a.Logger.Printf("[SSE] context canceled [%s]: %v", reqID, r.Context().Err())
-			return
-		case <-shutdownTimeout.C:
-			// Shutdown taking too long - force exit
-			a.Logger.Printf("[SSE] shutdown timeout exceeded [%s]", reqID)
 			return
 		case <-keepalive.C:
 			// Send keepalive comment to prevent connection timeout
