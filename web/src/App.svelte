@@ -2,6 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { currentView, toasts, sseStatus, stats, status, config, downloads, servers } from './lib/stores.js';
   import { sseClient, SystemAPI, DownloadsAPI, ServersAPI } from './lib/api.js';
+  import { debounce } from './lib/utils.js';
   import Sidebar from './components/Sidebar.svelte';
   import ConnectionStatus from './components/ConnectionStatus.svelte';
   import Toast from './components/Toast.svelte';
@@ -119,31 +120,37 @@
     }
 
     // ---- SSE event -> downloads store updates ----
+    // Debounce to prevent connection pool saturation from frequent events
+    const refreshDownloads = debounce(async () => {
+      try {
+        const dls = await DownloadsAPI.list();
+        downloads.set(dls?.downloads || dls || []);
+      } catch {}
+    }, 500); // 500ms debounce
+
     const refreshEvents = ['download_queued', 'download_started', 'download_progress', 'download_completed', 'download_skipped', 'download_failed', 'download_paused', 'download_removed', 'download_bulk_action_result', 'download_alternative_found'];
     for (const evt of refreshEvents) {
-      sseClient.on(evt, async () => {
-        try {
-          const dls = await DownloadsAPI.list();
-          downloads.set(dls?.downloads || dls || []);
-        } catch {}
-      });
+      sseClient.on(evt, refreshDownloads);
     }
 
     // ---- SSE event -> servers/status store updates ----
+    // Debounce to prevent connection pool saturation
+    const refreshServers = debounce(async () => {
+      try {
+        const [serversData, statsData, statusData] = await Promise.all([
+          ServersAPI.list().catch(() => null),
+          SystemAPI.stats().catch(() => null),
+          SystemAPI.status().catch(() => null),
+        ]);
+        if (serversData) servers.set(serversData);
+        if (statsData) stats.set(statsData);
+        if (statusData) status.set(statusData);
+      } catch {}
+    }, 1000); // 1s debounce
+
     const serverEvents = ['server_connected', 'server_disconnected', 'server_reconnecting', 'channel_joined', 'channel_left', 'channel_topic_updated'];
     for (const evt of serverEvents) {
-      sseClient.on(evt, async () => {
-        try {
-          const [serversData, statsData, statusData] = await Promise.all([
-            ServersAPI.list().catch(() => null),
-            SystemAPI.stats().catch(() => null),
-            SystemAPI.status().catch(() => null),
-          ]);
-          if (serversData) servers.set(serversData);
-          if (statsData) stats.set(statsData);
-          if (statusData) status.set(statusData);
-        } catch {}
-      });
+      sseClient.on(evt, refreshServers);
     }
 
     // Setup hash routing
