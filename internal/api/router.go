@@ -37,6 +37,7 @@ func (a *API) Router() http.Handler {
 			r.Route("/channels/{channelName}", func(r chi.Router) {
 				r.Delete("/", a.handleLeaveChannel)           // DELETE /api/servers/:id/channels/:name
 				r.Get("/topic", a.handleGetChannelTopic)      // GET  /api/servers/:id/channels/:name/topic
+				r.Patch("/", a.handleUpdateChannel)           // PATCH /api/servers/:id/channels/:name
 			})
 		})
 	})

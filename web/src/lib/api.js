@@ -43,6 +43,7 @@ export const ServersAPI = {
   joinChannel(sid, ch)  { return api.post(`/servers/${sid}/channels`, { name: ch }); },
   leaveChannel(sid, ch) { return api.del(`/servers/${sid}/channels/${encodeURIComponent(ch)}`); },
   topic(sid, ch)  { return api.get(`/servers/${sid}/channels/${encodeURIComponent(ch)}/topic`); },
+  setChannelAutoJoin(sid, ch, autoJoin) { return api.patch(`/servers/${sid}/channels/${encodeURIComponent(ch)}`, { auto_join: autoJoin }); },
 };
 
 // ---- Download API ----

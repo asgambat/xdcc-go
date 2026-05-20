@@ -220,3 +220,42 @@ func (a *API) handleGetChannelTopic(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, map[string]string{"topic": topic})
 }
+
+// =========================================================================
+// PATCH /api/servers/:serverID/channels/:channelName
+// =========================================================================
+
+func (a *API) handleUpdateChannel(w http.ResponseWriter, r *http.Request) {
+	serverID, err := parseID(chi.URLParam(r, "serverID"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_ID", "Invalid server ID")
+		return
+	}
+	channelName := chi.URLParam(r, "channelName")
+
+	var body struct {
+		AutoJoin *bool `json:"auto_join"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_JSON", "Invalid request body")
+		return
+	}
+
+	// Get channel from store
+	ch, err := a.Store.GetChannelsByServerAndName(serverID, channelName)
+	if err != nil || ch == nil {
+		writeError(w, http.StatusNotFound, "CHANNEL_NOT_FOUND", "Channel not found")
+		return
+	}
+
+	// Update auto_join if provided
+	if body.AutoJoin != nil {
+		ch.AutoJoin = *body.AutoJoin
+		if err := a.Store.UpdateChannel(*ch); err != nil {
+			a.logAndError(w, http.StatusInternalServerError, "UPDATE_ERROR", err.Error())
+			return
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+}
