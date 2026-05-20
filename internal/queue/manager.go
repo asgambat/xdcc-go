@@ -54,6 +54,9 @@ type QueueManager struct {
 	cancel context.CancelFunc
 	done   chan struct{}
 
+	// Track active download goroutines for clean shutdown
+	downloadWg sync.WaitGroup
+
 	// Disk monitor for available space checks
 	diskMon       *diskmon.Monitor
 	diskLow       bool
@@ -147,6 +150,20 @@ func (qm *QueueManager) Stop() {
 			qm.log.Printf("shutdown: saving progress for download %d: %d/%d bytes", id, d.ProgressBytes, d.FileSize)
 		}
 		qm.CancelDownload(id, "server shutting down")
+	}
+
+	// Wait for all download workers to complete with timeout
+	downloadsDone := make(chan struct{})
+	go func() {
+		qm.downloadWg.Wait()
+		close(downloadsDone)
+	}()
+
+	select {
+	case <-downloadsDone:
+		qm.log.Printf("all download workers stopped cleanly")
+	case <-time.After(10 * time.Second):
+		qm.log.Printf("WARNING: download workers did not stop within 10s")
 	}
 }
 
@@ -546,7 +563,11 @@ func (qm *QueueManager) startDownload(d store.DownloadRecord) {
 		Logger:         xdccirc.LoggerFunc(qm.log.Printf),
 	}
 
+	// Track download goroutine for clean shutdown
+	qm.downloadWg.Add(1)
 	go func() {
+		defer qm.downloadWg.Done()
+		
 		// Progress callback: update store and emit events
 		progressFn := func(bytesReceived, totalBytes int64, speedBPS float64) {
 			// Update store
