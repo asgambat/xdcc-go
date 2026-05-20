@@ -280,7 +280,11 @@ See config.yaml in the project root for all available settings.`,
 			}, logger)
 
 			logger.Printf("server stopped gracefully")
-			return nil
+			
+			// Force exit to ensure all goroutines are terminated
+			// Some goroutines may not have shut down cleanly within timeouts
+			os.Exit(0)
+			return nil // Unreachable, but required by compiler
 		},
 	}
 
