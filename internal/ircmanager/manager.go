@@ -265,7 +265,17 @@ func (m *Manager) DisconnectServer(serverID int64) error {
 		return fmt.Errorf("server %d is not managed", serverID)
 	}
 
+	// Signal disconnect and wait for run() to complete
 	conn.disconnect()
+	
+	// Wait for run() goroutine to finish with timeout
+	select {
+	case <-conn.done:
+		m.logger.Printf("server %d disconnected cleanly", serverID)
+	case <-time.After(5 * time.Second):
+		m.logger.Printf("WARNING: server %d disconnect exceeded 5s timeout", serverID)
+	}
+	
 	if err := m.store.SetServerStatus(serverID, "disconnected"); err != nil {
 		m.logger.Printf("WARNING: updating server status in DB failed: %v", err)
 	}
