@@ -1,48 +1,11 @@
-2026/05/20 12:57:56 [xdcc-server] starting xdcc-server on port 8080
-2026/05/20 12:57:56 [xdcc-server] initializing database at C:\progetti\altro\xdcc-go\downloads\xdcc-server.db
-2026/05/20 12:57:56 [xdcc-server] database migrations complete (schema v1)
-2026/05/20 12:57:56 [xdcc-server] IRC manager started with 2 default server(s)
-2026/05/20 12:57:56 [xdcc-server] DISK OK: space recovered, resuming queue
-2026/05/20 12:57:56 [xdcc-server] connecting to irc.rizon.net:6667 as 'xdcc-userYtK'
-2026/05/20 12:57:56 [xdcc-server] queue manager started (max_parallel=5)
-2026/05/20 12:57:56 [xdcc-server] search aggregator ready (3 provider(s), cache=true)
-2026/05/20 12:57:56 [xdcc-server] SSE hub started (buffer=100)
-2026/05/20 12:57:56 [xdcc-server] HTTP server listening on :8080
-
- panic: interface conversion: interface {} is nil, not string
- 
- -> xdcc-go/internal/api.(*API).handleEvents
- ->   C:/progetti/altro/xdcc-go/internal/api/handlers_sse.go:17
-
-    net/http.HandlerFunc.ServeHTTP
-      C:/Users/asgambat/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.25.0.windows-amd64/src/net/http/server.go:2322
-    github.com/go-chi/chi/v5.(*Mux).routeHTTP
-      C:/Users/asgambat/go/pkg/mod/github.com/go-chi/chi/v5@v5.2.5/mux.go:479
-    net/http.HandlerFunc.ServeHTTP
-      C:/Users/asgambat/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.25.0.windows-amd64/src/net/http/server.go:2322
-    github.com/go-chi/chi/v5/middleware.Recoverer.func1
-      C:/Users/asgambat/go/pkg/mod/github.com/go-chi/chi/v5@v5.2.5/middleware/recoverer.go:45
-    net/http.HandlerFunc.ServeHTTP
-      C:/Users/asgambat/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.25.0.windows-amd64/src/net/http/server.go:2322
-    xdcc-go/internal/api.(*API).Router.Logging.func5.1
-      C:/progetti/altro/xdcc-go/internal/api/api.go:154
-    net/http.HandlerFunc.ServeHTTP
-      C:/Users/asgambat/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.25.0.windows-amd64/src/net/http/server.go:2322
-    xdcc-go/internal/api.RequestID.func1
-      C:/progetti/altro/xdcc-go/internal/api/api.go:176
-    net/http.HandlerFunc.ServeHTTP
-      C:/Users/asgambat/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.25.0.windows-amd64/src/net/http/server.go:2322
-    xdcc-go/internal/api.CORS.func1
-      C:/progetti/altro/xdcc-go/internal/api/api.go:143
-    net/http.HandlerFunc.ServeHTTP
-      C:/Users/asgambat/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.25.0.windows-amd64/src/net/http/server.go:2322
-    github.com/go-chi/chi/v5.(*Mux).ServeHTTP
-      C:/Users/asgambat/go/pkg/mod/github.com/go-chi/chi/v5@v5.2.5/mux.go:90
-    net/http.serverHandler.ServeHTTP
-      C:/Users/asgambat/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.25.0.windows-amd64/src/net/http/server.go:3340
-    net/http.(*conn).serve
-      C:/Users/asgambat/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.25.0.windows-amd64/src/net/http/server.go:2109
-    created by net/http.(*Server).Serve in goroutine 27
-      C:/Users/asgambat/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.25.0.windows-amd64/src/net/http/server.go:3493
-    
-2026/05/20 12:57:57 [xdcc-server] GET /api/events 500 1ms [req-1779274677581303200]
+2026/05/20 12:59:52 [xdcc-server] starting xdcc-server on port 8080
+2026/05/20 12:59:52 [xdcc-server] initializing database at C:\progetti\altro\xdcc-go\downloads\xdcc-server.db
+2026/05/20 12:59:52 [xdcc-server] database migrations complete (schema v1)
+2026/05/20 12:59:52 [xdcc-server] connecting to irc.rizon.net:6667 as 'xdcc-user7IV'
+2026/05/20 12:59:52 [xdcc-server] IRC manager started with 2 default server(s)
+2026/05/20 12:59:52 [xdcc-server] DISK OK: space recovered, resuming queue
+2026/05/20 12:59:52 [xdcc-server] queue manager started (max_parallel=5)
+2026/05/20 12:59:52 [xdcc-server] search aggregator ready (3 provider(s), cache=true)
+2026/05/20 12:59:52 [xdcc-server] SSE hub started (buffer=100)
+2026/05/20 12:59:52 [xdcc-server] HTTP server listening on :8080
+2026/05/20 12:59:56 [xdcc-server] connected to irc.rizon.net:6667

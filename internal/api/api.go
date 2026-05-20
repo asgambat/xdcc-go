@@ -3,6 +3,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -173,7 +174,10 @@ func RequestID(next http.Handler) http.Handler {
 			id = fmt.Sprintf("req-%d", time.Now().UnixNano())
 		}
 		w.Header().Set("X-Request-ID", id)
-		next.ServeHTTP(w, r)
+		
+		// Store request ID in context so handlers can access it
+		ctx := context.WithValue(r.Context(), "request-id", id)
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 

@@ -14,7 +14,14 @@ import (
 // =========================================================================
 
 func (a *API) handleEvents(w http.ResponseWriter, r *http.Request) {
-	reqID := r.Context().Value("request-id").(string)
+	// Safely get request ID from context
+	reqID := "unknown"
+	if id := r.Context().Value("request-id"); id != nil {
+		if idStr, ok := id.(string); ok {
+			reqID = idStr
+		}
+	}
+	
 	start := time.Now()
 	
 	// Log SSE client connection with current client count
