@@ -73,13 +73,15 @@
 
     // Load initial data
     try {
-      const [statsData, statusData, cfg, dls] = await Promise.all([
+      const [statsData, statusData, cfg, dls, srvs] = await Promise.all([
         SystemAPI.stats().catch(() => null),
         SystemAPI.status().catch(() => null),
         SystemAPI.config().catch(() => null),
         DownloadsAPI.list().catch(() => []),
+        ServersAPI.list().catch(() => []),
       ]);
       if (dls?.downloads || dls) downloads.set(dls?.downloads || dls);
+      if (srvs) servers.set(srvs);
       if (statsData) stats.set(statsData);
       if (statusData) status.set(statusData);
       if (cfg) config.set(cfg);

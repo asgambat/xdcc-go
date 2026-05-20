@@ -1,13 +1,13 @@
 <script>
-  import { stats, status, downloads, activeDownloads } from '../lib/stores.js';
+  import { stats, status, downloads, activeDownloads, servers } from '../lib/stores.js';
   import { formatBytes, formatSpeed, formatUptime, statusBadge } from '../lib/utils.js';
 
   let { openModal = () => {} } = $props();
 
   let s = $derived($stats || {});
   let st = $derived($status || {});
-  let connectedCount = $derived(st?.servers?.filter(s => s.status === 'connected').length || 0);
-  let serverTotal = $derived(st?.servers?.length || 0);
+  let connectedCount = $derived($servers.filter(s => s.status === 'connected').length);
+  let serverTotal = $derived($servers.length);
   let completedToday = $derived($downloads.filter(d =>
     d.status === 'completed' && d.completed_at &&
     new Date(d.completed_at) > new Date(Date.now() - 86400000)
@@ -91,12 +91,12 @@
     <span class="card-title">🖥️ Servers</span>
     <button class="btn btn-sm btn-primary" onclick={() => window.__navigateTo('servers')}>Manage</button>
   </div>
-  {#if st?.servers?.length}
+  {#if $servers.length > 0}
     <div class="table-container">
       <table>
         <thead><tr><th>Server</th><th>Status</th><th>Channels</th><th>Uptime</th></tr></thead>
         <tbody>
-          {#each st.servers as srv}
+          {#each $servers as srv}
             <tr>
               <td>{srv.address || srv.server_address}:{srv.port || 6667}</td>
               <td><span class="badge badge-{statusBadge(srv.status).cls}"><span class="badge-dot"></span>{srv.status}</span></td>
