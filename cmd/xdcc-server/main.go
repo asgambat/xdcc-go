@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -75,7 +76,18 @@ See config.yaml in the project root for all available settings.`,
 			}
 
 			// Setup logger
-			logger := log.New(os.Stderr, "[xdcc-server] ", log.LstdFlags|log.Lmsgprefix)
+			var logWriter io.Writer = os.Stderr
+			if cfg.Logging.FilePath != "" {
+				logFile, err := os.OpenFile(cfg.Logging.FilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+				if err != nil {
+					return fmt.Errorf("opening log file %s: %w", cfg.Logging.FilePath, err)
+				}
+				defer logFile.Close()
+				logWriter = logFile
+				// Also write to stderr for immediate feedback
+				logWriter = io.MultiWriter(os.Stderr, logFile)
+			}
+			logger := log.New(logWriter, "[xdcc-server] ", log.LstdFlags|log.Lmsgprefix)
 			logger.Printf("starting xdcc-server on port %d", cfg.HTTP.Port)
 
 			// Ensure download directories exist
