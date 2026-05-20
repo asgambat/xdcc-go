@@ -255,21 +255,29 @@ See config.yaml in the project root for all available settings.`,
 				logger.Printf("shutdown: HTTP server forced shutdown: %v", err)
 			}
 
-			// 3. Cancel the search aggregator context
+			// 3. Cancel the search aggregator context (with timeout)
 			logger.Printf("shutdown: stopping search aggregator...")
-			searchAgg.Stop()
+			stopWithTimeout("search aggregator", 2*time.Second, func() {
+				searchAgg.Stop()
+			}, logger)
 
-			// 4. Cancel all active queue downloads (saves progress first)
+			// 4. Cancel all active queue downloads (saves progress first, with timeout)
 			logger.Printf("shutdown: stopping queue manager...")
-			queueMgr.Stop()
+			stopWithTimeout("queue manager", 10*time.Second, func() {
+				queueMgr.Stop()
+			}, logger)
 
-			// 5. Disconnect all IRC servers with QUIT message
+			// 5. Disconnect all IRC servers with QUIT message (with timeout)
 			logger.Printf("shutdown: disconnecting IRC servers...")
-			ircMgr.Stop()
+			stopWithTimeout("IRC manager", 5*time.Second, func() {
+				ircMgr.Stop()
+			}, logger)
 
-			// 6. Run final cleanup save
+			// 6. Run final cleanup save (with timeout)
 			logger.Printf("shutdown: running final database cleanup...")
-			st.Vacuum()
+			stopWithTimeout("database cleanup", 3*time.Second, func() {
+				st.Vacuum()
+			}, logger)
 
 			logger.Printf("server stopped gracefully")
 			return nil
@@ -298,4 +306,21 @@ func currentSchemaVersion(st *store.SQLiteStore) int {
 		return 0
 	}
 	return v
+}
+
+// stopWithTimeout executes a stop function with a timeout.
+// If the function doesn't complete within the timeout, it logs a warning and continues.
+func stopWithTimeout(name string, timeout time.Duration, fn func(), logger *log.Logger) {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		fn()
+	}()
+
+	select {
+	case <-done:
+		// Completed successfully
+	case <-time.After(timeout):
+		logger.Printf("WARNING: %s stop exceeded timeout (%v), forcing shutdown", name, timeout)
+	}
 }
