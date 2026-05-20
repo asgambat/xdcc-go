@@ -221,30 +221,11 @@ func (a *Aggregator) Search(ctx context.Context, opts SearchOptions) (*SearchRes
 	// Run parallel searches
 	allPacks, providerStatuses, hadSuccess := a.searchLive(ctx, query)
 	if !hadSuccess {
-		// All providers failed — try stale cache
+		// All providers failed — try stale cache (all providers)
 		key := cacheKey(query)
-		staleEntry := a.cache.get(key, "")
-		if staleEntry != nil {
-			filtered := filterPacks(staleEntry.Packs, opts)
-			sortPacks(filtered, query)
-			paged, total := paginatePacks(filtered, opts.Page, opts.PageSize)
-			totalPages := (total + opts.PageSize - 1) / opts.PageSize
-			if opts.PageSize < 1 {
-				opts.PageSize = 50
-			}
-			cacheAge := time.Since(staleEntry.FetchedAt)
-
-			return &SearchResult{
-				Packs:      paged,
-				Total:      total,
-				Page:       opts.Page,
-				PageSize:   opts.PageSize,
-				TotalPages: totalPages,
-				Provenance: ProvenanceCacheStale,
-				Providers:  a.GetProviderStates(),
-				CacheAge:   &cacheAge,
-				Warnings:   []string{"All providers unreachable — serving stale cached results"},
-			}, nil
+		staleEntries := a.cache.getStale(key)
+		if staleEntries != nil {
+			return a.buildResultFromCache(staleEntries, opts, ProvenanceCacheStale, key), nil
 		}
 
 		// No stale cache either
@@ -307,20 +288,16 @@ func (a *Aggregator) searchLive(ctx context.Context, query string) ([]*entities.
 				}
 			}
 
-			// Run with timeout
+			// Run with timeout using context for proper cancellation
+			searchCtx, searchCancel := context.WithTimeout(ctx, timeout)
+			defer searchCancel()
+
 			start := time.Now()
 			done := make(chan struct{})
 
 			var packs []*entities.XDCCPack
 			var err error
 
-			// NOTE: The goroutine below will continue running in the background
-			// even if the timeout expires. This is acceptable because:
-			// 1. engine.Search() operations are well-behaved and complete quickly
-			// 2. They don't hold locks or consume significant resources
-			// 3. The results are simply discarded if timeout occurs
-			// Alternative solution would require context-aware engine.Search(),
-			// which is not currently supported by the search engine interface.
 			go func() {
 				packs, err = engine.Search(query)
 				close(done)
@@ -339,17 +316,10 @@ func (a *Aggregator) searchLive(ctx context.Context, query string) ([]*entities.
 					results <- engineResult{name: name, packs: packs, latency: latency}
 				}
 
-			case <-time.After(timeout):
+			case <-searchCtx.Done():
 				results <- engineResult{
 					name:    name,
 					err:     fmt.Errorf("timeout after %v", timeout),
-					latency: timeout,
-				}
-
-			case <-ctx.Done():
-				results <- engineResult{
-					name:    name,
-					err:     ctx.Err(),
 					latency: time.Since(start),
 				}
 			}

@@ -1,6 +1,7 @@
 package store
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -830,6 +831,116 @@ func TestDeleteExpiredSearchCache(t *testing.T) {
 	got, _ := s.GetSearchCache("stale query", "xdcc_eu")
 	if got != nil {
 		t.Errorf("expected stale entry to be deleted, but got %+v", got)
+	}
+}
+
+func TestGetSearchCacheByQuery(t *testing.T) {
+	s := newTestStore(t)
+	defer closeStore(t, s)
+
+	now := time.Now()
+	// Insert entries from multiple providers for same query
+	for _, prov := range []string{"nibl", "xdcc_eu", "sunxdcc"} {
+		entry := SearchCacheEntry{
+			QueryKey:      "multi provider",
+			Provider:      prov,
+			PayloadJSON:   `[{"filename":"` + prov + `.mkv"}]`,
+			FetchedAt:     now,
+			ExpiresAt:     now.Add(time.Hour),
+			StaleExpiresAt: now.Add(24 * time.Hour),
+		}
+		if err := s.SetSearchCache(entry); err != nil {
+			t.Fatalf("SetSearchCache(%s): %v", prov, err)
+		}
+	}
+
+	// Insert entry for different query (should not appear)
+	other := SearchCacheEntry{
+		QueryKey:      "other query",
+		Provider:      "nibl",
+		PayloadJSON:   `[]`,
+		FetchedAt:     now,
+		ExpiresAt:     now.Add(time.Hour),
+		StaleExpiresAt: now.Add(24 * time.Hour),
+	}
+	s.SetSearchCache(other)
+
+	entries, err := s.GetSearchCacheByQuery("multi provider")
+	if err != nil {
+		t.Fatalf("GetSearchCacheByQuery: %v", err)
+	}
+	if len(entries) != 3 {
+		t.Fatalf("expected 3 entries, got %d", len(entries))
+	}
+
+	providers := make(map[string]bool)
+	for _, e := range entries {
+		providers[e.Provider] = true
+		if e.QueryKey != "multi provider" {
+			t.Errorf("unexpected query_key: %s", e.QueryKey)
+		}
+	}
+	for _, prov := range []string{"nibl", "xdcc_eu", "sunxdcc"} {
+		if !providers[prov] {
+			t.Errorf("missing provider %s in results", prov)
+		}
+	}
+}
+
+func TestGetSearchCacheByQuery_Empty(t *testing.T) {
+	s := newTestStore(t)
+	defer closeStore(t, s)
+
+	entries, err := s.GetSearchCacheByQuery("nonexistent")
+	if err != nil {
+		t.Fatalf("GetSearchCacheByQuery: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("expected empty slice, got %d entries", len(entries))
+	}
+}
+
+// TestGetSearchCacheByQuery_NoDeadlock verifies that GetSearchCacheByQuery
+// does not deadlock even with MaxOpenConns(1). This is the regression test
+// for the critical bug where getFresh() used nested queries.
+func TestGetSearchCacheByQuery_NoDeadlock(t *testing.T) {
+	s := newTestStore(t)
+	defer closeStore(t, s)
+
+	now := time.Now()
+	// Populate cache
+	for i := 0; i < 5; i++ {
+		entry := SearchCacheEntry{
+			QueryKey:      "deadlock test",
+			Provider:      fmt.Sprintf("provider_%d", i),
+			PayloadJSON:   `[{"filename":"test.mkv"}]`,
+			FetchedAt:     now,
+			ExpiresAt:     now.Add(time.Hour),
+			StaleExpiresAt: now.Add(24 * time.Hour),
+		}
+		s.SetSearchCache(entry)
+	}
+
+	// Run concurrent GetSearchCacheByQuery - should not deadlock
+	done := make(chan bool, 10)
+	for i := 0; i < 10; i++ {
+		go func() {
+			entries, err := s.GetSearchCacheByQuery("deadlock test")
+			done <- (err == nil && len(entries) == 5)
+		}()
+	}
+
+	// If this times out, we have a deadlock
+	timeout := time.After(5 * time.Second)
+	for i := 0; i < 10; i++ {
+		select {
+		case ok := <-done:
+			if !ok {
+				t.Error("concurrent GetSearchCacheByQuery returned unexpected result")
+			}
+		case <-timeout:
+			t.Fatal("DEADLOCK: GetSearchCacheByQuery timed out under concurrent access")
+		}
 	}
 }
 

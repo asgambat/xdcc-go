@@ -153,6 +153,52 @@ func (c *searchCache) set(queryKey, provider string, packs []*entities.XDCCPack)
 	}
 }
 
+// getStale returns all entries for a query that are still within stale TTL.
+// Used as fallback when all live providers fail.
+func (c *searchCache) getStale(queryKey string) map[string]*cacheEntry {
+	result := make(map[string]*cacheEntry)
+
+	c.mu.RLock()
+	for provider, entry := range c.entries[queryKey] {
+		if entry.isStale() {
+			result[provider] = entry
+		}
+	}
+	c.mu.RUnlock()
+
+	// Also check SQLite for stale entries not in memory
+	if c.enabled && c.st != nil && len(result) == 0 {
+		entries, err := c.st.GetSearchCacheByQuery(queryKey)
+		if err == nil {
+			for _, sqlEntry := range entries {
+				if time.Now().Before(sqlEntry.StaleExpiresAt) {
+					var packs []*entities.XDCCPack
+					if err := json.Unmarshal([]byte(sqlEntry.PayloadJSON), &packs); err == nil {
+						entry := &cacheEntry{
+							Packs:     packs,
+							FetchedAt: sqlEntry.FetchedAt,
+							ExpiresAt: sqlEntry.ExpiresAt,
+							StaleAt:   sqlEntry.StaleExpiresAt,
+						}
+						c.mu.Lock()
+						if c.entries[queryKey] == nil {
+							c.entries[queryKey] = make(map[string]*cacheEntry)
+						}
+						c.entries[queryKey][sqlEntry.Provider] = entry
+						c.mu.Unlock()
+						result[sqlEntry.Provider] = entry
+					}
+				}
+			}
+		}
+	}
+
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
 // getFresh returns all entries for a query that are still fresh.
 // Returns nil if no provider has fresh data.
 func (c *searchCache) getFresh(queryKey string) map[string]*cacheEntry {
@@ -168,23 +214,12 @@ func (c *searchCache) getFresh(queryKey string) map[string]*cacheEntry {
 
 	// Also check SQLite for fresh entries not in memory
 	if c.enabled && c.st != nil && len(result) == 0 {
-		// Query distinct providers from SQLite for this query
-		// This avoids hardcoded provider list and discovers all available providers dynamically
-		rows, err := c.st.(*store.SQLiteStore).DB().Query(
-			`SELECT DISTINCT provider FROM search_cache WHERE query_key = ?`,
-			queryKey,
-		)
+		// Use GetSearchCacheByQuery to fetch all entries in a single query,
+		// avoiding nested queries that deadlock on single-connection SQLite.
+		entries, err := c.st.GetSearchCacheByQuery(queryKey)
 		if err == nil {
-			defer rows.Close()
-			
-			for rows.Next() {
-				var provider string
-				if err := rows.Scan(&provider); err != nil {
-					continue
-				}
-				
-				sqlEntry, err := c.st.GetSearchCache(queryKey, provider)
-				if err == nil && sqlEntry != nil && time.Now().Before(sqlEntry.ExpiresAt) {
+			for _, sqlEntry := range entries {
+				if time.Now().Before(sqlEntry.ExpiresAt) {
 					var packs []*entities.XDCCPack
 					if err := json.Unmarshal([]byte(sqlEntry.PayloadJSON), &packs); err == nil {
 						entry := &cacheEntry{
@@ -198,10 +233,10 @@ func (c *searchCache) getFresh(queryKey string) map[string]*cacheEntry {
 						if c.entries[queryKey] == nil {
 							c.entries[queryKey] = make(map[string]*cacheEntry)
 						}
-						c.entries[queryKey][provider] = entry
+						c.entries[queryKey][sqlEntry.Provider] = entry
 						c.mu.Unlock()
 						if entry.isFresh() {
-							result[provider] = entry
+							result[sqlEntry.Provider] = entry
 						}
 					}
 				}

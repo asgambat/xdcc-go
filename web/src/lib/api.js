@@ -6,27 +6,40 @@ const API_BASE = '/api';
 
 // ---- REST Client ----
 export const api = {
-  async request(method, path, body = null) {
+  async request(method, path, body = null, { timeoutMs = 30000 } = {}) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
     const opts = {
       method,
       headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
     };
     if (body !== null) {
       opts.body = JSON.stringify(body);
     }
-    const res = await fetch(`${API_BASE}${path}`, opts);
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: { message: res.statusText } }));
-      throw new Error(err.error?.message || `HTTP ${res.status}`);
+    try {
+      const res = await fetch(`${API_BASE}${path}`, opts);
+      clearTimeout(timer);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: { message: res.statusText } }));
+        throw new Error(err.error?.message || `HTTP ${res.status}`);
+      }
+      if (res.status === 204) return null;
+      return res.json();
+    } catch (e) {
+      clearTimeout(timer);
+      if (e.name === 'AbortError') {
+        throw new Error(`Request timeout after ${timeoutMs / 1000}s`);
+      }
+      throw e;
     }
-    if (res.status === 204) return null;
-    return res.json();
   },
-  get(path)       { return this.request('GET', path); },
-  post(path, b)   { return this.request('POST', path, b); },
-  put(path, b)    { return this.request('PUT', path, b); },
-  patch(path, b)  { return this.request('PATCH', path, b); },
-  del(path)       { return this.request('DELETE', path); },
+  get(path, opts)       { return this.request('GET', path, null, opts); },
+  post(path, b, opts)   { return this.request('POST', path, b, opts); },
+  put(path, b, opts)    { return this.request('PUT', path, b, opts); },
+  patch(path, b, opts)  { return this.request('PATCH', path, b, opts); },
+  del(path, opts)       { return this.request('DELETE', path, null, opts); },
 };
 
 // ---- Server API ----

@@ -59,6 +59,7 @@ type Store interface {
 	// ---- Search Cache ----
 	SetSearchCache(entry SearchCacheEntry) error
 	GetSearchCache(queryKey, provider string) (*SearchCacheEntry, error)
+	GetSearchCacheByQuery(queryKey string) ([]SearchCacheEntry, error)
 	DeleteExpiredSearchCache(staleBefore time.Time) error
 
 	// ---- Search Presets ----

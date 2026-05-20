@@ -264,6 +264,9 @@ func (m *mockStore) SetSearchCache(store.SearchCacheEntry) error      { return n
 func (m *mockStore) GetSearchCache(string, string) (*store.SearchCacheEntry, error) {
 	return nil, nil
 }
+func (m *mockStore) GetSearchCacheByQuery(string) ([]store.SearchCacheEntry, error) {
+	return nil, nil
+}
 func (m *mockStore) DeleteExpiredSearchCache(time.Time) error { return nil }
 
 func (m *mockStore) AddSearchPreset(store.SearchPreset) (int64, error)  { return 1, nil }
@@ -290,7 +293,7 @@ func (m *mockStore) GetAllProviderStats(time.Time) (map[string][]store.ProviderS
 	return nil, nil
 }
 func (m *mockStore) CleanupOldDownloads(int) (int, error)     { return 0, nil }
-func (m *mockStore) RunCleanup(int, time.Duration) (chan struct{}, error) { return nil, nil }
+func (m *mockStore) RunCleanup(int, time.Duration) (chan struct{}, chan struct{}, error) { return nil, nil, nil }
 func (m *mockStore) Vacuum() error                                        { return nil }
 func (m *mockStore) ExportData() (*store.ExportData, error)               { return &store.ExportData{}, nil }
 func (m *mockStore) ImportData(*store.ExportData) error                   { return nil }

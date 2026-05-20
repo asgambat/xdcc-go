@@ -330,18 +330,21 @@ func TestRunCleanup_StopChannel(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	stopCh, err := s.RunCleanup(30, 100*time.Millisecond)
+	stopCh, doneCh, err := s.RunCleanup(30, 100*time.Millisecond)
 	if err != nil {
 		t.Fatalf("RunCleanup: %v", err)
 	}
 	if stopCh == nil {
 		t.Fatal("expected non-nil stop channel")
 	}
+	if doneCh == nil {
+		t.Fatal("expected non-nil done channel")
+	}
 
 	// Stop the cleanup goroutine
 	close(stopCh)
-	// Give it time to react
-	time.Sleep(50 * time.Millisecond)
+	// Wait for goroutine to exit
+	<-doneCh
 }
 
 // ===========================================================================

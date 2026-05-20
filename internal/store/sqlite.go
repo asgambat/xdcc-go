@@ -554,6 +554,43 @@ func (s *SQLiteStore) GetSearchCache(queryKey, provider string) (*SearchCacheEnt
 	return &entry, nil
 }
 
+// GetSearchCacheByQuery returns all cache entries for a given query key in a single query.
+// This avoids the need for nested queries which can deadlock on single-connection SQLite.
+func (s *SQLiteStore) GetSearchCacheByQuery(queryKey string) ([]SearchCacheEntry, error) {
+	rows, err := s.db.Query(
+		`SELECT query_key, provider, payload_json, fetched_at, expires_at, stale_expires_at
+		 FROM search_cache WHERE query_key = ?`, queryKey,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("querying search cache by query: %w", err)
+	}
+	defer rows.Close()
+
+	var entries []SearchCacheEntry
+	for rows.Next() {
+		var entry SearchCacheEntry
+		var fetchedAt, expiresAt, staleExpiresAt string
+		if err := rows.Scan(&entry.QueryKey, &entry.Provider, &entry.PayloadJSON,
+			&fetchedAt, &expiresAt, &staleExpiresAt); err != nil {
+			return nil, fmt.Errorf("scanning search cache row: %w", err)
+		}
+		entry.FetchedAt, err = time.Parse(time.RFC3339, fetchedAt)
+		if err != nil {
+			continue
+		}
+		entry.ExpiresAt, err = time.Parse(time.RFC3339, expiresAt)
+		if err != nil {
+			continue
+		}
+		entry.StaleExpiresAt, err = time.Parse(time.RFC3339, staleExpiresAt)
+		if err != nil {
+			continue
+		}
+		entries = append(entries, entry)
+	}
+	return entries, rows.Err()
+}
+
 func (s *SQLiteStore) DeleteExpiredSearchCache(staleBefore time.Time) error {
 	_, err := s.db.Exec(
 		`DELETE FROM search_cache WHERE stale_expires_at < ?`,
