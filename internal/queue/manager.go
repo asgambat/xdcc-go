@@ -15,6 +15,7 @@ import (
 )
 
 // normalizeChannel lowercases and ensures a leading '#'.
+// Returns empty string if input is empty (channel will be discovered via WHOIS).
 func normalizeChannel(ch string) string {
 	ch = strings.ToLower(strings.TrimSpace(ch))
 	if ch != "" && !strings.HasPrefix(ch, "#") {
@@ -219,11 +220,9 @@ func (qm *QueueManager) emitEvent(evt Event) {
 // packMessage is the raw XDCC message (e.g. "xdcc send #123").
 // The caller should already have validated it.
 func (qm *QueueManager) Enqueue(d store.DownloadRecord) (int64, error) {
-	// Normalize and validate channel
+	// Normalize channel (if provided)
+	// Channel is optional - if empty, WHOIS will discover it during download
 	d.Channel = normalizeChannel(d.Channel)
-	if d.Channel == "" {
-		return 0, fmt.Errorf("channel name is required")
-	}
 	
 	// Check for duplicate by bot + pack message
 	dupByMsg, err := qm.store.GetDownloadByBotMessage(d.Bot, d.PackMessage)
