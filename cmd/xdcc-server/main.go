@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 
@@ -181,38 +182,106 @@ See config.yaml in the project root for all available settings.`,
 	sseHub := sse.NewHub(100) // buffer last 100 events
 	logger.Printf("SSE hub started (buffer=100)")
 
+	// Track event forwarding goroutines for clean shutdown
+	var eventWg sync.WaitGroup
+	eventCtx, cancelEvents := context.WithCancel(context.Background())
+	defer cancelEvents()
+
 	// Wire IRC manager events into SSE hub (Fase 7.2)
 	ircEventCh := ircMgr.Subscribe()
 	defer ircMgr.Unsubscribe(ircEventCh)
+	eventWg.Add(1)
 	go func() {
-		for evt := range ircEventCh {
-			sseHub.Publish(string(evt.Type), map[string]interface{}{
-				"server_id":   evt.ServerID,
-				"server_addr": evt.ServerAddr,
-				"channel":     evt.Channel,
-				"topic":       evt.Topic,
-				"timestamp":   evt.Timestamp,
-			})
+		defer eventWg.Done()
+		for {
+			select {
+			case <-eventCtx.Done():
+				// Shutdown signal - drain remaining events with timeout
+				timeout := time.After(100 * time.Millisecond)
+				for {
+					select {
+					case evt, ok := <-ircEventCh:
+						if !ok {
+							return
+						}
+						// Try to publish remaining events (best effort)
+						sseHub.Publish(string(evt.Type), map[string]interface{}{
+							"server_id":   evt.ServerID,
+							"server_addr": evt.ServerAddr,
+							"channel":     evt.Channel,
+							"topic":       evt.Topic,
+							"timestamp":   evt.Timestamp,
+						})
+					case <-timeout:
+						return
+					}
+				}
+			case evt, ok := <-ircEventCh:
+				if !ok {
+					return
+				}
+				sseHub.Publish(string(evt.Type), map[string]interface{}{
+					"server_id":   evt.ServerID,
+					"server_addr": evt.ServerAddr,
+					"channel":     evt.Channel,
+					"topic":       evt.Topic,
+					"timestamp":   evt.Timestamp,
+				})
+			}
 		}
 	}()
 
 	// Wire queue manager events into SSE hub (Fase 7.3)
 	queueEventCh := queueMgr.Subscribe()
 	defer queueMgr.Unsubscribe(queueEventCh)
+	eventWg.Add(1)
 	go func() {
-		for evt := range queueEventCh {
-			sseHub.Publish(string(evt.Type), map[string]interface{}{
-				"download_id":    evt.DownloadID,
-				"bot":            evt.Bot,
-				"server_address": evt.ServerAddress,
-				"channel":        evt.Channel,
-				"filename":       evt.Filename,
-				"progress_bytes": evt.ProgressBytes,
-				"file_size":      evt.FileSize,
-				"speed_bps":      evt.SpeedBPS,
-				"error_message":  evt.ErrorMessage,
-				"timestamp":      evt.Timestamp,
-			})
+		defer eventWg.Done()
+		for {
+			select {
+			case <-eventCtx.Done():
+				// Shutdown signal - drain remaining events with timeout
+				timeout := time.After(100 * time.Millisecond)
+				for {
+					select {
+					case evt, ok := <-queueEventCh:
+						if !ok {
+							return
+						}
+						// Try to publish remaining events (best effort)
+						sseHub.Publish(string(evt.Type), map[string]interface{}{
+							"download_id":    evt.DownloadID,
+							"bot":            evt.Bot,
+							"server_address": evt.ServerAddress,
+							"channel":        evt.Channel,
+							"filename":       evt.Filename,
+							"progress_bytes": evt.ProgressBytes,
+							"file_size":      evt.FileSize,
+							"speed_bps":      evt.SpeedBPS,
+							"error_message":  evt.ErrorMessage,
+							"timestamp":      evt.Timestamp,
+						})
+					case <-timeout:
+						return
+					}
+				}
+			case evt, ok := <-queueEventCh:
+				if !ok {
+					return
+				}
+				sseHub.Publish(string(evt.Type), map[string]interface{}{
+					"download_id":    evt.DownloadID,
+					"bot":            evt.Bot,
+					"server_address": evt.ServerAddress,
+					"channel":        evt.Channel,
+					"filename":       evt.Filename,
+					"progress_bytes": evt.ProgressBytes,
+					"file_size":      evt.FileSize,
+					"speed_bps":      evt.SpeedBPS,
+					"error_message":  evt.ErrorMessage,
+					"timestamp":      evt.Timestamp,
+				})
+			}
 		}
 	}()
 
@@ -245,7 +314,22 @@ See config.yaml in the project root for all available settings.`,
 
 			// === Ordered Shutdown Sequence (Fase 9.1) ===
 
-			// 1. Close SSE hub first to terminate all client connections
+			// 0. Stop event forwarding loops FIRST (prevents deadlock)
+			logger.Printf("shutdown: stopping event forwarding...")
+			cancelEvents()
+			eventStopDone := make(chan struct{})
+			go func() {
+				eventWg.Wait()
+				close(eventStopDone)
+			}()
+			select {
+			case <-eventStopDone:
+				logger.Printf("shutdown: event forwarding stopped")
+			case <-time.After(2 * time.Second):
+				logger.Printf("WARNING: event forwarding did not stop within 2s")
+			}
+
+			// 1. Close SSE hub after event loops stopped
 			logger.Printf("shutdown: closing SSE hub...")
 			sseHub.Close()
 
