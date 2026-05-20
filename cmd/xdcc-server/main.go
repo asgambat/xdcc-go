@@ -19,6 +19,7 @@ import (
 	"xdcc-go/internal/ircmanager"
 	"xdcc-go/internal/queue"
 	"xdcc-go/internal/searchagg"
+	"xdcc-go/internal/sse"
 	"xdcc-go/internal/store"
 )
 
@@ -159,8 +160,47 @@ See config.yaml in the project root for all available settings.`,
 	logger.Printf("search aggregator ready (%d provider(s), cache=%v)",
 		len(cfg.Search.EnabledProviders), cfg.Search.Cache.Enabled)
 
+	// Start SSE event hub (Fase 7)
+	sseHub := sse.NewHub(100) // buffer last 100 events
+	logger.Printf("SSE hub started (buffer=100)")
+
+	// Wire IRC manager events into SSE hub (Fase 7.2)
+	ircEventCh := ircMgr.Subscribe()
+	defer ircMgr.Unsubscribe(ircEventCh)
+	go func() {
+		for evt := range ircEventCh {
+			sseHub.Publish(string(evt.Type), map[string]interface{}{
+				"server_id":   evt.ServerID,
+				"server_addr": evt.ServerAddr,
+				"channel":     evt.Channel,
+				"topic":       evt.Topic,
+				"timestamp":   evt.Timestamp,
+			})
+		}
+	}()
+
+	// Wire queue manager events into SSE hub (Fase 7.3)
+	queueEventCh := queueMgr.Subscribe()
+	defer queueMgr.Unsubscribe(queueEventCh)
+	go func() {
+		for evt := range queueEventCh {
+			sseHub.Publish(string(evt.Type), map[string]interface{}{
+				"download_id":    evt.DownloadID,
+				"bot":            evt.Bot,
+				"server_address": evt.ServerAddress,
+				"channel":        evt.Channel,
+				"filename":       evt.Filename,
+				"progress_bytes": evt.ProgressBytes,
+				"file_size":      evt.FileSize,
+				"speed_bps":      evt.SpeedBPS,
+				"error_message":  evt.ErrorMessage,
+				"timestamp":      evt.Timestamp,
+			})
+		}
+	}()
+
 	// Build REST API and wire it into the HTTP server
-	apiHandler := api.New(st, ircMgr, queueMgr, searchAgg, cfg, logger)
+	apiHandler := api.New(st, ircMgr, queueMgr, searchAgg, sseHub, cfg, logger)
 	mux := apiHandler.Router()
 
 	srv := &http.Server{
@@ -168,7 +208,7 @@ See config.yaml in the project root for all available settings.`,
 		Handler: mux,
 	}
 
-			// Graceful shutdown
+			// Graceful shutdown (Fase 9.1)
 			quit := make(chan os.Signal, 1)
 			signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
 
@@ -183,14 +223,38 @@ See config.yaml in the project root for all available settings.`,
 			logger.Printf("received signal %v, shutting down...", sig)
 
 			// Create shutdown context with 15s timeout
-			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-			defer cancel()
+			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer shutdownCancel()
 
-			if err := srv.Shutdown(ctx); err != nil {
-				logger.Printf("HTTP server forced shutdown: %v", err)
+			// === Ordered Shutdown Sequence (Fase 9.1) ===
+
+			// 1. Stop the HTTP server first (stop accepting new requests)
+			logger.Printf("shutdown: stopping HTTP server...")
+			if err := srv.Shutdown(shutdownCtx); err != nil {
+				logger.Printf("shutdown: HTTP server forced shutdown: %v", err)
 			}
 
-			logger.Printf("server stopped")
+			// 2. Cancel the search aggregator context
+			logger.Printf("shutdown: stopping search aggregator...")
+			searchAgg.Stop()
+
+			// 3. Cancel all active queue downloads (saves progress first)
+			logger.Printf("shutdown: stopping queue manager...")
+			queueMgr.Stop()
+
+			// 4. Flush SSE hub and close all client connections
+			logger.Printf("shutdown: closing SSE hub...")
+			sseHub.Close()
+
+			// 5. Disconnect all IRC servers with QUIT message
+			logger.Printf("shutdown: disconnecting IRC servers...")
+			ircMgr.Stop()
+
+			// 6. Run final cleanup save
+			logger.Printf("shutdown: running final database cleanup...")
+			st.Vacuum()
+
+			logger.Printf("server stopped gracefully")
 			return nil
 		},
 	}

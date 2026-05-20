@@ -13,9 +13,11 @@ import (
 
 	"github.com/spf13/cobra"
 	"xdcc-go/internal/cli"
+	"xdcc-go/internal/client"
 	"xdcc-go/internal/downloader"
 	"xdcc-go/internal/entities"
 	"xdcc-go/internal/search"
+	"xdcc-go/internal/store"
 )
 
 func main() {
@@ -37,6 +39,7 @@ func main() {
 		dnsServer        string
 		compact          bool
 		prefixFilter     bool
+		commandServer    string
 	)
 
 	cmd := &cobra.Command{
@@ -44,6 +47,9 @@ func main() {
 		Short: "Search for XDCC packs and download interactively",
 		Long: `xdcc-browse searches for XDCC packs, optionally filters the results,
 displays a numbered list, and then downloads the selected pack(s).
+
+With --command-server, both search and download are delegated to a remote
+xdcc-server instance. The interactive selection menu is still local.
 
 Filters (applied before the selection menu):
   --ext      keep only files with the given extension(s)  (e.g. --ext=mkv,avi)
@@ -68,6 +74,11 @@ If -q and -v are used together, -q takes precedence and -v is ignored.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			term := args[0]
+
+			// ── Command-server mode ──────────────────────────────────────
+			if commandServer != "" {
+				return runBrowseWithServer(commandServer, term, extFilter, botFilter, compact, prefixFilter, out)
+			}
 
 			engine := search.EngineByName(engineName, false)
 			if engine == nil {
@@ -134,8 +145,6 @@ If -q and -v are used together, -q takes precedence and -v is ignored.`,
 			entities.PreparePacks(selected, out)
 
 			// Explicit --server overrides the bot-prefix → server auto-detection
-			// (TLT→williamgattone, WeC→explosionirc) applied by PreparePacks.
-			// Without this flag, the correct server is chosen automatically.
 			if server != "" {
 				srv := entities.ParseIrcServer(server)
 				for _, p := range selected {
@@ -195,10 +204,126 @@ If -q and -v are used together, -q takes precedence and -v is ignored.`,
 		"Remove duplicate results with same filename, size and bot family")
 	cmd.Flags().BoolVarP(&prefixFilter, "prefix", "p", false,
 		"Keep only results whose filename starts with the search term (case-insensitive)")
+	cmd.Flags().StringVarP(&commandServer, "command-server", "", "",
+		"Delegate search and download to a remote xdcc-server (e.g. http://localhost:8080)")
 
 	if err := cmd.Execute(); err != nil {
 		os.Exit(1)
 	}
+}
+
+// runBrowseWithServer performs search + interactive selection + download
+// entirely through a remote xdcc-server. No local IRC connection is made.
+func runBrowseWithServer(serverURL, term, extFilter, botFilter string, compact, prefixFilter bool, outDir string) error {
+	c := client.New(serverURL)
+
+	// Check version compatibility
+	ver, err := c.CheckVersion()
+	if err != nil {
+		return fmt.Errorf("cannot connect to xdcc-server at %s: %w", serverURL, err)
+	}
+	fmt.Fprintf(os.Stderr, "Connected to xdcc-server %s (v%s)\n", serverURL, ver.Version)
+
+	// Build search options matching CLI flags
+	opts := &client.SearchOptions{
+		Query:   term,
+		Compact: compact,
+		Page:    1,
+		PageSize: 500, // Large enough for the interactive menu
+	}
+	if prefixFilter {
+		opts.Prefix = term
+	}
+	if extFilter != "" {
+		opts.Ext = strings.Split(extFilter, ",")
+	}
+	if botFilter != "" {
+		opts.Bot = botFilter
+	}
+
+	// Search via server
+	result, err := c.Search(opts)
+	if err != nil {
+		return fmt.Errorf("server search failed: %w", err)
+	}
+
+	if result == nil || len(result.Packs) == 0 {
+		fmt.Println("No results found.")
+		return nil
+	}
+
+	// Display results
+	fmt.Printf("\nFound %d result(s) (via server, %s):\n\n", result.Total, result.Provenance)
+	for i, pack := range result.Packs {
+		serverStr := pack.Server
+		if serverStr == "" {
+			serverStr = "?"
+		}
+		fmt.Printf("  [%3d] %s [%s] bot: %s\n", i+1,
+			pack.Filename,
+			formatBytes(pack.Size),
+			pack.Bot)
+	}
+
+	if len(result.Warnings) > 0 {
+		for _, w := range result.Warnings {
+			fmt.Fprintf(os.Stderr, "⚠️  %s\n", w)
+		}
+	}
+
+	// Convert to XDCCPack for selection
+	var selectionPacks []*entities.XDCCPack
+	for _, p := range result.Packs {
+		pack := entities.NewXDCCPack(entities.ParseIrcServer(p.Server), p.Bot, p.PackNumber)
+		pack.SetFilename(p.Filename, true)
+		pack.SetSize(p.Size)
+		selectionPacks = append(selectionPacks, pack)
+	}
+
+	// Interactive selection
+	selected, err := selectPacks(selectionPacks)
+	if err != nil {
+		return err
+	}
+	if len(selected) == 0 {
+		fmt.Println("No packs selected.")
+		return nil
+	}
+
+	// Delegate each selected pack to the server
+	for _, p := range selected {
+		entities.PreparePacks([]*entities.XDCCPack{p}, outDir)
+
+		channel := "#xdcc"
+		if p.Server.Address == "irc.williamgattone.it" {
+			channel = "#tlt@XDCC|Bots|Channel"
+		} else if p.Server.Address == "irc.explosionirc.net" {
+			channel = "#WeC@XDCC"
+		}
+
+		rec := store.DownloadRecord{
+			PackMessage:   fmt.Sprintf("xdcc send #%d", p.PackNumber),
+			Bot:           p.Bot,
+			ServerAddress: p.Server.Address,
+			Channel:       channel,
+			Filename:      p.Filename,
+			FileSize:      p.Size,
+		}
+
+		id, err := c.EnqueueDownload(rec)
+		if err != nil {
+			errStr := err.Error()
+			if strings.Contains(errStr, "duplicate") {
+				fmt.Fprintf(os.Stderr, "⚠️  Skipped %s (already in queue): %v\n", p.Filename, err)
+				continue
+			}
+			return fmt.Errorf("delegating download %s: %w", p.Filename, err)
+		}
+
+		fmt.Fprintf(os.Stderr, "📥 Queued %s (id=%d) on server\n", p.Filename, id)
+	}
+
+	return nil
 }
 
 // filterByPrefix returns only packs whose filename starts with the given term (case-insensitive).
@@ -224,6 +349,7 @@ func filterByBot(packs []*entities.XDCCPack, substr string) []*entities.XDCCPack
 	}
 	return out
 }
+
 // extList is a comma-separated string like "mkv,avi,mp4".
 func filterByExtension(packs []*entities.XDCCPack, extList string) []*entities.XDCCPack {
 	exts := make(map[string]bool)
@@ -245,8 +371,6 @@ func filterByExtension(packs []*entities.XDCCPack, extList string) []*entities.X
 	}
 	return out
 }
-
-// verbosityLevel moved to internal/cli package.
 
 // selectPacks prompts the user to select one or more packs from the results list.
 // Accepts: single number (3), range (1-5), comma list (1,3,5), or "all".
@@ -338,4 +462,18 @@ func parseSelection(input string, results []*entities.XDCCPack) ([]*entities.XDC
 	}
 
 	return selected, nil
+}
+
+// formatBytes returns a human-readable byte count.
+func formatBytes(b int64) string {
+	if b < 1024 {
+		return fmt.Sprintf("%d B", b)
+	}
+	if b < 1024*1024 {
+		return fmt.Sprintf("%.1f KB", float64(b)/1024)
+	}
+	if b < 1024*1024*1024 {
+		return fmt.Sprintf("%.1f MB", float64(b)/(1024*1024))
+	}
+	return fmt.Sprintf("%.1f GB", float64(b)/(1024*1024*1024))
 }

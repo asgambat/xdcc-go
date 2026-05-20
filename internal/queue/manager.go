@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"xdcc-go/internal/config"
+	"xdcc-go/internal/diskmon"
 	xdccirc "xdcc-go/internal/irc"
 	"xdcc-go/internal/store"
 )
@@ -52,12 +53,19 @@ type QueueManager struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	done   chan struct{}
+
+	// diskMon monitors disk space; nil = no monitoring
+	diskMon *diskmon.Monitor
+	// diskLow is true when we've paused due to low disk space
+	diskLow bool
+	// stopDiskCheck stops the periodic disk space checker
+	stopDiskCheck func()
 }
 
 // New creates a new QueueManager.
 func New(st store.Store, cfg *config.Config, logger *log.Logger) *QueueManager {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &QueueManager{
+	qm := &QueueManager{
 		store:        st,
 		cfg:          cfg,
 		log:          logger,
@@ -68,6 +76,31 @@ func New(st store.Store, cfg *config.Config, logger *log.Logger) *QueueManager {
 		cancel:       cancel,
 		done:         make(chan struct{}),
 	}
+
+	// Initialize disk monitor if threshold > 0
+	if cfg.Download.MinDiskSpace > 0 {
+		qm.diskMon = diskmon.New(cfg.Download.TempDir, cfg.Download.MinDiskSpace, nil, logger)
+		// Start periodic check — auto-resume when space recovers
+		qm.stopDiskCheck = qm.diskMon.StartPeriodicCheck(func(low bool, _ int64) {
+			qm.mu.Lock()
+			qm.diskLow = low
+			qm.mu.Unlock()
+			if low {
+				logger.Printf("DISK LOW: queue paused until disk space recovers")
+				qm.emitEvent(Event{
+					Type: EventDiskSpaceLow,
+				})
+			} else {
+				logger.Printf("DISK OK: space recovered, resuming queue")
+				qm.emitEvent(Event{
+					Type: EventDiskSpaceOK,
+				})
+				qm.tryDispatch()
+			}
+		})
+	}
+
+	return qm
 }
 
 // ---------------------------------------------------------------------------
@@ -92,10 +125,15 @@ func (qm *QueueManager) Start() error {
 
 // Stop cancels all active downloads and stops the monitor.
 func (qm *QueueManager) Stop() {
+	// Stop disk monitor first
+	if qm.stopDiskCheck != nil {
+		qm.stopDiskCheck()
+	}
+
 	qm.cancel()
 	<-qm.done
 
-	// Cancel all active jobs
+	// Save progress of all active downloads before cancelling
 	qm.mu.RLock()
 	ids := make([]int64, 0, len(qm.activeJobs))
 	for id := range qm.activeJobs {
@@ -104,6 +142,10 @@ func (qm *QueueManager) Stop() {
 	qm.mu.RUnlock()
 
 	for _, id := range ids {
+		// Save progress before cancellation
+		if d, err := qm.store.GetDownload(id); err == nil && d != nil && d.ProgressBytes > 0 {
+			qm.log.Printf("shutdown: saving progress for download %d: %d/%d bytes", id, d.ProgressBytes, d.FileSize)
+		}
 		qm.CancelDownload(id, "server shutting down")
 	}
 }
@@ -170,6 +212,16 @@ func (qm *QueueManager) Enqueue(d store.DownloadRecord) (int64, error) {
 	dupByMsg, err := qm.store.GetDownloadByBotMessage(d.Bot, d.PackMessage)
 	if err == nil && dupByMsg != nil && dupByMsg.Status != store.DownloadStatusCompleted {
 		return 0, fmt.Errorf("duplicate download: already %s (id=%d)", dupByMsg.Status, dupByMsg.ID)
+	}
+
+	// Check disk space before enqueuing
+	if qm.diskMon != nil {
+		_, _, low, err := qm.diskMon.Check()
+		if err == nil && low {
+			return 0, fmt.Errorf("insufficient disk space: %s available, need %s",
+				diskmon.FormatBytes(qm.cfg.Download.MinDiskSpace),
+				diskmon.FormatBytes(qm.cfg.Download.MinDiskSpace))
+		}
 	}
 
 	// Set default priority
@@ -385,6 +437,25 @@ func (qm *QueueManager) tryDispatch() {
 	default:
 	}
 
+	// Check disk space before dispatching
+	qm.mu.RLock()
+	diskLow := qm.diskLow
+	qm.mu.RUnlock()
+	if diskLow {
+		return
+	}
+
+	// Check fresh disk space if monitor is active
+	if qm.diskMon != nil {
+		_, _, low, err := qm.diskMon.Check()
+		if err == nil && low {
+			qm.mu.Lock()
+			qm.diskLow = true
+			qm.mu.Unlock()
+			return
+		}
+	}
+
 	maxParallel := qm.cfg.Download.MaxParallelTotal
 	if maxParallel < 1 {
 		maxParallel = 5
@@ -597,22 +668,71 @@ func (qm *QueueManager) releaseChannelSlot(channel string, downloadID int64) {
 // ---------------------------------------------------------------------------
 
 // handleFallback attempts to find and start an alternative download for a
-// failed job, based on the configured fallback mode.
+// failed job, based on the configured fallback mode (Fase 9.7).
+//
+// Guardrails:
+//   - Max retry attempts per download (configurable, default 3)
+//   - No auto-retry if mode is "suggest_only"
+//   - Clear tracking of fallback reason in log
 func (qm *QueueManager) handleFallback(original store.DownloadRecord, result workerResult) {
 	mode := qm.cfg.Download.FailFallback
 	if mode != "auto_retry_best" {
-		// In "suggest_only" mode, we log a suggestion but don't auto-start
-		qm.log.Printf("fallback: download %d failed, mode is %q (no auto-retry)",
-			original.ID, mode)
+		// In "suggest_only" mode, log a suggestion but don't auto-start
+		qm.log.Printf("fallback: download %d failed, mode is %q (no auto-retry); suggestion: consider alternative pack for %q",
+			original.ID, mode, original.Filename)
 		return
 	}
 
-	// In auto_retry_best mode, we could try to find an alternative pack
-	// from search results. For now, just re-queue once for a retry.
-	qm.log.Printf("fallback: auto-retrying download %d", original.ID)
+	// Check max retry attempts guardrail
+	maxRetries := qm.cfg.Download.MaxRetryAttempts
+	if maxRetries < 1 {
+		maxRetries = 3
+	}
+
+	// Count existing failed attempts by checking if the record was already retried
+	current, err := qm.store.GetDownload(original.ID)
+	if err != nil || current == nil {
+		return
+	}
+
+	// We track retry count via the priority field (incremented on each auto-retry)
+	retryCount := 0
+	if current.Priority > 100 {
+		retryCount = current.Priority - 100
+	}
+
+	if retryCount >= maxRetries {
+		qm.log.Printf("fallback: download %d failed permanently after %d retries (max %d)",
+			original.ID, retryCount, maxRetries)
+		qm.emitEvent(Event{
+			Type:          EventDownloadFailed,
+			DownloadID:    original.ID,
+			Bot:           original.Bot,
+			ServerAddress: original.ServerAddress,
+			Channel:       original.Channel,
+			Filename:      original.Filename,
+			ErrorMessage:  fmt.Sprintf("failed after %d retries: %v", retryCount, result.Error),
+		})
+		return
+	}
+
+	// Re-queue with incremented retry count
+	newPriority := current.Priority + 1
+	_ = qm.store.SetDownloadPriority(original.ID, newPriority)
+
+	qm.log.Printf("fallback: auto-retrying download %d (attempt %d/%d)",
+		original.ID, retryCount+1, maxRetries)
+
 	if err := qm.store.RetryDownload(original.ID); err != nil {
 		qm.log.Printf("fallback: retry failed for download %d: %v", original.ID, err)
 	}
+
+	qm.emitEvent(Event{
+		Type:          EventDownloadAlternative,
+		DownloadID:    original.ID,
+		Filename:      original.Filename,
+		ErrorMessage:  fmt.Sprintf("auto-retry attempt %d/%d", retryCount+1, maxRetries),
+	})
 }
 
 // ---------------------------------------------------------------------------

@@ -109,10 +109,22 @@ func (a *API) Router() http.Handler {
 	r.Post("/api/admin/import", a.handleAdminImport)         // POST /api/admin/import
 
 	// =====================================================================
+	// SSE events stream (Fase 7.1)
+	// =====================================================================
+	r.Get("/api/events", a.handleEvents)                     // GET /api/events
+
+	// =====================================================================
 	// Setup wizard
 	// =====================================================================
 	r.Get("/api/setup/status", a.handleSetupStatus)          // GET  /api/setup/status
 	r.Post("/api/setup/bootstrap", a.handleSetupBootstrap)   // POST /api/setup/bootstrap
+
+	// =====================================================================
+	// Frontend SPA — serve static files with fallback to index.html
+	// =====================================================================
+	// Mount the frontend file server for all non-API routes.
+	// API routes must be registered BEFORE this catch-all.
+	r.Get("/*", a.handleFrontend)
 
 	return r
 }

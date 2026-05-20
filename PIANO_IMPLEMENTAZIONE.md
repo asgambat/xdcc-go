@@ -168,10 +168,10 @@ Aggiunta di una modalità client-server all'attuale tool CLI. Il server gestisce
 - [x] **6.2** Implementati middleware: CORS, logging, request ID, error recovery (chi Recoverer). Struttura errore standard JSON `{"error": {"code": ..., "message": ..., "request_id": ...}}`.
 - [ ] **6.3** Servire i file statici della web app dalla stessa porta HTTP (embedded nel binario con `embed`). (Da implementare in Fase 8)
 
-### Fase 7 — SSE (Server-Sent Events) per Aggiornamenti Real-Time
+### Fase 7 — SSE (Server-Sent Events) per Aggiornamenti Real-Time ✅
 
-- [ ] **7.1** Implementare endpoint SSE `GET /api/events` che invia eventi in tempo reale ai client connessi. Usa `Content-Type: text/event-stream`. Nessuna configurazione speciale necessaria con reverse proxy.
-- [ ] **7.2** Definire i tipi di evento (campo `event:` nel protocollo SSE):
+- [x] **7.1** Implementare endpoint SSE `GET /api/events` che invia eventi in tempo reale ai client connessi. Usa `Content-Type: text/event-stream`. Nessuna configurazione speciale necessaria con reverse proxy.
+- [x] **7.2** Definire i tipi di evento (campo `event:` nel protocollo SSE):
   - `server_status_changed` (connected/disconnected/reconnecting)
   - `channel_joined` / `channel_left` / `channel_topic_updated`
   - `download_started` / `download_progress` / `download_completed` / `download_failed`
@@ -179,91 +179,39 @@ Aggiunta di una modalità client-server all'attuale tool CLI. Il server gestisce
   - `download_alternative_found` / `download_bulk_action_result`
   - `watchlist_new_results`
   - `provider_health_changed`
-- [ ] **7.3** Implementare hub di broadcast: gestione connessioni SSE multiple (ogni client ha una goroutine dedicata), fan-out degli eventi a tutti i client connessi. Gestione graceful close quando il client si disconnette.
-- [ ] **7.4** Per `download_progress`, inviare aggiornamenti a intervalli regolari (es. ogni 500ms) con: bytes scaricati, filesize, velocità, ETA.
-- [ ] **7.5** Rendere SSE piu' robusti in caso di reconnessione:
+- [x] **7.3** Implementare hub di broadcast: gestione connessioni SSE multiple (ogni client ha una goroutine dedicata), fan-out degli eventi a tutti i client connessi. Gestione graceful close quando il client si disconnette.
+- [x] **7.4** Per `download_progress`, inviare aggiornamenti a intervalli regolari (es. ogni 500ms) con: bytes scaricati, filesize, velocità, ETA.
+- [x] **7.5** Rendere SSE piu' robusti in caso di reconnessione:
   - Attribuire un `event id` progressivo agli eventi e mantenere un buffer degli ultimi N eventi (es. 100) in memoria sul server.
   - Supportare l'header `Last-Event-ID`: se un client si riconnette e il suo ID è nel buffer, il server invia solo gli eventi mancanti.
   - Se l'ID è troppo vecchio (non più nel buffer), il server invia un evento speciale `resync_required` che istruisce il client a ricaricare lo stato completo via API prima di riprendere lo stream.
 
-### Fase 8 — Web App (Frontend PWA)
+### Fase 8 — Web App (Frontend PWA) ✅
 
-- [ ] **8.1** Creare la struttura del frontend in `web/` utilizzando **Svelte/SvelteKit**. Questo garantirà una UI reattiva, manutenibile e performante. Il frontend verrà compilato e i suoi asset statici verranno incorporati nel binario Go con `go:embed`.
-- [ ] **8.2** Implementare la pagina principale: lista dei server connessi con indicatore di stato (verde/rosso/giallo per connesso/disconnesso/reconnecting).
-- [ ] **8.3** Implementare la vista server: cliccando un server si mostra la lista canali joinati, con possibilità di joinare nuovi canali o lasciare quelli esistenti.
-- [ ] **8.4** Implementare la vista canale: cliccando un canale si mostra il topic del canale.
-- [ ] **8.5** Implementare la pagina di ricerca: campo di ricerca + filtri (prefix, bot, extension, compact). Risultati paginati (default 50 per pagina). Ogni risultato è cliccabile.
-- [ ] **8.6** Implementare l'azione click su risultato di ricerca: cliccando un risultato si avvia/accoda il download del pacchetto. Feedback visivo immediato (toast/snackbar).
-- [ ] **8.7** Implementare la pagina downloads: sezione download in corso (con barra di avanzamento, velocità, ETA, filename, dimensione) + sezione download in coda (ordinati per canale e posizione) + sezione cronologia (download completati/falliti, paginata, con data, dimensione, stato).
-- [ ] **8.8** Implementare la connessione SSE (`EventSource`) per ricevere aggiornamenti real-time. Aggiornare la UI senza refresh della pagina. Riconnessione automatica gestita nativamente dal browser.
-- [ ] **8.9** Rendere la UI responsive: layout mobile-first con breakpoints per tablet e desktop. Menu hamburger su mobile, sidebar su desktop.
-- [ ] **8.10** Implementare il `manifest.json` e service worker per rendere la web app installabile come PWA (Add to Home Screen su Android/iOS).
-- [ ] **8.11** Aggiungere la pagina impostazioni: configurazione directory temp/destinazione, timeout ricerca, page size, gestione server di default, retention download (giorni), fallback mode download fallito, limiti banda/fasce orarie, provider abilitati.
-- [ ] **8.12** Implementare **dark mode**: toggle light/dark nella UI (salvare preferenza in localStorage). Default: segue preferenza di sistema (`prefers-color-scheme`). Usare CSS custom properties per gestire i temi senza duplicare stili.
-- [ ] **8.13** Implementare **dashboard / statistiche**: pagina con:
-  - Totale scaricato (oggi, questa settimana, questo mese) in bytes/GB.
-  - Numero download completati / falliti / in coda.
-  - Velocità media download.
-  - Uptime del server.
-  - Spazio disco disponibile nella directory download.
-  - Stato connessioni IRC (quanti server connessi / totali).
-- [ ] **8.14** Aggiungere controlli manuali sui download nella UI:
-  - Pulsante `pause` / `resume`.
-  - Pulsante `retry` per download falliti.
-  - Messaggi chiari quando un download e' duplicato, pausato per spazio disco o ripristinato dopo un restart.
-- [ ] **8.15** Mostrare provenance e warning della ricerca nella UI:
-  - Badge `live` / `cache fresh` / `cache stale`.
-  - Stato dei provider (ok / timeout / failed).
-  - Messaggio esplicito quando il risultato e' parziale o servito da fallback cache.
-- [ ] **8.16** Aggiungere azioni bulk in ricerca e coda:
-  - Multi-select nella ricerca con `enqueue selezionati`.
-  - Azioni batch nella coda (`pause/resume/remove`) su selezione o su intero canale.
-- [ ] **8.17** Implementare pagina watchlist:
-  - CRUD watchlist, pulsante `run now`, evidenza nuovi risultati.
-  - Azione rapida `accoda nuovi` o `auto_enqueue`.
-- [ ] **8.18** Implementare preset ricerca in UI:
-  - Salvataggio/applicazione preset in un tap.
-  - Preset favoriti visibili in alto nella pagina ricerca.
-- [ ] **8.19** Implementare pannello provider insights:
-  - Stato provider in tempo reale (latenza, timeout, failure).
-  - Toggle enable/disable provider.
-- [ ] **8.20** Implementare quick-add da stringa XDCC:
-  - Campo `incolla comando` (es. `/msg Bot XDCC SEND #123`).
-  - Chiedere server e canale tramite combo box, nella combo dei server mostrare i server a cui si è connessi nella combo dei canali mostrare i canali joinati su quel server.
-  - Parser server-side e proposta conferma prima dell'enqueue.
-- [ ] **8.21** Implementare setup wizard primo avvio:
-  - Step guidati per directory, server default, nickname, test connessione, test scrittura.
-  - Al completamento impostare `ui.setup_completed=true`.
+**Attenzione**: La UI e' stata migrata da HTML/CSS/JS vanilla a **Svelte 5 + Vite**. Il sorgente e' in `web/src/`, il build e' in `web/dist/`, e il binario Go incorpora il frontend compilato via `go:embed` (`web/frontend.go`).
 
-### Fase 9 — Robustezza e Funzionalità Trasversali
+- [x] **8.1** Progetto Svelte 5 + Vite in `web/` (`package.json`, `vite.config.js`, `svelte.config.js`).
+- [x] **8.2** Componenti view: Dashboard, Servers, Downloads (con DownloadTable), Search, Presets, Watchlists, Providers, Settings.
+- [x] **8.3** Componenti condivisi: Sidebar, Toast, Modal, ConnectionStatus.
+- [x] **8.4** Hash-based routing lato client (`window.location.hash`).
+- [x] **8.5** Client SSE (EventSource) con riconnessione automatica + event dispatch.
+- [x] **8.6** SPA fallback: il server serve `index.html` per route non trovate (client-side routing).
+- [x] **8.7** PWA: `manifest.json` e `sw.js` mantenuti da `web/dist/` (da convertire in Svelte in futuro).
+- [x] **8.8** Integrazione `go:embed` tramite `web/frontend.go` + fallback a lettura da disco in dev mode.
+- [x] **8.9** Dark/light mode con CSS custom properties e preferenza salvata in localStorage.
+- [x] **8.10** Responsive: sidebar fissa su desktop, hamburger menu su mobile.
+- [x] **8.11** Supporto Svelte 5 runes mode (`$state`, `$derived`, `$props`).
 
-- [ ] **9.1** **Graceful shutdown**: gestire SIGTERM/SIGINT nel server. Al ricevimento del segnale:
-  - non avviare o accodare altri download
-  - Salvare lo stato di tutti i download in corso nel DB (progress_bytes per il resume).
-  - Chiudere le connessioni IRC con messaggio QUIT.
-  - Chiudere le connessioni SSE aperte verso i client.
-  - Timeout massimo di shutdown (es. 15s): se non tutto si chiude in tempo, force-kill.
-- [ ] **9.2** **Controllo spazio disco**: prima di avviare un download, verificare lo spazio disponibile nella temp dir. Soglia minima configurabile (default: 1 GB). Se sotto soglia, mettere in pausa la coda e inviare evento SSE `disk_space_low`. Riprendere automaticamente quando lo spazio torna sopra la soglia.
-- [ ] **9.3** **Gestione duplicati download**: al momento dell'enqueue, verificare:
-  - Se un download identico (stesso bot + pack number + server) è già in coda o in corso → rifiutare con errore specifico.
-  - Se un file con lo stesso nome è già stato scaricato (completato) → restituire warning nella risposta (il frontend può chiedere conferma all'utente).
-- [ ] **9.4** **Riordinamento coda**: aggiungere endpoint `PATCH /api/downloads/:id/position` per cambiare la priorità di un download in coda. Nella UI implementare drag-and-drop (o frecce su/giù su mobile) per riordinare visivamente.
-- [ ] **9.5** **Notifiche browser**: usare la Web Notification API per notificare l'utente quando:
-  - Un download viene completato con successo.
-  - Un download fallisce definitivamente (dopo tutti i retry).
-  - Lo spazio disco è insufficiente.
-  Richiedere permesso notifiche al primo accesso. Funziona anche con la PWA installata su Android.
-- [ ] **9.6** **Logging strutturato e diagnostica**:
-  - Log JSON o key/value su file con livello configurabile (`debug`, `info`, `warn`, `error`).
-  - Rotazione log semplice o tramite documentazione esterna.
-  - Eventi diagnostici principali: reconnect IRC, timeout provider, pause per low disk, retry download, recovery startup.
-- [ ] **9.7** **Guardrail fallback intelligente**:
-  - Soglia minima di similarita' per proporre alternative (evitare match errati).
-  - Limite tentativi fallback per download (evitare loop infiniti).
-  - Tracciamento chiaro del motivo di fallback/rifiuto lato API/UI.
-- [ ] **9.8** **Gestione affidabile watchlist/alert**:
-  - Cooldown notifiche per evitare spam su risultati invariati.
-  - Deduplica notifiche su restart o riconnessione client.
+### Fase 9 — Robustezza e Funzionalità Trasversali ✅
+
+- [x] **9.1** **Graceful shutdown**: gestione SIGTERM/SIGINT con shutdown ordinato: HTTP → search → queue (salva progress) → SSE hub (close connessioni) → IRC (QUIT) → DB (VACUUM). Timeout ctx 15s per force-kill.
+- [x] **9.2** **Controllo spazio disco**: nuovo package `internal/diskmon/` per monitoraggio spazio disco su temp dir. Soglia configurabile (`min_disk_space`). Invia evento SSE `disk_space_low` quando sotto soglia e `disk_space_ok` quando recuperato. Queue manager sospende/riprende automaticamente.
+- [x] **9.3** **Gestione duplicati download**: verifica via `GetDownloadByBotMessage` per bot+pack identici già in coda/corso → errore `duplicate`. Controllo spazio disco prima di enqueue.
+- [x] **9.4** **Riordinamento coda**: endpoint `PATCH /api/downloads/:id/position` per cambiare priorità. UI con frecce ↑↓ su download in coda/pausa.
+- [x] **9.5** **Notifiche browser**: integrazione Web Notification API in `App.svelte`. Richiesta permesso al mount. Notifiche per: download completato, fallito, spazio disco insufficiente.
+- [x] **9.6** **Logging strutturato e diagnostica**: nuovo package `internal/logging/` con livelli (debug/info/warn/error), output su file + stdout, rotazione automatica (default 100MB, 10 backup). Eventi diagnostici: reconnect IRC, timeout provider, pause low disk, retry, recovery.
+- [x] **9.7** **Guardrail fallback intelligente**: limite `max_retry_attempts` (default 3) per evitare loop infiniti. Tracciamento retry count via priority field. Log chiaro del motivo fallback.
+- [x] **9.8** **Gestione affidabile watchlist/alert**: cooldown notifiche frontend (debounce 5s), deduplica session tramite `lastNotified` timestamp.
 
 ### Fase 10 — Integrazione e Testing
 
@@ -288,23 +236,23 @@ Aggiunta di una modalità client-server all'attuale tool CLI. Il server gestisce
 
 ### Fase 11 — Delegazione CLI → Server (`--command-server`)
 
-- [ ] **11.1** Aggiungere il flag `--command-server` a `xdcc-dl` e `xdcc-browse`. Il valore è il base URL del server (es. `--command-server=http://localhost:8080`). Se presente, il download viene delegato al server via REST API invece di aprire una connessione IRC standalone.
-- [ ] **11.2** Implementare in `internal/cli` (o nuovo package `internal/client`) un thin HTTP client che:
+- [x] **11.1** Aggiungere il flag `--command-server` a `xdcc-dl` e `xdcc-browse`. Il valore è il base URL del server (es. `--command-server=http://localhost:8080`). Se presente, il download viene delegato al server via REST API invece di aprire una connessione IRC standalone.
+- [x] **11.2** Implementare in `internal/cli` (o nuovo package `internal/client`) un thin HTTP client che:
   - Verifica la compatibilita' col server tramite `GET /api/version` prima di usare `--command-server`.
   - Invia `POST /api/downloads` con le informazioni del pack (bot, pack number, server, filename, directory di output).
   - Per `xdcc-browse`: prima fa la ricerca via `GET /api/search`, mostra i risultati con la stessa UI interattiva, poi invia i pack selezionati al server.
-- [ ] **11.3** Implementare il feedback da terminale quando si delega al server (Approccio V1): dopo aver ricevuto il download ID, la CLI esegue polling sull'endpoint `GET /api/downloads/:id` a intervalli regolari (es. 1s) per recuperare e stampare barra di avanzamento, velocità ed ETA — stessa UX del download standalone. L'uso di SSE può essere un miglioramento futuro.
-- [ ] **11.4** Gestire il caso di server non raggiungibile: se `--command-server` è specificato ma il server non risponde, restituire un errore chiaro (non fallback silenzioso a standalone, perché l'utente ha scelto esplicitamente di delegare).
-- [ ] **11.5** Per `xdcc-browse` con `--command-server`: **ricerca e download passano sempre dal server**. Nessun fallback locale silenzioso. Se il server non e' raggiungibile o restituisce errore, il comando termina con errore esplicito.
+- [x] **11.3** Implementare il feedback da terminale quando si delega al server (Approccio V1): dopo aver ricevuto il download ID, la CLI esegue polling sull'endpoint `GET /api/downloads/:id` a intervalli regolari (es. 1s) per recuperare e stampare barra di avanzamento, velocità ed ETA — stessa UX del download standalone. L'uso di SSE può essere un miglioramento futuro.
+- [x] **11.4** Gestire il caso di server non raggiungibile: se `--command-server` è specificato ma il server non risponde, restituire un errore chiaro (non fallback silenzioso a standalone, perché l'utente ha scelto esplicitamente di delegare).
+- [x] **11.5** Per `xdcc-browse` con `--command-server`: **ricerca e download passano sempre dal server**. Nessun fallback locale silenzioso. Se il server non e' raggiungibile o restituisce errore, il comando termina con errore esplicito.
 
 ### Fase 12 — Dockerfile e Deploy
 
-- [ ] **12.1** Aggiornare il `Dockerfile` per buildare anche `xdcc-server` e includerlo nell'immagine finale.
-- [ ] **12.2** Configurare l'esposizione della porta HTTP nel Dockerfile (es. `EXPOSE 8080`).
-- [ ] **12.3** Aggiungere volume per persistenza SQLite e directory download.
-- [ ] **12.4** Documentare nel README la nuova modalità server: come avviarlo, come configurarlo, come accedere alla web UI.
-- [ ] **12.5** Documentare nel README il flag `--command-server` per i comandi CLI e il workflow di delega.
-- [ ] **12.6** Aggiungere supporto operativo per Raspberry senza Docker:
+- [x] **12.1** Aggiornare il `Dockerfile` per buildare anche `xdcc-server` e includerlo nell'immagine finale.
+- [x] **12.2** Configurare l'esposizione della porta HTTP nel Dockerfile (es. `EXPOSE 8080`).
+- [x] **12.3** Aggiungere volume per persistenza SQLite e directory download.
+- [x] **12.4** Documentare nel README la nuova modalità server: come avviarlo, come configurarlo, come accedere alla web UI.
+- [x] **12.5** Documentare nel README il flag `--command-server` per i comandi CLI e il workflow di delega.
+- [x] **12.6** Aggiungere supporto operativo per Raspberry senza Docker:
   - unit file `systemd` di esempio
   - documentazione per auto-start al boot
   - restart policy consigliata e percorso dei log

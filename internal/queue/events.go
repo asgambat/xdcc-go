@@ -23,6 +23,10 @@ const (
 	EventDownloadRemoved     EventType = "download_removed"
 	EventDownloadBulkResult  EventType = "download_bulk_action_result"
 	EventDownloadAlternative EventType = "download_alternative_found"
+
+	// Disk space events (Fase 9.2)
+	EventDiskSpaceLow EventType = "disk_space_low"
+	EventDiskSpaceOK  EventType = "disk_space_ok"
 )
 
 // Event holds details about a queue state change.

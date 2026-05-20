@@ -5,12 +5,16 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 	"xdcc-go/internal/cli"
+	"xdcc-go/internal/client"
 	"xdcc-go/internal/downloader"
 	"xdcc-go/internal/entities"
+	"xdcc-go/internal/store"
 )
 
 func main() {
@@ -27,6 +31,7 @@ func main() {
 		verbosity        int
 		quietLevel       int
 		dnsServer        string
+		commandServer    string
 	)
 
 	cmd := &cobra.Command{
@@ -44,6 +49,9 @@ Pack number supports ranges, steps, and comma lists:
 The IRC server is detected automatically from the bot name prefix when
 possible. Use --server to override with an explicit address.
 
+With --command-server, the download is delegated to a remote xdcc-server
+instance instead of being performed locally.
+
 Verbosity levels:
   (default)  show connection and download progress
   -v         also show bot notices, channel joins, WHOIS results
@@ -54,10 +62,15 @@ Verbosity levels:
 If -q and -v are used together, -q takes precedence and -v is ignored.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			message := args[0]
+
+			// ── Command-server mode ──────────────────────────────────────
+			if commandServer != "" {
+				return runWithServer(commandServer, message, out)
+			}
+
 			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer cancel()
-
-			message := args[0]
 
 			packs, err := entities.ParseXDCCMessage(message, ".", server)
 			if err != nil {
@@ -70,8 +83,6 @@ If -q and -v are used together, -q takes precedence and -v is ignored.`,
 			entities.PreparePacks(packs, out)
 
 			// Explicit --server overrides bot-prefix auto-detection
-			// (TLT→williamgattone, WeC→explosionirc). Without this flag,
-			// the correct server is chosen automatically by resolveServer.
 			if cmd.Flags().Changed("server") {
 				srv := entities.ParseIrcServer(server)
 				for _, p := range packs {
@@ -121,10 +132,173 @@ If -q and -v are used together, -q takes precedence and -v is ignored.`,
 	cmd.Flags().CountVarP(&quietLevel, "quiet", "q", "Reduce output: -q hides connection info (keeps errors/notices/progress), -qq suppresses all output")
 	cmd.Flags().StringVarP(&dnsServer, "dns-server", "d", "",
 		"Fallback DNS resolver used when system DNS is blocked (host:port, default: 8.8.8.8:53)")
+	cmd.Flags().StringVarP(&commandServer, "command-server", "", "",
+		"Delegate download to a remote xdcc-server (e.g. http://localhost:8080)")
 
 	if err := cmd.Execute(); err != nil {
 		os.Exit(1)
 	}
 }
 
-// verbosityLevel moved to internal/cli package.
+// runWithServer delegates a download to a remote xdcc-server.
+func runWithServer(serverURL, message, outDir string) error {
+	c := client.New(serverURL)
+
+	// Check version compatibility
+	ver, err := c.CheckVersion()
+	if err != nil {
+		return fmt.Errorf("cannot connect to xdcc-server at %s: %w", serverURL, err)
+	}
+	fmt.Fprintf(os.Stderr, "Connected to xdcc-server %s (v%s)\n", serverURL, ver.Version)
+
+	// Parse the XDCC message
+	packs, err := entities.ParseXDCCMessage(message, ".", "")
+	if err != nil {
+		return fmt.Errorf("invalid XDCC message: %w", err)
+	}
+	if len(packs) == 0 {
+		return fmt.Errorf("no packs found in message: %s", message)
+	}
+
+	entities.PreparePacks(packs, outDir)
+
+	for _, p := range packs {
+		// Channel derivation: the xdcc-server will resolve the correct channel
+		// via WHOIS on the bot, just like the standalone downloader does.
+		// Use a placeholder channel; the server handles final resolution.
+		channel := "#xdcc"
+		// TLT and WeC bot families have known channels; hint them for faster dispatch
+		// (the server's IRC manager will verify/override these as needed).
+		if p.Server.Address == "irc.williamgattone.it" {
+			channel = "#tlt@XDCC|Bots|Channel"
+		} else if p.Server.Address == "irc.explosionirc.net" {
+			channel = "#WeC@XDCC"
+		}
+
+		rec := store.DownloadRecord{
+			PackMessage:   fmt.Sprintf("xdcc send #%d", p.PackNumber),
+			Bot:           p.Bot,
+			ServerAddress: p.Server.Address,
+			Channel:       channel,
+			Filename:      p.Filename,
+			FileSize:      p.Size,
+		}
+
+		// Send to server
+		id, err := c.EnqueueDownload(rec)
+		if err != nil {
+			// Check for specific error types
+			errStr := err.Error()
+			if strings.Contains(errStr, "duplicate") {
+				fmt.Fprintf(os.Stderr, "⚠️  Skipped %s (already in queue): %v\n", p.Filename, err)
+				continue
+			}
+			return fmt.Errorf("delegating download %s: %w", p.Filename, err)
+		}
+
+		fmt.Fprintf(os.Stderr, "📥 Queued %s (id=%d) on server\n", p.Filename, id)
+
+		// Poll for progress
+		fmt.Fprintf(os.Stderr, "\n")
+		lastProgress := int64(0)
+		lastSpeed := float64(0)
+		fileSize := p.Size
+
+		_, pollErr := c.PollDownload(id, 1*time.Second, 0, func(rec *store.DownloadRecord) {
+			switch rec.Status {
+			case store.DownloadStatusQueued:
+				fmt.Fprintf(os.Stderr, "\r⏳ Waiting in queue...")
+			case store.DownloadStatusDownloading:
+				if rec.ProgressBytes > lastProgress || rec.SpeedBPS != int64(lastSpeed) {
+					progressPct := 0.0
+					if fileSize > 0 && rec.ProgressBytes > 0 {
+						progressPct = float64(rec.ProgressBytes) / float64(fileSize) * 100
+					}
+					speed := formatSpeed(rec.SpeedBPS)
+					eta := formatETA(fileSize - rec.ProgressBytes, rec.SpeedBPS)
+					fmt.Fprintf(os.Stderr, "\r⬇️  %s — %s/%s (%.1f%%) — %s — ETA %s",
+						p.Filename,
+						formatBytes(rec.ProgressBytes),
+						formatBytes(fileSize),
+						progressPct,
+						speed,
+						eta,
+					)
+					lastProgress = rec.ProgressBytes
+					lastSpeed = float64(rec.SpeedBPS)
+				}
+			default:
+				// Terminal / paused state — will be handled by PollDownload return
+			}
+		})
+
+		// Print final result
+		final, _ := c.GetDownload(id)
+		if final != nil {
+			switch final.Status {
+			case store.DownloadStatusCompleted:
+				fmt.Fprintf(os.Stderr, "\r✅ %s — completed successfully                       \n", p.Filename)
+			case store.DownloadStatusFailed:
+				errMsg := final.ErrorMessage
+				if errMsg == "" {
+					errMsg = "unknown error"
+				}
+				fmt.Fprintf(os.Stderr, "\r❌ %s — FAILED: %s                       \n", p.Filename, errMsg)
+				if pollErr != nil {
+					return pollErr
+				}
+			case store.DownloadStatusSkipped:
+				fmt.Fprintf(os.Stderr, "\r⏭️  %s — skipped (already exists)                       \n", p.Filename)
+			default:
+				fmt.Fprintf(os.Stderr, "\rℹ️  %s — status: %s                       \n", p.Filename, final.Status)
+			}
+		} else if pollErr != nil {
+			fmt.Fprintf(os.Stderr, "\r⚠️  %s — polling error: %v                       \n", p.Filename, pollErr)
+		}
+	}
+
+	return nil
+}
+
+// formatBytes returns a human-readable byte count (KB/MB/GB).
+func formatBytes(b int64) string {
+	if b < 1024 {
+		return fmt.Sprintf("%d B", b)
+	}
+	if b < 1024*1024 {
+		return fmt.Sprintf("%.1f KB", float64(b)/1024)
+	}
+	if b < 1024*1024*1024 {
+		return fmt.Sprintf("%.1f MB", float64(b)/(1024*1024))
+	}
+	return fmt.Sprintf("%.1f GB", float64(b)/(1024*1024*1024))
+}
+
+// formatSpeed returns a human-readable speed string.
+func formatSpeed(bps int64) string {
+	if bps <= 0 {
+		return "—"
+	}
+	if bps < 1024 {
+		return fmt.Sprintf("%d B/s", bps)
+	}
+	if bps < 1024*1024 {
+		return fmt.Sprintf("%.1f KB/s", float64(bps)/1024)
+	}
+	return fmt.Sprintf("%.1f MB/s", float64(bps)/(1024*1024))
+}
+
+// formatETA returns a human-readable ETA string.
+func formatETA(remaining int64, speedBPS int64) string {
+	if speedBPS <= 0 || remaining <= 0 {
+		return "—"
+	}
+	secs := remaining / speedBPS
+	if secs < 60 {
+		return fmt.Sprintf("%ds", secs)
+	}
+	if secs < 3600 {
+		return fmt.Sprintf("%dm %ds", secs/60, secs%60)
+	}
+	return fmt.Sprintf("%dh %dm", secs/3600, (secs%3600)/60)
+}

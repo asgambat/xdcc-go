@@ -18,15 +18,20 @@ func randomSuffix(n int) string {
 	return string(b)
 }
 
-// isOwnNick checks if the given nick matches the client's nick (case-insensitive).
-func isOwnNick(nick, ownNick string) bool {
-	return strings.EqualFold(nick, ownNick)
+// isOwnNick checks if the given nick matches the client's nick (case-sensitive).
+// The source may be in nick!user@host format.
+func isOwnNick(source, ownNick string) bool {
+	// Extract nick from nick!user@host format
+	if idx := strings.Index(source, "!"); idx > 0 {
+		source = source[:idx]
+	}
+	return source == ownNick
 }
 
 // normalizeChannel lowercases and ensures a leading '#'.
 func normalizeChannel(ch string) string {
 	ch = strings.ToLower(strings.TrimSpace(ch))
-	if !strings.HasPrefix(ch, "#") {
+	if ch != "" && !strings.HasPrefix(ch, "#") {
 		ch = "#" + ch
 	}
 	return ch

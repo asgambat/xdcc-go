@@ -370,7 +370,7 @@ func (s *SQLiteStore) MarkDownloadCompleted(id int64) error {
 
 func (s *SQLiteStore) MarkDownloadSkipped(id int64) error {
 	_, err := s.db.Exec(
-		`UPDATE downloads SET status='skipped_existing', updated_at=datetime('now') WHERE id=? AND status IN ('downloading','queued')`,
+		`UPDATE downloads SET status='skipped_existing' WHERE id=? AND status IN ('downloading','queued')`,
 		id,
 	)
 	return err
@@ -599,14 +599,7 @@ func (s *SQLiteStore) GetSearchPreset(id int64) (*SearchPreset, error) {
 		`SELECT id, name, query, filters_json, is_default, created_at, updated_at
 		 FROM search_presets WHERE id = ?`, id,
 	)
-	var p SearchPreset
-	if err := row.Scan(&p.ID, &p.Name, &p.Query, &p.FiltersJSON, &p.IsDefault, &p.CreatedAt, &p.UpdatedAt); err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("scanning search preset: %w", err)
-	}
-	return &p, nil
+	return scanSearchPreset(row)
 }
 
 func (s *SQLiteStore) ListSearchPresets() ([]SearchPreset, error) {
@@ -621,11 +614,11 @@ func (s *SQLiteStore) ListSearchPresets() ([]SearchPreset, error) {
 
 	var presets []SearchPreset
 	for rows.Next() {
-		var p SearchPreset
-		if err := rows.Scan(&p.ID, &p.Name, &p.Query, &p.FiltersJSON, &p.IsDefault, &p.CreatedAt, &p.UpdatedAt); err != nil {
-			return nil, fmt.Errorf("scanning search preset: %w", err)
+		p, err := scanSearchPresetFromRows(rows)
+		if err != nil {
+			return nil, err
 		}
-		presets = append(presets, p)
+		presets = append(presets, *p)
 	}
 	if presets == nil {
 		presets = []SearchPreset{}
@@ -947,12 +940,62 @@ func scanDownloadFromRows(rows *sql.Rows) (*DownloadRecord, error) {
 	return &d, nil
 }
 
+// =========================================================================
+// Scan helpers for SearchPreset
+// =========================================================================
+
+func scanSearchPreset(row interface{ Scan(...any) error }) (*SearchPreset, error) {
+	var p SearchPreset
+	var createdAt, updatedAt sql.NullString
+	err := row.Scan(&p.ID, &p.Name, &p.Query, &p.FiltersJSON, &p.IsDefault, &createdAt, &updatedAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("scanning search preset: %w", err)
+	}
+	if createdAt.Valid {
+		p.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt.String)
+	}
+	if updatedAt.Valid {
+		p.UpdatedAt, _ = time.Parse("2006-01-02 15:04:05", updatedAt.String)
+	}
+	return &p, nil
+}
+
+func scanSearchPresetFromRows(rows *sql.Rows) (*SearchPreset, error) {
+	var p SearchPreset
+	var createdAt, updatedAt sql.NullString
+	if err := rows.Scan(&p.ID, &p.Name, &p.Query, &p.FiltersJSON, &p.IsDefault, &createdAt, &updatedAt); err != nil {
+		return nil, fmt.Errorf("scanning search preset: %w", err)
+	}
+	if createdAt.Valid {
+		p.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt.String)
+	}
+	if updatedAt.Valid {
+		p.UpdatedAt, _ = time.Parse("2006-01-02 15:04:05", updatedAt.String)
+	}
+	return &p, nil
+}
+
 func scanWatchlist(row interface{ Scan(...any) error }) (*Watchlist, error) {
 	var w Watchlist
-	var lastChecked, lastNotified sql.NullString
+	var lastChecked, lastNotified, createdAtStr, updatedAtStr sql.NullString
 	err := row.Scan(&w.ID, &w.Name, &w.Query, &w.FiltersJSON, &w.Enabled,
 		&w.AutoEnqueue, &lastChecked, &w.LastMatchFingerprint, &lastNotified,
-		&w.CreatedAt, &w.UpdatedAt)
+		&createdAtStr, &updatedAtStr)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("scanning watchlist: %w", err)
+	}
+	if createdAtStr.Valid {
+		w.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAtStr.String)
+	}
+	if updatedAtStr.Valid {
+		w.UpdatedAt, _ = time.Parse("2006-01-02 15:04:05", updatedAtStr.String)
+	}
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -974,12 +1017,12 @@ func scanWatchlist(row interface{ Scan(...any) error }) (*Watchlist, error) {
 	return &w, nil
 }
 
-func scanWatchlistFromRows(rows *sql.Rows) (*Watchlist, error) {
+func scanWatchlistFromRows(rows interface{ Scan(...any) error }) (*Watchlist, error) {
 	var w Watchlist
-	var lastChecked, lastNotified sql.NullString
+	var lastChecked, lastNotified, createdAtStr, updatedAtStr sql.NullString
 	if err := rows.Scan(&w.ID, &w.Name, &w.Query, &w.FiltersJSON, &w.Enabled,
 		&w.AutoEnqueue, &lastChecked, &w.LastMatchFingerprint, &lastNotified,
-		&w.CreatedAt, &w.UpdatedAt); err != nil {
+		&createdAtStr, &updatedAtStr); err != nil {
 		return nil, fmt.Errorf("scanning watchlist: %w", err)
 	}
 	if lastChecked.Valid {
@@ -993,6 +1036,12 @@ func scanWatchlistFromRows(rows *sql.Rows) (*Watchlist, error) {
 		if err == nil {
 			w.LastNotifiedAt = &t
 		}
+	}
+	if createdAtStr.Valid {
+		w.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAtStr.String)
+	}
+	if updatedAtStr.Valid {
+		w.UpdatedAt, _ = time.Parse("2006-01-02 15:04:05", updatedAtStr.String)
 	}
 	return &w, nil
 }

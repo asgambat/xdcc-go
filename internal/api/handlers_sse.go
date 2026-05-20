@@ -1,0 +1,103 @@
+package api
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"time"
+
+	"xdcc-go/internal/sse"
+)
+
+// =========================================================================
+// GET /api/events — SSE stream for real-time updates (Fase 7.1)
+// =========================================================================
+
+func (a *API) handleEvents(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "SSE_UNSUPPORTED",
+			"Streaming not supported")
+		return
+	}
+
+	// Set SSE headers
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no") // Disable nginx buffering
+
+	// Subscribe to the SSE hub
+	ch := a.SSEHub.Subscribe()
+	defer a.SSEHub.Unsubscribe(ch)
+
+	// Handle Last-Event-ID reconnection (Fase 7.5)
+	lastEventIDStr := r.Header.Get("Last-Event-ID")
+	var lastEventID int64
+	if lastEventIDStr != "" {
+		fmt.Sscanf(lastEventIDStr, "%d", &lastEventID)
+	}
+
+	// If Last-Event-ID is provided, replay missed events
+	if lastEventID > 0 {
+		missed := a.SSEHub.EventsSince(lastEventID)
+		if missed == nil {
+			// Event ID too old — send resync_required
+			data, _ := json.Marshal(map[string]string{
+				"message": "Event history too old, please reload state via API",
+			})
+			fmt.Fprintf(w, "event: resync_required\ndata: %s\n\n", data)
+			flusher.Flush()
+		} else {
+			for _, evt := range missed {
+				writeSSEEvent(w, evt)
+				flusher.Flush()
+			}
+		}
+	}
+
+	// Notify the client of successful connection
+	connectedData, _ := json.Marshal(map[string]interface{}{
+		"status":    "connected",
+		"server_id": a.SSEHub.LastEventID(),
+	})
+	fmt.Fprintf(w, "event: connected\ndata: %s\n\n", connectedData)
+	flusher.Flush()
+
+	// Keepalive ticker (every 30 seconds)
+	keepalive := time.NewTicker(30 * time.Second)
+	defer keepalive.Stop()
+
+	// Main event loop
+	for {
+		select {
+		case <-r.Context().Done():
+			// Client disconnected
+			return
+		case <-keepalive.C:
+			// Send keepalive comment to prevent connection timeout
+			fmt.Fprintf(w, ": keepalive\n\n")
+			flusher.Flush()
+		case evt, ok := <-ch:
+			if !ok {
+				// Hub closed
+				return
+			}
+			writeSSEEvent(w, evt)
+			flusher.Flush()
+		}
+	}
+}
+
+// writeSSEEvent serializes an sse.Event to SSE format and writes it.
+func writeSSEEvent(w http.ResponseWriter, evt sse.Event) {
+	data, err := json.Marshal(evt.Payload)
+	if err != nil {
+		return
+	}
+
+	// Format: event: <type>\nid: <id>\ndata: <json>\n\n
+	fmt.Fprintf(w, "event: %s\n", evt.Type)
+	fmt.Fprintf(w, "id: %d\n", evt.ID)
+	fmt.Fprintf(w, "data: %s\n\n", data)
+}

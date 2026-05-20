@@ -1,8 +1,5 @@
-// Package api implements the REST API for the xdcc-server (Fase 6).
-//
-// Uses go-chi/chi v5 for routing. Handlers reference concrete types from
-// internal/store, internal/searchagg, and internal/config to avoid type
-// assertion boilerplate.
+// Package api implements the REST API + SSE + frontend serving for the
+// xdcc-server (Fase 6-8).
 package api
 
 import (
@@ -14,6 +11,7 @@ import (
 
 	"xdcc-go/internal/config"
 	"xdcc-go/internal/searchagg"
+	"xdcc-go/internal/sse"
 	"xdcc-go/internal/store"
 )
 
@@ -27,6 +25,7 @@ type API struct {
 	IRCManager        IRCManager
 	QueueManager      QueueManager
 	SearchAggregator  *searchagg.Aggregator
+	SSEHub            *sse.Hub
 	Config            *config.Config
 	Logger            *log.Logger
 	StartTime         time.Time
@@ -57,12 +56,14 @@ type QueueManager interface {
 
 // New creates a new API handler container.
 func New(st *store.SQLiteStore, ircMgr IRCManager, queueMgr QueueManager,
-	searchAgg *searchagg.Aggregator, cfg *config.Config, logger *log.Logger) *API {
+	searchAgg *searchagg.Aggregator, sseHub *sse.Hub,
+	cfg *config.Config, logger *log.Logger) *API {
 	return &API{
 		Store:            st,
 		IRCManager:       ircMgr,
 		QueueManager:     queueMgr,
 		SearchAggregator: searchAgg,
+		SSEHub:           sseHub,
 		Config:           cfg,
 		Logger:           logger,
 		StartTime:        time.Now(),
