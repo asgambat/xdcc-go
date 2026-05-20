@@ -84,10 +84,13 @@
 
   async function downloadPack(pack) {
     try {
+      // Generate pack_message in the format "xdcc send #<number>"
+      const packMessage = `xdcc send #${pack.pack_number}`;
+      
       await DownloadsAPI.enqueue({
+        pack_message: packMessage,
         bot: pack.bot,
         channel: pack.channel || '',  // Empty channel - WHOIS will discover it
-        pack_number: pack.pack_number,
         filename: pack.filename,
         file_size: pack.size,
         server_address: pack.server?.address || 'unknown',
