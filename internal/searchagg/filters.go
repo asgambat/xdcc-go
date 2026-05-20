@@ -18,6 +18,10 @@ import (
 func filterPacks(packs []*entities.XDCCPack, opts SearchOptions) []*entities.XDCCPack {
 	result := packs
 
+	// Filter by query terms - all terms must be present in filename
+	if opts.Query != "" {
+		result = filterByQuery(result, opts.Query)
+	}
 	if opts.Prefix != "" {
 		result = filterByPrefix(result, opts.Prefix)
 	}
@@ -32,6 +36,32 @@ func filterPacks(packs []*entities.XDCCPack, opts SearchOptions) []*entities.XDC
 	}
 
 	return result
+}
+
+// filterByQuery keeps only packs whose filename contains all query terms.
+func filterByQuery(packs []*entities.XDCCPack, query string) []*entities.XDCCPack {
+	// Split query into terms
+	terms := strings.Fields(strings.ToLower(query))
+	if len(terms) == 0 {
+		return packs
+	}
+
+	var out []*entities.XDCCPack
+	for _, p := range packs {
+		filenameLower := strings.ToLower(p.Filename)
+		// Check if all terms are present in filename
+		allFound := true
+		for _, term := range terms {
+			if !strings.Contains(filenameLower, term) {
+				allFound = false
+				break
+			}
+		}
+		if allFound {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // filterByPrefix keeps only packs whose filename starts with the given prefix.

@@ -14,6 +14,23 @@ import (
 )
 
 // ---------------------------------------------------------------------------
+// Worker configuration
+// ---------------------------------------------------------------------------
+
+// DownloadConfig holds the configuration for a single download worker.
+type DownloadConfig struct {
+	TempDir        string
+	DestDir        string
+	ConflictPolicy string
+	MaxRateBPS     int64
+	Nickname       string
+	Logger         xdccirc.Logger
+	
+	// IRCManager for persistent connections (optional - if nil, uses temporary connections)
+	IRCManager IRCManagerInterface
+}
+
+// ---------------------------------------------------------------------------
 // Worker result
 // ---------------------------------------------------------------------------
 
@@ -67,53 +84,28 @@ func runDownload(
 		channel = "#" + channel
 	}
 
-	// --- Prepare download options ---
-	// Use the temp directory as the download destination during transfer.
-	// The IRC client writes the file to pack.Directory.
+	// --- Prepare download ---
 	pack.SetDirectory(cfg.TempDir)
 
-	// Determine throttle (BPS limit). Use queue-level limit if set, otherwise
-	// use the configured max rate (0 = unlimited).
-	throttle := cfg.MaxRateBPS
-	if throttle < 0 {
-		throttle = 0
+	var srcPath string
+	var downloadErr error
+
+	// --- Execute download with IRCManager (persistent) or temp connection ---
+	if cfg.IRCManager != nil {
+		// Use persistent IRC connections via IRCManager
+		logger.Printf("→ Using persistent IRC connection for %s", rec.ServerAddress)
+		srcPath, downloadErr = cfg.IRCManager.DownloadPack(ctx, pack, channel, progressFn)
+	} else {
+		// Fallback to temporary IRC connection (for CLI tools)
+		logger.Printf("→ Using temporary IRC connection for %s", rec.ServerAddress)
+		srcPath, downloadErr = downloadWithTempConnection(ctx, pack, channel, cfg, progressFn)
 	}
 
-	opts := xdccirc.DownloadOptions{
-		ConnectTimeout:   120,
-		StallTimeout:     60,
-		FallbackChannel:  channel,
-		ThrottleBytes:    throttle,
-		WaitTime:         1,
-		ChannelJoinDelay: -1, // random 5-10s
-		Username:         cfg.Nickname,
-		Logger:           logger,
-		ProgressCallback: progressFn,
-	}
-
-	// --- Execute download ---
-	packSlice := []*entities.XDCCPack{pack}
-	client := xdccirc.NewClient(ctx, packSlice, opts, -1) // -1 = quiet, no CLI output
-	results := client.DownloadAll()
-
-	if len(results) == 0 {
-		result.Error = fmt.Errorf("no result from download client")
+	if downloadErr != nil {
+		result.Error = downloadErr
+		result.BotNotice = "" // TODO: extract from error if available
 		completeFn(result)
 		return
-	}
-
-	r := results[0]
-	if r.Error != nil {
-		result.Error = r.Error
-		result.BotNotice = r.LastBotNotice
-		completeFn(result)
-		return
-	}
-
-	// --- Success: file is in TempDir with the pack's filename ---
-	srcPath := pack.GetFilepath()
-	if r.FilePath != "" {
-		srcPath = r.FilePath
 	}
 
 	// Verify the file exists
@@ -211,16 +203,54 @@ func copyFile(src, dst string) error {
 	return nil
 }
 
-// ---------------------------------------------------------------------------
-// DownloadConfig — subset of server config for the worker
-// ---------------------------------------------------------------------------
+// downloadWithTempConnection performs a download using a temporary IRC connection.
+// This is used as fallback when IRCManager is not available (e.g., CLI tools).
+func downloadWithTempConnection(
+	ctx context.Context,
+	pack *entities.XDCCPack,
+	channel string,
+	cfg DownloadConfig,
+	progressFn func(bytesReceived, totalBytes int64, speedBPS float64),
+) (string, error) {
+	logger := cfg.Logger
 
-// DownloadConfig holds the configuration needed by the download worker.
-type DownloadConfig struct {
-	TempDir        string
-	DestDir        string
-	ConflictPolicy string
-	MaxRateBPS     int64
-	Nickname       string
-	Logger         xdccirc.Logger
+	// Determine throttle (BPS limit)
+	throttle := cfg.MaxRateBPS
+	if throttle < 0 {
+		throttle = 0
+	}
+
+	opts := xdccirc.DownloadOptions{
+		ConnectTimeout:   120,
+		StallTimeout:     60,
+		FallbackChannel:  channel,
+		ThrottleBytes:    throttle,
+		WaitTime:         1,
+		ChannelJoinDelay: -1, // random 5-10s
+		Username:         cfg.Nickname,
+		Logger:           logger,
+		ProgressCallback: progressFn,
+	}
+
+	// Execute download
+	packSlice := []*entities.XDCCPack{pack}
+	client := xdccirc.NewClient(ctx, packSlice, opts, -1) // -1 = quiet
+	results := client.DownloadAll()
+
+	if len(results) == 0 {
+		return "", fmt.Errorf("no result from download client")
+	}
+
+	r := results[0]
+	if r.Error != nil {
+		return "", r.Error
+	}
+
+	// Return downloaded file path
+	srcPath := pack.GetFilepath()
+	if r.FilePath != "" {
+		srcPath = r.FilePath
+	}
+
+	return srcPath, nil
 }

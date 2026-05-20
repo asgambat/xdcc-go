@@ -110,14 +110,24 @@ func NewClient(ctx context.Context, packs []*entities.XDCCPack, opts DownloadOpt
 // DownloadAll downloads all packs sequentially, reusing the IRC connection
 // for packs on the same server. Returns one PackResult per pack.
 func (c *Client) DownloadAll() []PackResult {
+	c.logf("=== Starting XDCC download session ===")
+	c.logf("Server: %s:%d", c.packs[0].Server.Address, c.packs[0].Server.Port)
+	c.logf("Total packs to download: %d", len(c.packs))
+	
 	results := make([]PackResult, len(c.packs))
 
 	if err := c.connect(); err != nil {
+		c.logf("ERROR: Failed to connect to IRC server: %v", err)
 		for i := range results {
 			results[i].Error = err
 		}
 		return results
 	}
+	defer func() {
+		c.logf("=== Closing IRC connection ===")
+		c.irc.Close()
+		<-c.ircErrCh
+	}()
 
 	for i := range c.packs {
 		select {
@@ -321,11 +331,11 @@ func (c *Client) downloadPackAtIndex(idx int, retryCount int) PackResult {
 	c.resetForPack()
 	pack := c.currentPack()
 
-	c.debugf("Pack: #%d from bot '%s'", pack.PackNumber, pack.Bot)
+	c.logf("--- Starting pack download: %s (pack #%d) from bot %s ---", pack.Filename, pack.PackNumber, pack.Bot)
 
 	// Channel-join delay only on first connection (not between packs)
 	if idx == 0 {
-		c.debugf("Waiting %ds before WHOIS (channel join delay)", c.opts.ChannelJoinDelay)
+		c.logf("Waiting %ds before WHOIS (channel join delay)", c.opts.ChannelJoinDelay)
 		select {
 		case <-c.ctx.Done():
 			return PackResult{Error: ErrCancelled}
@@ -333,7 +343,7 @@ func (c *Client) downloadPackAtIndex(idx int, retryCount int) PackResult {
 		}
 	}
 
-	c.debugf("Sending WHOIS for bot '%s'", pack.Bot)
+	c.logf("→ Sending WHOIS query for bot: %s", pack.Bot)
 	c.irc.Cmd.Whois(pack.Bot)
 
 	err := c.waitForCurrentPack()

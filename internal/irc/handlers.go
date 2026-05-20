@@ -10,22 +10,24 @@ import (
 func (c *Client) registerHandlers() {
 	c.irc.Handlers.Add(girc.CONNECTED, func(client *girc.Client, e girc.Event) {
 		c.connectTime = time.Now()
-		c.infof("Connected to server")
+		c.infof("✓ Connected to IRC server successfully")
 		close(c.connectedCh)
 	})
 
 	// End of WHOIS: decide whether to send XDCC now or wait for JOIN.
 	c.irc.Handlers.Add(girc.RPL_ENDOFWHOIS, func(client *girc.Client, e girc.Event) {
-		c.debugf("End of WHOIS")
+		c.debugf("WHOIS response completed")
 		if c.messageSent.Load() {
 			return
 		}
 		if c.needsJoin.Load() {
 			// We sent a JOIN; wait for the JOIN event to trigger XDCC.
+			c.debugf("Waiting for JOIN confirmation before sending XDCC request")
 			return
 		}
 		if c.whoisFoundChannels.Load() {
 			// All channels were already joined — send XDCC directly.
+			c.logf("All channels already joined, sending XDCC request")
 			c.sendXDCCRequest(client)
 			return
 		}
@@ -35,11 +37,11 @@ func (c *Client) registerHandlers() {
 			if !strings.HasPrefix(ch, "#") {
 				ch = "#" + ch
 			}
-			c.debugf("No channels from WHOIS; joining fallback channel %s", ch)
+			c.logf("No channels from WHOIS, joining fallback channel: %s", ch)
 			c.needsJoin.Store(true)
 			client.Cmd.Join(ch)
 		} else {
-			c.debugf("No channels from WHOIS and no fallback; sending XDCC request directly")
+			c.logf("No channels from WHOIS and no fallback, sending XDCC request directly")
 			c.sendXDCCRequest(client)
 		}
 	})
@@ -50,8 +52,9 @@ func (c *Client) registerHandlers() {
 		if len(e.Params) < 2 {
 			return
 		}
-		c.logf("WHOIS channels: %s", e.Params[len(e.Params)-1])
 		rawChannels := e.Params[len(e.Params)-1]
+		c.logf("WHOIS response: bot is in channels: %s", rawChannels)
+		
 		for _, part := range strings.Fields(rawChannels) {
 			part = strings.TrimLeft(part, "@+%&~")
 			if !strings.HasPrefix(part, "#") {
@@ -65,7 +68,7 @@ func (c *Client) registerHandlers() {
 			if alreadyIn {
 				c.logf("Already in channel %s, skipping JOIN", part)
 			} else {
-				c.logf("Joining channel %s", part)
+				c.logf("Joining channel: %s", part)
 				c.needsJoin.Store(true)
 				time.Sleep(time.Duration(1+randN(2)) * time.Second)
 				client.Cmd.Join(part)
@@ -82,7 +85,7 @@ func (c *Client) registerHandlers() {
 		c.mu.Lock()
 		c.joinedChannels[ch] = true
 		c.mu.Unlock()
-		c.debugf("Joined channel: %s", e.Params[0])
+		c.logf("✓ Joined channel: %s", e.Params[0])
 		if !c.messageSent.Load() {
 			c.sendXDCCRequest(client)
 		}
@@ -167,6 +170,6 @@ func (c *Client) sendXDCCRequest(client *girc.Client) {
 	}
 	pack := c.currentPack()
 	msg := pack.GetRequestMessage(false)
-	c.debugf("Sending XDCC request: /msg %s %s", pack.Bot, msg)
+	c.logf("→ Sending XDCC request to bot %s: %s", pack.Bot, msg)
 	client.Cmd.Message(pack.Bot, msg)
 }

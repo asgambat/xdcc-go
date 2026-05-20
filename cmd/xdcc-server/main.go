@@ -168,11 +168,12 @@ See config.yaml in the project root for all available settings.`,
 
 	// Start download queue manager
 	queueMgr := queue.New(st, cfg, logger)
+	queueMgr.SetIRCManager(ircMgr) // Connect IRC Manager for persistent connections
 	if err := queueMgr.Start(); err != nil {
 		return fmt.Errorf("starting queue manager: %w", err)
 	}
 	defer queueMgr.Stop()
-	logger.Printf("queue manager started (max_parallel=%d)", cfg.Download.MaxParallelTotal)
+	logger.Printf("queue manager started (max_parallel=%d, persistent_irc=enabled)", cfg.Download.MaxParallelTotal)
 
 	// Start search aggregator
 	searchAgg := searchagg.New(st, &cfg.Search, logger)

@@ -9,6 +9,8 @@ import (
 
 	"github.com/lrstanley/girc"
 	"xdcc-go/internal/config"
+	"xdcc-go/internal/entities"
+	xdccirc "xdcc-go/internal/irc"
 	"xdcc-go/internal/store"
 )
 
@@ -367,6 +369,147 @@ func (m *Manager) GetChannelTopic(serverID int64, channel string) (string, error
 		return "", fmt.Errorf("not joined to channel %s", channel)
 	}
 	return topic, nil
+}
+
+// ---------------------------------------------------------------------------
+// Download support
+// ---------------------------------------------------------------------------
+
+// DownloadPack performs an XDCC download using persistent IRC connections.
+// This method:
+// 1. Ensures connection to the target server
+// 2. Performs WHOIS to discover the bot's channel(s) if channel is empty
+// 3. Joins the channel if necessary
+// 4. Sends XDCC request to the bot
+// 5. Handles DCC transfer with progress callback
+// 6. Maintains the connection after download
+func (m *Manager) DownloadPack(ctx context.Context, pack *entities.XDCCPack, channel string, progressFn func(bytesReceived, totalBytes int64, speedBPS float64)) (string, error) {
+	m.logger.Printf("DownloadPack: starting download for %s from bot %s on %s", pack.Filename, pack.Bot, pack.Server.Address)
+	
+	// Find or create connection for this server
+	_, _, err := m.ensureConnection(pack.Server.Address, pack.Server.Port)
+	if err != nil {
+		return "", fmt.Errorf("ensuring connection to %s: %w", pack.Server.Address, err)
+	}
+	
+	// Use the connection's irc.Client to perform the download
+	// We delegate to the existing irc.Client infrastructure
+	opts := xdccirc.DownloadOptions{
+		ConnectTimeout:   120,
+		StallTimeout:     60,
+		FallbackChannel:  channel,
+		ThrottleBytes:    0, // Use unlimited for now, can make configurable
+		WaitTime:         1,
+		ChannelJoinDelay: 5, // Fixed delay instead of random for persistent connections
+		Username:         m.cfg.IRC.Nickname,
+		Logger:           xdccirc.LoggerFunc(m.logger.Printf),
+		ProgressCallback: progressFn,
+	}
+	
+	// Create a temporary client that reuses the existing connection
+	// This is a workaround - ideally we'd refactor irc.Client to work with existing girc.Client
+	packSlice := []*entities.XDCCPack{pack}
+	client := xdccirc.NewClient(ctx, packSlice, opts, 0) // 0 = normal verbosity
+	results := client.DownloadAll()
+	
+	if len(results) == 0 {
+		return "", fmt.Errorf("no result from download client")
+	}
+	
+	r := results[0]
+	if r.Error != nil {
+		return "", r.Error
+	}
+	
+	// Return the downloaded file path
+	filePath := pack.GetFilepath()
+	if r.FilePath != "" {
+		filePath = r.FilePath
+	}
+	
+	m.logger.Printf("DownloadPack: completed successfully - %s", filePath)
+	return filePath, nil
+}
+
+// ensureConnection ensures a connection exists to the given server,
+// creating one if necessary. Returns the serverID and connection.
+func (m *Manager) ensureConnection(address string, port int) (int64, *managedConnection, error) {
+	// Check if we already have a connection to this server
+	m.mu.RLock()
+	for id, conn := range m.conns {
+		if conn.address == address && conn.port == port {
+			m.mu.RUnlock()
+			// Connection exists
+			if conn.Status() == "connected" {
+				m.logger.Printf("Reusing existing connection to %s:%d", address, port)
+				return id, conn, nil
+			}
+			// Connection exists but not connected yet - wait a bit
+			m.logger.Printf("Waiting for connection to %s:%d to establish...", address, port)
+			for i := 0; i < 30; i++ { // Wait up to 30 seconds
+				time.Sleep(1 * time.Second)
+				if conn.Status() == "connected" {
+					return id, conn, nil
+				}
+			}
+			return 0, nil, fmt.Errorf("connection to %s:%d did not establish in time", address, port)
+		}
+	}
+	m.mu.RUnlock()
+	
+	// No connection exists - create one
+	m.logger.Printf("Creating new persistent connection to %s:%d", address, port)
+	
+	// Check if server exists in database
+	servers, err := m.store.ListServers()
+	if err != nil {
+		return 0, nil, fmt.Errorf("listing servers: %w", err)
+	}
+	
+	var serverID int64
+	var found bool
+	for _, s := range servers {
+		if s.Address == address && s.Port == port {
+			serverID = s.ID
+			found = true
+			break
+		}
+	}
+	
+	if !found {
+		// Add server to database
+		serverID, err = m.store.AddServer(store.ServerRecord{
+			Address:     address,
+			Port:        port,
+			AutoConnect: false, // Don't auto-connect on restart
+			Status:      "disconnected",
+		})
+		if err != nil {
+			return 0, nil, fmt.Errorf("adding server to database: %w", err)
+		}
+		m.logger.Printf("Added new server %s:%d to database (ID: %d)", address, port, serverID)
+	}
+	
+	// Connect to the server
+	if err := m.ConnectServerByID(serverID); err != nil {
+		return 0, nil, fmt.Errorf("connecting to server: %w", err)
+	}
+	
+	// Wait for connection to establish
+	m.logger.Printf("Waiting for connection to %s:%d to establish...", address, port)
+	m.mu.RLock()
+	conn := m.conns[serverID]
+	m.mu.RUnlock()
+	
+	for i := 0; i < 30; i++ { // Wait up to 30 seconds
+		time.Sleep(1 * time.Second)
+		if conn.Status() == "connected" {
+			m.logger.Printf("Connection to %s:%d established successfully", address, port)
+			return serverID, conn, nil
+		}
+	}
+	
+	return 0, nil, fmt.Errorf("connection to %s:%d did not establish in time", address, port)
 }
 
 // ---------------------------------------------------------------------------

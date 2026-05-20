@@ -10,6 +10,7 @@ import (
 
 	"xdcc-go/internal/config"
 	"xdcc-go/internal/diskmon"
+	"xdcc-go/internal/entities"
 	xdccirc "xdcc-go/internal/irc"
 	"xdcc-go/internal/store"
 )
@@ -34,10 +35,14 @@ func normalizeChannel(ch string) string {
 //   - FIFO priority per-channel queue
 //   - Persistence via SQLite store
 //   - Real-time events for SSE propagation
+//   - Persistent IRC connections via IRCManager (when available)
 type QueueManager struct {
 	store store.Store
 	cfg   *config.Config
 	log   *log.Logger
+	
+	// IRCManager for persistent connections (optional - if nil, uses temporary connections)
+	ircMgr IRCManagerInterface
 
 	mu sync.RWMutex
 	// activeJobs tracks currently running downloads: download ID → cancel function
@@ -65,7 +70,15 @@ type QueueManager struct {
 	diskCheckDone <-chan struct{}
 }
 
+// IRCManagerInterface defines the methods needed from ircmanager for downloads.
+type IRCManagerInterface interface {
+	// DownloadPack performs a download using persistent IRC connections.
+	// Returns the downloaded file path on success.
+	DownloadPack(ctx context.Context, pack *entities.XDCCPack, channel string, progressFn func(bytesReceived, totalBytes int64, speedBPS float64)) (string, error)
+}
+
 // New creates a new QueueManager.
+// ircMgr is optional - if nil, downloads will use temporary IRC connections.
 func New(st store.Store, cfg *config.Config, logger *log.Logger) *QueueManager {
 	ctx, cancel := context.WithCancel(context.Background())
 	qm := &QueueManager{
@@ -104,6 +117,15 @@ func New(st store.Store, cfg *config.Config, logger *log.Logger) *QueueManager {
 	}
 
 	return qm
+}
+
+// SetIRCManager sets the IRC manager for persistent connections.
+// This should be called before starting the queue manager.
+func (qm *QueueManager) SetIRCManager(ircMgr IRCManagerInterface) {
+	qm.mu.Lock()
+	defer qm.mu.Unlock()
+	qm.ircMgr = ircMgr
+	qm.log.Printf("IRC Manager attached to Queue Manager - downloads will use persistent connections")
 }
 
 // ---------------------------------------------------------------------------
@@ -560,6 +582,7 @@ func (qm *QueueManager) startDownload(d store.DownloadRecord) {
 		MaxRateBPS:     qm.cfg.Download.MaxRateBPS,
 		Nickname:       qm.cfg.IRC.Nickname,
 		Logger:         xdccirc.LoggerFunc(qm.log.Printf),
+		IRCManager:     qm.ircMgr, // Pass IRC Manager for persistent connections
 	}
 
 	// Track download goroutine for clean shutdown
