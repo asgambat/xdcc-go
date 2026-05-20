@@ -1,7 +1,7 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
-  import { currentView, toasts, sseStatus, stats, status, config, downloads } from './lib/stores.js';
-  import { sseClient, SystemAPI, DownloadsAPI } from './lib/api.js';
+  import { currentView, toasts, sseStatus, stats, status, config, downloads, servers } from './lib/stores.js';
+  import { sseClient, SystemAPI, DownloadsAPI, ServersAPI } from './lib/api.js';
   import Sidebar from './components/Sidebar.svelte';
   import ConnectionStatus from './components/ConnectionStatus.svelte';
   import Toast from './components/Toast.svelte';
@@ -123,6 +123,23 @@
         try {
           const dls = await DownloadsAPI.list();
           downloads.set(dls?.downloads || dls || []);
+        } catch {}
+      });
+    }
+
+    // ---- SSE event -> servers/status store updates ----
+    const serverEvents = ['server_connected', 'server_disconnected', 'server_reconnecting', 'channel_joined', 'channel_left', 'channel_topic_updated'];
+    for (const evt of serverEvents) {
+      sseClient.on(evt, async () => {
+        try {
+          const [serversData, statsData, statusData] = await Promise.all([
+            ServersAPI.list().catch(() => null),
+            SystemAPI.stats().catch(() => null),
+            SystemAPI.status().catch(() => null),
+          ]);
+          if (serversData) servers.set(serversData);
+          if (statsData) stats.set(statsData);
+          if (statusData) status.set(statusData);
         } catch {}
       });
     }
