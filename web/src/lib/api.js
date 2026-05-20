@@ -123,9 +123,21 @@ export class SSEClient {
     this.listeners = {};
     this.connected = false;
     this.onStatusChange = null;
+    
+    // Exponential backoff for reconnection (Fase 1: SSE stability fix)
+    this.reconnectDelay = 1000; // Start at 1s
+    this.maxReconnectDelay = 30000; // Max 30s
+    this.reconnectAttempts = 0;
+    this.reconnectTimer = null;
   }
 
   connect() {
+    // Clear any pending reconnect timer
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+
     if (this.eventSource) this.eventSource.close();
 
     const url = `${API_BASE}/events`;
@@ -137,7 +149,11 @@ export class SSEClient {
         this.lastEventId = data.server_id || 0;
       } catch {}
       this.connected = true;
+      // Reset backoff on successful connection
+      this.reconnectDelay = 1000;
+      this.reconnectAttempts = 0;
       this._updateStatus('connected');
+      console.log('[SSE] Connected successfully');
     });
 
     this.eventSource.onopen = () => {
@@ -148,6 +164,27 @@ export class SSEClient {
     this.eventSource.onerror = () => {
       this.connected = false;
       this._updateStatus('reconnecting');
+      
+      // Close current connection
+      if (this.eventSource) {
+        this.eventSource.close();
+        this.eventSource = null;
+      }
+      
+      // Calculate exponential backoff delay
+      this.reconnectAttempts++;
+      const delay = Math.min(
+        this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1),
+        this.maxReconnectDelay
+      );
+      
+      console.log(`[SSE] Connection lost. Reconnecting in ${delay / 1000}s (attempt ${this.reconnectAttempts})`);
+      
+      // Schedule reconnection with backoff
+      this.reconnectTimer = setTimeout(() => {
+        console.log(`[SSE] Attempting reconnection (attempt ${this.reconnectAttempts})`);
+        this.connect();
+      }, delay);
     };
 
     const eventTypes = [
@@ -180,12 +217,22 @@ export class SSEClient {
   }
 
   disconnect() {
+    // Clear any pending reconnect timer
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    
     if (this.eventSource) {
       this.eventSource.close();
       this.eventSource = null;
     }
+    
     this.connected = false;
+    this.reconnectAttempts = 0;
+    this.reconnectDelay = 1000;
     this._updateStatus('disconnected');
+    console.log('[SSE] Disconnected');
   }
 
   on(type, callback) {
