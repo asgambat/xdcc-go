@@ -245,23 +245,23 @@ See config.yaml in the project root for all available settings.`,
 
 			// === Ordered Shutdown Sequence (Fase 9.1) ===
 
-			// 1. Stop the HTTP server first (stop accepting new requests)
+			// 1. Close SSE hub first to terminate all client connections
+			logger.Printf("shutdown: closing SSE hub...")
+			sseHub.Close()
+
+			// 2. Stop the HTTP server (can now close cleanly without waiting for SSE)
 			logger.Printf("shutdown: stopping HTTP server...")
 			if err := srv.Shutdown(shutdownCtx); err != nil {
 				logger.Printf("shutdown: HTTP server forced shutdown: %v", err)
 			}
 
-			// 2. Cancel the search aggregator context
+			// 3. Cancel the search aggregator context
 			logger.Printf("shutdown: stopping search aggregator...")
 			searchAgg.Stop()
 
-			// 3. Cancel all active queue downloads (saves progress first)
+			// 4. Cancel all active queue downloads (saves progress first)
 			logger.Printf("shutdown: stopping queue manager...")
 			queueMgr.Stop()
-
-			// 4. Flush SSE hub and close all client connections
-			logger.Printf("shutdown: closing SSE hub...")
-			sseHub.Close()
 
 			// 5. Disconnect all IRC servers with QUIT message
 			logger.Printf("shutdown: disconnecting IRC servers...")
