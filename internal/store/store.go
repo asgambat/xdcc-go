@@ -86,7 +86,7 @@ type Store interface {
 
 	// ---- Cleanup ----
 	CleanupOldDownloads(retentionDays int) (int, error) // returns number of deleted records
-	RunCleanup(retentionDays int, cleanupInterval time.Duration) (chan struct{}, error)
+	RunCleanup(retentionDays int, cleanupInterval time.Duration) (stopCh chan struct{}, doneCh chan struct{}, err error)
 	Vacuum() error
 
 	// ---- Backup / Export / Import ----

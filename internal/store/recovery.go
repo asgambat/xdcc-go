@@ -200,11 +200,16 @@ func (s *SQLiteStore) CleanupOldDownloads(retentionDays int) (int, error) {
 // 2. Removes expired search cache entries
 // 3. Runs VACUUM once a week
 //
-// Returns a channel that is closed when the cleanup should stop.
-func (s *SQLiteStore) RunCleanup(retentionDays int, cleanupInterval time.Duration) (chan struct{}, error) {
-	stopCh := make(chan struct{})
+// Returns two channels:
+// - stopCh: close this to signal the goroutine to stop
+// - doneCh: closed when the goroutine has completely stopped
+func (s *SQLiteStore) RunCleanup(retentionDays int, cleanupInterval time.Duration) (stopCh chan struct{}, doneCh chan struct{}, err error) {
+	stopCh = make(chan struct{})
+	doneCh = make(chan struct{})
 
 	go func() {
+		defer close(doneCh)
+		
 		// Track when VACUUM was last run
 		lastVacuum := time.Now()
 
@@ -234,5 +239,5 @@ func (s *SQLiteStore) RunCleanup(retentionDays int, cleanupInterval time.Duratio
 		}
 	}()
 
-	return stopCh, nil
+	return stopCh, doneCh, nil
 }

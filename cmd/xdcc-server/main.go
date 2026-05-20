@@ -142,11 +142,19 @@ See config.yaml in the project root for all available settings.`,
 			if err != nil {
 				retentionDays = 30
 			}
-			stopCleanup, err := st.RunCleanup(retentionDays, cleanupInterval)
+			stopCleanup, cleanupDone, err := st.RunCleanup(retentionDays, cleanupInterval)
 			if err != nil {
 				logger.Printf("WARNING: starting cleanup goroutine failed: %v", err)
 			} else {
-				defer close(stopCleanup)
+				defer func() {
+					close(stopCleanup)
+					select {
+					case <-cleanupDone:
+						logger.Printf("cleanup goroutine stopped")
+					case <-time.After(3 * time.Second):
+						logger.Printf("WARNING: cleanup goroutine did not stop within 3s")
+					}
+				}()
 			}
 
 	// Start IRC connection manager
