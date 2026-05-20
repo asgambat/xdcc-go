@@ -96,23 +96,31 @@ func (h *Hub) Subscribe() chan Event {
 }
 
 // Unsubscribe removes a client channel and closes it.
+// Safe to call even after hub.Close() - won't panic on closed channels.
 func (h *Hub) Unsubscribe(ch chan Event) {
 	h.mu.Lock()
-	// We need to find and remove the bidirectional channel from the map.
-	// Since Go channels are reference types, we iterate to find the match.
-	// This is O(n) but client count is expected to be small (< 100).
+	defer h.mu.Unlock()
+	
+	// If hub is closed, channels are already closed - skip
+	if h.closed {
+		return
+	}
+	
+	// Find and remove the channel from the map
 	for c := range h.clients {
-		// Channel comparison works because channels are comparable
-		// and the same underlying channel reference is used.
 		if c == ch {
 			delete(h.clients, c)
 			close(c)
 			break
 		}
 	}
-	clientCount := len(h.clients)
-	h.mu.Unlock()
-	_ = clientCount
+}
+
+// IsClosed returns true if the hub has been closed.
+func (h *Hub) IsClosed() bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.closed
 }
 
 // ClientCount returns the number of currently connected SSE clients.
