@@ -72,7 +72,8 @@ func runDownload(
 
 	// --- Build pack ---
 	server := entities.NewIrcServerWithPort(rec.ServerAddress, 6667)
-	pack := entities.NewXDCCPack(server, rec.Bot, 0)
+	packNumber := entities.ExtractPackNumber(rec.PackMessage)
+	pack := entities.NewXDCCPack(server, rec.Bot, packNumber)
 	pack.SetFilename(rec.Filename, true)
 	pack.SetSize(rec.FileSize)
 

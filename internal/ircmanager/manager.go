@@ -284,6 +284,21 @@ func (m *Manager) DisconnectServer(serverID int64) error {
 	return nil
 }
 
+// GetClient returns the underlying girc.Client for a managed connection.
+// Returns nil if the server is not connected.
+func (m *Manager) GetClient(serverID int64) *girc.Client {
+	m.mu.RLock()
+	conn, ok := m.conns[serverID]
+	m.mu.RUnlock()
+	if !ok {
+		return nil
+	}
+	conn.mu.RLock()
+	client := conn.irc
+	conn.mu.RUnlock()
+	return client
+}
+
 // JoinChannel joins a channel on a specific server.
 func (m *Manager) JoinChannel(serverID int64, channel string) error {
 	m.mu.RLock()
@@ -378,38 +393,50 @@ func (m *Manager) GetChannelTopic(serverID int64, channel string) (string, error
 // DownloadPack performs an XDCC download using persistent IRC connections.
 // This method:
 // 1. Ensures connection to the target server
-// 2. Performs WHOIS to discover the bot's channel(s) if channel is empty
-// 3. Joins the channel if necessary
-// 4. Sends XDCC request to the bot
-// 5. Handles DCC transfer with progress callback
-// 6. Maintains the connection after download
+// 2. Uses the persistent connection's girc.Client for WHOIS/join/XDCC
+// 3. Performs WHOIS to discover the bot's channel(s) if channel is empty
+// 4. Joins the channel if necessary (tracks channels in joinedChs)
+// 5. Sends XDCC request to the bot
+// 6. Handles DCC transfer with progress callback
+// 7. Maintains the connection after download (channels remain joined)
 func (m *Manager) DownloadPack(ctx context.Context, pack *entities.XDCCPack, channel string, progressFn func(bytesReceived, totalBytes int64, speedBPS float64)) (string, error) {
 	m.logger.Printf("DownloadPack: starting download for %s from bot %s on %s", pack.Filename, pack.Bot, pack.Server.Address)
 	
-	// Find or create connection for this server
-	_, _, err := m.ensureConnection(pack.Server.Address, pack.Server.Port)
+	// Find or create persistent connection for this server
+	_, conn, err := m.ensureConnection(pack.Server.Address, pack.Server.Port)
 	if err != nil {
 		return "", fmt.Errorf("ensuring connection to %s: %w", pack.Server.Address, err)
 	}
 	
-	// Use the connection's irc.Client to perform the download
-	// We delegate to the existing irc.Client infrastructure
+	// Get the underlying girc.Client from the persistent connection
+	conn.mu.RLock()
+	gircClient := conn.irc
+	conn.mu.RUnlock()
+	if gircClient == nil {
+		return "", fmt.Errorf("persistent connection to %s has no IRC client", pack.Server.Address)
+	}
+	
+	m.logger.Printf("Using persistent IRC connection for download on %s", pack.Server.Address)
+	
+	// Configure download options
 	opts := xdccirc.DownloadOptions{
 		ConnectTimeout:   120,
 		StallTimeout:     60,
 		FallbackChannel:  channel,
 		ThrottleBytes:    0, // Use unlimited for now, can make configurable
 		WaitTime:         1,
-		ChannelJoinDelay: 5, // Fixed delay instead of random for persistent connections
+		ChannelJoinDelay: 5, // Fixed delay for persistent connections
 		Username:         m.cfg.IRC.Nickname,
 		Logger:           xdccirc.LoggerFunc(m.logger.Printf),
 		ProgressCallback: progressFn,
 	}
 	
-	// Create a temporary client that reuses the existing connection
-	// This is a workaround - ideally we'd refactor irc.Client to work with existing girc.Client
+	// Create xdccirc.Client and attach it to the existing persistent connection
 	packSlice := []*entities.XDCCPack{pack}
 	client := xdccirc.NewClient(ctx, packSlice, opts, 0) // 0 = normal verbosity
+	client.SetExistingClient(gircClient)
+	
+	m.logger.Printf("DownloadPack: WHOIS + channel join + XDCC on persistent connection to %s", pack.Server.Address)
 	results := client.DownloadAll()
 	
 	if len(results) == 0 {

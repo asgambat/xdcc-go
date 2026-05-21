@@ -16,6 +16,61 @@
   let error = $state('');
   let results = $state(null);
 
+  // Sorting state
+  let sortColumn = $state('');
+  let sortDirection = $state('asc');
+
+  // Derived: sorted packs
+  let sortedPacks = $derived.by(() => {
+    if (!results?.packs?.length) return [];
+    const packs = results.packs;
+    if (!sortColumn) return packs;
+    const dir = sortDirection === 'asc' ? 1 : -1;
+    const sorted = [...packs].sort((a, b) => {
+      let valA, valB;
+      switch (sortColumn) {
+        case 'filename':
+          valA = (a.filename || '').toLowerCase();
+          valB = (b.filename || '').toLowerCase();
+          return valA < valB ? -dir : valA > valB ? dir : 0;
+        case 'bot':
+          valA = (a.bot || '').toLowerCase();
+          valB = (b.bot || '').toLowerCase();
+          return valA < valB ? -dir : valA > valB ? dir : 0;
+        case 'channel':
+          valA = (a.channel || '').toLowerCase();
+          valB = (b.channel || '').toLowerCase();
+          return valA < valB ? -dir : valA > valB ? dir : 0;
+        case 'size':
+          valA = a.size ?? 0;
+          valB = b.size ?? 0;
+          return (valA - valB) * dir;
+        case 'server':
+          valA = (a.server?.address || '').toLowerCase();
+          valB = (b.server?.address || '').toLowerCase();
+          return valA < valB ? -dir : valA > valB ? dir : 0;
+        default:
+          return 0;
+      }
+    });
+    return sorted;
+  });
+
+  function toggleSort(column) {
+    if (sortColumn === column) {
+      // Toggle direction
+      sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+    } else {
+      sortColumn = column;
+      sortDirection = 'asc';
+    }
+  }
+
+  function sortIcon(column) {
+    if (sortColumn !== column) return '↕';
+    return sortDirection === 'asc' ? '▲' : '▼';
+  }
+
   onMount(async () => {
     await loadProviders();
   });
@@ -167,16 +222,26 @@
         <table>
           <thead>
             <tr>
-              <th>File</th>
-              <th>Bot</th>
-              <th>Channel</th>
-              <th>Size</th>
-              <th>Provider</th>
+              <th class="sortable" onclick={() => toggleSort('filename')}>
+                File <span class="sort-icon">{sortIcon('filename')}</span>
+              </th>
+              <th class="sortable" onclick={() => toggleSort('bot')}>
+                Bot <span class="sort-icon">{sortIcon('bot')}</span>
+              </th>
+              <th class="sortable" onclick={() => toggleSort('channel')}>
+                Channel <span class="sort-icon">{sortIcon('channel')}</span>
+              </th>
+              <th class="sortable" onclick={() => toggleSort('size')}>
+                Size <span class="sort-icon">{sortIcon('size')}</span>
+              </th>
+              <th class="sortable" onclick={() => toggleSort('server')}>
+                Server <span class="sort-icon">{sortIcon('server')}</span>
+              </th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody>
-            {#each results.packs as pack}
+            {#each sortedPacks as pack}
               <tr>
                 <td class="truncate" style="max-width:250px" title={pack.filename}>{pack.filename || 'Unknown'}</td>
                 <td>{pack.bot || '—'}</td>
@@ -210,3 +275,27 @@
     <div class="empty-state-sub">Search across multiple providers (NIBL, IXIRC, SubSplease, XDCC.eu)</div>
   </div>
 {/if}
+
+<style>
+  th.sortable {
+    cursor: pointer;
+    user-select: none;
+    transition: color 0.15s ease;
+  }
+  th.sortable:hover {
+    color: var(--accent-light);
+  }
+  .sort-icon {
+    display: inline-block;
+    font-size: 0.7rem;
+    margin-left: 0.25rem;
+    opacity: 0.4;
+    transition: opacity 0.15s ease, transform 0.15s ease;
+  }
+  th.sortable:hover .sort-icon {
+    opacity: 0.8;
+  }
+  th.sortable:active .sort-icon {
+    transform: scale(0.85);
+  }
+</style>

@@ -37,6 +37,11 @@ type Client struct {
 	joinedChannels map[string]bool // channels joined in this connection (cleared on reconnect)
 	connectTime    time.Time
 
+	// When true, the client uses an existing connection managed externally
+	// (e.g. by ircmanager). connect() is skipped; the caller must call
+	// SetExistingClient() to provide the girc.Client before DownloadAll().
+	usingExistingConn bool
+
 	// Current pack index (set before each pack download)
 	packIdxVal atomic.Int32
 
@@ -107,6 +112,22 @@ func NewClient(ctx context.Context, packs []*entities.XDCCPack, opts DownloadOpt
 // Public API
 // ---------------------------------------------------------------------------
 
+// SetExistingClient configures the client to use an already-established IRC
+// connection instead of creating its own. The caller is responsible for
+// managing the connection lifecycle (e.g. the ircmanager keeps the connection
+// alive after the download completes).
+//
+// Must be called before DownloadAll().
+func (c *Client) SetExistingClient(irc *girc.Client) {
+	c.usingExistingConn = true
+	c.irc = irc
+	c.connectedCh = make(chan struct{})
+	c.joinedChannels = make(map[string]bool)
+	c.ircErrCh = make(chan error, 1)
+	c.registerHandlers()
+	close(c.connectedCh) // Already connected — signal immediately
+}
+
 // DownloadAll downloads all packs sequentially, reusing the IRC connection
 // for packs on the same server. Returns one PackResult per pack.
 func (c *Client) DownloadAll() []PackResult {
@@ -116,18 +137,35 @@ func (c *Client) DownloadAll() []PackResult {
 	
 	results := make([]PackResult, len(c.packs))
 
-	if err := c.connect(); err != nil {
-		c.logf("ERROR: Failed to connect to IRC server: %v", err)
-		for i := range results {
-			results[i].Error = err
+	if !c.usingExistingConn {
+		if err := c.connect(); err != nil {
+			c.logf("ERROR: Failed to connect to IRC server: %v", err)
+			for i := range results {
+				results[i].Error = err
+			}
+			return results
 		}
-		return results
+	} else {
+		c.logf("Using existing persistent IRC connection")
 	}
-	defer func() {
-		c.logf("=== Closing IRC connection ===")
-		c.irc.Close()
-		<-c.ircErrCh
-	}()
+
+	if !c.usingExistingConn {
+		defer func() {
+			c.logf("=== Closing IRC connection ===")
+			c.irc.Close()
+			<-c.ircErrCh
+		}()
+	}
+
+	closeConn := func() {
+		if !c.usingExistingConn {
+			c.irc.Close()
+			select {
+			case <-c.ircErrCh:
+			case <-time.After(5 * time.Second):
+			}
+		}
+	}
 
 	for i := range c.packs {
 		select {
@@ -135,11 +173,7 @@ func (c *Client) DownloadAll() []PackResult {
 			for j := i; j < len(results); j++ {
 				results[j].Error = ErrCancelled
 			}
-			c.irc.Close()
-			select {
-			case <-c.ircErrCh:
-			case <-time.After(5 * time.Second):
-			}
+			closeConn()
 			return results
 		default:
 		}
@@ -150,11 +184,7 @@ func (c *Client) DownloadAll() []PackResult {
 				for j := i; j < len(results); j++ {
 					results[j].Error = ErrCancelled
 				}
-				c.irc.Close()
-				select {
-				case <-c.ircErrCh:
-				case <-time.After(5 * time.Second):
-				}
+				closeConn()
 				return results
 			case <-time.After(3 * time.Second):
 			}
@@ -173,11 +203,13 @@ func (c *Client) DownloadAll() []PackResult {
 		}
 	}
 
-	c.irc.Close()
-	// Drain ircErrCh so the goroutine can exit
-	select {
-	case <-c.ircErrCh:
-	case <-time.After(5 * time.Second):
+	if !c.usingExistingConn {
+		c.irc.Close()
+		// Drain ircErrCh so the goroutine can exit
+		select {
+		case <-c.ircErrCh:
+		case <-time.After(5 * time.Second):
+		}
 	}
 	return results
 }
@@ -195,6 +227,11 @@ func (c *Client) LastBotNotice() string {
 // ---------------------------------------------------------------------------
 
 func (c *Client) connect() error {
+	// When using an existing connection managed externally, skip connection entirely.
+	if c.usingExistingConn {
+		return nil
+	}
+
 	server := c.packs[0].Server
 
 	// Resolve the hostname to all valid IPs so we can try each one in order.
@@ -273,6 +310,13 @@ func (c *Client) connect() error {
 }
 
 func (c *Client) reconnect() error {
+	// When using an existing connection, the persistent connection handles
+	// reconnection itself. Just return the error to let the queue manager
+	// handle retry logic at a higher level.
+	if c.usingExistingConn {
+		return fmt.Errorf("cannot reconnect on persistent connection")
+	}
+
 	c.infof("Reconnecting to IRC...")
 	c.irc.Close()
 	// Drain ircErrCh (may have been consumed already; best-effort)

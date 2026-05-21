@@ -101,7 +101,7 @@
   {#if active.length > 0}
     <div class="card mb-2">
       <div class="card-header"><span class="card-title">⬇️ Downloading ({active.length})</span></div>
-      <DownloadTable items={active} {selectedDownloads} {toggleDownload} {toggleSelectAll}
+      <DownloadTable items={active} selectedDownloads={$selectedDownloads} {toggleDownload} {toggleSelectAll}
         {formatBytes} {formatSpeed} {formatETA} {statusBadge}
         onPause={pauseDownload} onRemove={removeDownload} />
     </div>
@@ -110,7 +110,7 @@
   {#if paused.length > 0}
     <div class="card mb-2">
       <div class="card-header"><span class="card-title">⏸️ Paused ({paused.length})</span></div>
-      <DownloadTable items={paused} {selectedDownloads} {toggleDownload} {toggleSelectAll}
+      <DownloadTable items={paused} selectedDownloads={$selectedDownloads} {toggleDownload} {toggleSelectAll}
         {formatBytes} {formatSpeed} {formatETA} {statusBadge}
         onResume={resumeDownload} onRemove={removeDownload} onMoveUp={moveUp} onMoveDown={moveDown} />
     </div>
@@ -119,7 +119,7 @@
   {#if queued.length > 0}
     <div class="card mb-2">
       <div class="card-header"><span class="card-title">📋 Queued ({queued.length})</span></div>
-      <DownloadTable items={queued} {selectedDownloads} {toggleDownload} {toggleSelectAll}
+      <DownloadTable items={queued} selectedDownloads={$selectedDownloads} {toggleDownload} {toggleSelectAll}
         {formatBytes} {formatSpeed} {formatETA} {statusBadge}
         onRemove={removeDownload} onMoveUp={moveUp} onMoveDown={moveDown} />
     </div>

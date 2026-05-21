@@ -3,6 +3,7 @@ package entities
 import (
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -86,6 +87,36 @@ func (p *XDCCPack) GetRequestMessage(full bool) string {
 func (p *XDCCPack) String() string {
 	return fmt.Sprintf("%s (/msg %s xdcc send #%d) [%s]",
 		p.Filename, p.Bot, p.PackNumber, HumanReadableBytes(p.Size))
+}
+
+// ExtractPackNumber parses the pack number from a pack message string.
+// Supported formats:
+//   - "xdcc send #42"       → 42
+//   - "/msg Bot xdcc send #42" → 42
+// If parsing fails, returns 0.
+func ExtractPackNumber(msg string) int {
+	hashIdx := strings.LastIndex(msg, "#")
+	if hashIdx < 0 {
+		return 0
+	}
+	numStr := msg[hashIdx+1:]
+	// Only take digits (stop at first non-digit)
+	var digits strings.Builder
+	for _, c := range numStr {
+		if c >= '0' && c <= '9' {
+			digits.WriteRune(c)
+		} else {
+			break
+		}
+	}
+	if digits.Len() == 0 {
+		return 0
+	}
+	n, err := strconv.Atoi(digits.String())
+	if err != nil {
+		return 0
+	}
+	return n
 }
 
 // HumanReadableBytes converts a byte count to a human-readable string.

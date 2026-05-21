@@ -11,7 +11,12 @@ func (c *Client) registerHandlers() {
 	c.irc.Handlers.Add(girc.CONNECTED, func(client *girc.Client, e girc.Event) {
 		c.connectTime = time.Now()
 		c.infof("✓ Connected to IRC server successfully")
-		close(c.connectedCh)
+		// Safe close: handle already-closed channel (e.g. when using existing connection)
+		select {
+		case <-c.connectedCh:
+		default:
+			close(c.connectedCh)
+		}
 	})
 
 	// End of WHOIS: decide whether to send XDCC now or wait for JOIN.
@@ -170,6 +175,6 @@ func (c *Client) sendXDCCRequest(client *girc.Client) {
 	}
 	pack := c.currentPack()
 	msg := pack.GetRequestMessage(false)
-	c.logf("→ Sending XDCC request to bot %s: %s", pack.Bot, msg)
+	c.infof("→ Sending XDCC request to bot %s: %s", pack.Bot, msg)
 	client.Cmd.Message(pack.Bot, msg)
 }
