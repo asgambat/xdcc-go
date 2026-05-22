@@ -661,7 +661,6 @@ func (mc *managedConnection) run() {
 	if mc.isRunning {
 		mc.manager.logger.Printf("WARNING: run() already active for server %d, skipping duplicate call", mc.id)
 		mc.runningMu.Unlock()
-		mc.wg.Done()
 		return
 	}
 	mc.isRunning = true
