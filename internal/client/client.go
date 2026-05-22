@@ -74,7 +74,7 @@ func (c *Client) BaseURL() string { return c.baseURL }
 
 // ServerVersion holds the version info returned by GET /api/version.
 type ServerVersion struct {
-	Version                  string `json:"version"`
+	Version                    string `json:"version"`
 	MinCompatibleClientVersion string `json:"min_compatible_client_version"`
 }
 
@@ -172,11 +172,11 @@ type EnqueueResponse struct {
 func (c *Client) EnqueueDownload(download store.DownloadRecord) (int64, error) {
 	body := map[string]interface{}{
 		"pack_message":   download.PackMessage,
-		"bot":           download.Bot,
+		"bot":            download.Bot,
 		"server_address": download.ServerAddress,
-		"channel":       download.Channel,
-		"filename":      download.Filename,
-		"file_size":     download.FileSize,
+		"channel":        download.Channel,
+		"filename":       download.Filename,
+		"file_size":      download.FileSize,
 	}
 	if download.Priority > 0 {
 		body["priority"] = download.Priority

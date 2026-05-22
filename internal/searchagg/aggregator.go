@@ -27,7 +27,7 @@ type Aggregator struct {
 	cache    *searchCache
 	disabled map[string]bool // runtime-disabled providers
 	mu       sync.RWMutex
-	
+
 	// Cleanup goroutine lifecycle
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -64,11 +64,11 @@ func (a *Aggregator) Stop() {
 // cleanupLoop periodically removes stale cache entries.
 func (a *Aggregator) cleanupLoop() {
 	defer close(a.done)
-	
+
 	// Run cleanup every 6 hours
 	ticker := time.NewTicker(6 * time.Hour)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-a.ctx.Done():
@@ -82,7 +82,7 @@ func (a *Aggregator) cleanupLoop() {
 // cleanupStaleEntries removes cache entries beyond stale TTL.
 func (a *Aggregator) cleanupStaleEntries() {
 	now := time.Now()
-	
+
 	// Cleanup in-memory cache
 	a.cache.mu.Lock()
 	for queryKey, providers := range a.cache.entries {
@@ -96,7 +96,7 @@ func (a *Aggregator) cleanupStaleEntries() {
 		}
 	}
 	a.cache.mu.Unlock()
-	
+
 	// Cleanup SQLite cache if enabled
 	if a.cache.enabled && a.cache.st != nil {
 		// Type-assert to SQLiteStore to access CleanupSearchCache method
@@ -468,12 +468,12 @@ func (a *Aggregator) recordProviderResult(name string, success bool, latency tim
 	windowEnd := windowStart.Add(1 * time.Hour)
 
 	stats := store.ProviderStats{
-		Provider:    name,
-		WindowStart: windowStart,
-		WindowEnd:   windowEnd,
-		Requests:    1,
+		Provider:     name,
+		WindowStart:  windowStart,
+		WindowEnd:    windowEnd,
+		Requests:     1,
 		AvgLatencyMs: float64(latency.Milliseconds()),
-		UpdatedAt:   now,
+		UpdatedAt:    now,
 	}
 	if success {
 		stats.Successes = 1

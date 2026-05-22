@@ -8,15 +8,15 @@ import "time"
 
 // ServerRecord represents an IRC server stored in the database.
 type ServerRecord struct {
-	ID             int64      `json:"id"`
-	Address        string     `json:"address"`
-	Port           int        `json:"port"`
-	AutoConnect    bool       `json:"auto_connect"`
-	Status         string     `json:"status"`          // disconnected, connected, reconnecting
+	ID              int64      `json:"id"`
+	Address         string     `json:"address"`
+	Port            int        `json:"port"`
+	AutoConnect     bool       `json:"auto_connect"`
+	Status          string     `json:"status"` // disconnected, connected, reconnecting
 	LastConnectedAt *time.Time `json:"last_connected_at,omitempty"`
-	RetryCount     int        `json:"retry_count"`
-	CreatedAt      time.Time  `json:"created_at"`
-	UpdatedAt      time.Time  `json:"updated_at"`
+	RetryCount      int        `json:"retry_count"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
 }
 
 // ---------------------------------------------------------------------------
@@ -71,11 +71,11 @@ type DownloadRecord struct {
 
 // SearchCacheEntry represents a cached search result.
 type SearchCacheEntry struct {
-	QueryKey    string    `json:"query_key"`
-	Provider    string    `json:"provider"`
-	PayloadJSON string    `json:"payload_json"`
-	FetchedAt   time.Time `json:"fetched_at"`
-	ExpiresAt   time.Time `json:"expires_at"`
+	QueryKey       string    `json:"query_key"`
+	Provider       string    `json:"provider"`
+	PayloadJSON    string    `json:"payload_json"`
+	FetchedAt      time.Time `json:"fetched_at"`
+	ExpiresAt      time.Time `json:"expires_at"`
 	StaleExpiresAt time.Time `json:"stale_expires_at"`
 }
 
@@ -100,17 +100,17 @@ type SearchPreset struct {
 
 // Watchlist represents a saved watchlist for periodic search and notification.
 type Watchlist struct {
-	ID                  int64      `json:"id"`
-	Name                string     `json:"name"`
-	Query               string     `json:"query"`
-	FiltersJSON         string     `json:"filters_json,omitempty"`
-	Enabled             bool       `json:"enabled"`
-	AutoEnqueue         bool       `json:"auto_enqueue"`
-	LastCheckedAt       *time.Time `json:"last_checked_at,omitempty"`
-	LastMatchFingerprint string    `json:"last_match_fingerprint,omitempty"`
-	LastNotifiedAt      *time.Time `json:"last_notified_at,omitempty"`
-	CreatedAt           time.Time  `json:"created_at"`
-	UpdatedAt           time.Time  `json:"updated_at"`
+	ID                   int64      `json:"id"`
+	Name                 string     `json:"name"`
+	Query                string     `json:"query"`
+	FiltersJSON          string     `json:"filters_json,omitempty"`
+	Enabled              bool       `json:"enabled"`
+	AutoEnqueue          bool       `json:"auto_enqueue"`
+	LastCheckedAt        *time.Time `json:"last_checked_at,omitempty"`
+	LastMatchFingerprint string     `json:"last_match_fingerprint,omitempty"`
+	LastNotifiedAt       *time.Time `json:"last_notified_at,omitempty"`
+	CreatedAt            time.Time  `json:"created_at"`
+	UpdatedAt            time.Time  `json:"updated_at"`
 }
 
 // ---------------------------------------------------------------------------
@@ -119,15 +119,15 @@ type Watchlist struct {
 
 // ProviderStats represents collected metrics for a search provider.
 type ProviderStats struct {
-	Provider    string    `json:"provider"`
-	WindowStart time.Time `json:"window_start"`
-	WindowEnd   time.Time `json:"window_end"`
-	Requests    int       `json:"requests"`
-	Successes   int       `json:"successes"`
-	Timeouts    int       `json:"timeouts"`
-	Failures    int       `json:"failures"`
-	AvgLatencyMs float64  `json:"avg_latency_ms"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	Provider     string    `json:"provider"`
+	WindowStart  time.Time `json:"window_start"`
+	WindowEnd    time.Time `json:"window_end"`
+	Requests     int       `json:"requests"`
+	Successes    int       `json:"successes"`
+	Timeouts     int       `json:"timeouts"`
+	Failures     int       `json:"failures"`
+	AvgLatencyMs float64   `json:"avg_latency_ms"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 // ---------------------------------------------------------------------------
@@ -146,9 +146,9 @@ type SchemaVersion struct {
 
 // DownloadHistoryPage holds a paginated list of download history records.
 type DownloadHistoryPage struct {
-	Downloads    []DownloadRecord `json:"downloads"`
-	TotalCount   int              `json:"total_count"`
-	Page         int              `json:"page"`
-	PageSize     int              `json:"page_size"`
-	TotalPages   int              `json:"total_pages"`
+	Downloads  []DownloadRecord `json:"downloads"`
+	TotalCount int              `json:"total_count"`
+	Page       int              `json:"page"`
+	PageSize   int              `json:"page_size"`
+	TotalPages int              `json:"total_pages"`
 }

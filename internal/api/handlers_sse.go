@@ -21,9 +21,9 @@ func (a *API) handleEvents(w http.ResponseWriter, r *http.Request) {
 			reqID = idStr
 		}
 	}
-	
+
 	start := time.Now()
-	
+
 	// Log SSE client connection with current client count
 	clientsBefore := a.SSEHub.ClientCount()
 	a.Logger.Debugf("[SSE] client connected [%s] remote=%s clients_before=%d", reqID, r.RemoteAddr, clientsBefore)
@@ -32,7 +32,7 @@ func (a *API) handleEvents(w http.ResponseWriter, r *http.Request) {
 		clientsAfter := a.SSEHub.ClientCount()
 		a.Logger.Debugf("[SSE] client disconnected [%s] duration=%v clients_after=%d", reqID, duration, clientsAfter)
 	}()
-	
+
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		writeError(w, http.StatusInternalServerError, "SSE_UNSUPPORTED",
@@ -49,7 +49,7 @@ func (a *API) handleEvents(w http.ResponseWriter, r *http.Request) {
 	// Subscribe to the SSE hub
 	ch := a.SSEHub.Subscribe()
 	defer a.SSEHub.Unsubscribe(ch)
-	
+
 	// Log after subscription
 	clientsAfterSub := a.SSEHub.ClientCount()
 	a.Logger.Debugf("[SSE] subscribed [%s] total_clients=%d", reqID, clientsAfterSub)

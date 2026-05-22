@@ -210,7 +210,7 @@ func runWithServer(serverURL, message, outDir string) error {
 						progressPct = float64(rec.ProgressBytes) / float64(fileSize) * 100
 					}
 					speed := formatSpeed(rec.SpeedBPS)
-					eta := formatETA(fileSize - rec.ProgressBytes, rec.SpeedBPS)
+					eta := formatETA(fileSize-rec.ProgressBytes, rec.SpeedBPS)
 					fmt.Fprintf(os.Stderr, "\r⬇️  %s — %s/%s (%.1f%%) — %s — ETA %s",
 						p.Filename,
 						formatBytes(rec.ProgressBytes),

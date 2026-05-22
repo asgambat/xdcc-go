@@ -53,21 +53,21 @@ type HTTPConfig struct {
 }
 
 type DownloadConfig struct {
-	TempDir          string `yaml:"temp_dir"           env:"XDCC_DOWNLOAD_TEMP_DIR"`
-	DestDir          string `yaml:"dest_dir"           env:"XDCC_DOWNLOAD_DEST_DIR"`
-	ConflictPolicy   string `yaml:"conflict_policy"    env:"XDCC_DOWNLOAD_CONFLICT_POLICY"`
-	FailFallback     string `yaml:"fail_fallback"      env:"XDCC_DOWNLOAD_FAIL_FALLBACK"`
-	MaxParallelTotal int    `yaml:"max_parallel_total"  env:"XDCC_DOWNLOAD_MAX_PARALLEL"`
-	MaxRateBPS       int64  `yaml:"max_rate_bps"       env:"XDCC_DOWNLOAD_MAX_RATE_BPS"`
-	MinDiskSpace     int64  `yaml:"min_disk_space_bytes" env:"XDCC_DOWNLOAD_MIN_DISK_SPACE"`
-	MaxRetryAttempts      int    `yaml:"max_retry_attempts"      env:"XDCC_DOWNLOAD_MAX_RETRY"`
-	StartupDelayMinutes   int    `yaml:"startup_delay_minutes"   env:"XDCC_DOWNLOAD_STARTUP_DELAY_MINUTES"`
+	TempDir             string `yaml:"temp_dir"           env:"XDCC_DOWNLOAD_TEMP_DIR"`
+	DestDir             string `yaml:"dest_dir"           env:"XDCC_DOWNLOAD_DEST_DIR"`
+	ConflictPolicy      string `yaml:"conflict_policy"    env:"XDCC_DOWNLOAD_CONFLICT_POLICY"`
+	FailFallback        string `yaml:"fail_fallback"      env:"XDCC_DOWNLOAD_FAIL_FALLBACK"`
+	MaxParallelTotal    int    `yaml:"max_parallel_total"  env:"XDCC_DOWNLOAD_MAX_PARALLEL"`
+	MaxRateBPS          int64  `yaml:"max_rate_bps"       env:"XDCC_DOWNLOAD_MAX_RATE_BPS"`
+	MinDiskSpace        int64  `yaml:"min_disk_space_bytes" env:"XDCC_DOWNLOAD_MIN_DISK_SPACE"`
+	MaxRetryAttempts    int    `yaml:"max_retry_attempts"      env:"XDCC_DOWNLOAD_MAX_RETRY"`
+	StartupDelayMinutes int    `yaml:"startup_delay_minutes"   env:"XDCC_DOWNLOAD_STARTUP_DELAY_MINUTES"`
 }
 
 type SearchConfig struct {
-	ProviderTimeout  int            `yaml:"provider_timeout"  env:"XDCC_SEARCH_PROVIDER_TIMEOUT"`
-	PageSize         int            `yaml:"page_size"         env:"XDCC_SEARCH_PAGE_SIZE"`
-	EnabledProviders []string       `yaml:"enabled_providers"`
+	ProviderTimeout  int               `yaml:"provider_timeout"  env:"XDCC_SEARCH_PROVIDER_TIMEOUT"`
+	PageSize         int               `yaml:"page_size"         env:"XDCC_SEARCH_PAGE_SIZE"`
+	EnabledProviders []string          `yaml:"enabled_providers"`
 	Cache            SearchCacheConfig `yaml:"cache"`
 }
 
@@ -122,13 +122,13 @@ func DefaultConfig() *Config {
 			Port: 8080,
 		},
 		Download: DownloadConfig{
-			TempDir:          "./downloads/tmp",
-			DestDir:          "./downloads/complete",
-			ConflictPolicy:   "skip",
-			FailFallback:     "suggest_only",
-			MaxParallelTotal: 5,
-			MaxRateBPS:       0,
-			MinDiskSpace:     1 * 1024 * 1024 * 1024, // 1 GB default
+			TempDir:             "./downloads/tmp",
+			DestDir:             "./downloads/complete",
+			ConflictPolicy:      "skip",
+			FailFallback:        "suggest_only",
+			MaxParallelTotal:    5,
+			MaxRateBPS:          0,
+			MinDiskSpace:        1 * 1024 * 1024 * 1024, // 1 GB default
 			MaxRetryAttempts:    3,
 			StartupDelayMinutes: 0,
 		},
@@ -325,10 +325,10 @@ func (c *Config) applyEnvOverrides() {
 
 // FlagOverrides holds optional CLI flag overrides that take highest priority.
 type FlagOverrides struct {
-	Port       *int
+	Port        *int
 	DownloadDir *string
-	TempDir    *string
-	ConfigPath *string
+	TempDir     *string
+	ConfigPath  *string
 }
 
 func (f *FlagOverrides) apply(c *Config) {

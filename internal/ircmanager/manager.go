@@ -269,7 +269,7 @@ func (m *Manager) DisconnectServer(serverID int64) error {
 
 	// Signal disconnect and wait for run() to complete
 	conn.disconnect()
-	
+
 	// Wait for run() goroutine to finish with timeout
 	select {
 	case <-conn.done:
@@ -277,7 +277,7 @@ func (m *Manager) DisconnectServer(serverID int64) error {
 	case <-time.After(5 * time.Second):
 		m.logger.Printf("WARNING: server %d disconnect exceeded 5s timeout", serverID)
 	}
-	
+
 	if err := m.store.SetServerStatus(serverID, "disconnected"); err != nil {
 		m.logger.Printf("WARNING: updating server status in DB failed: %v", err)
 	}
@@ -408,13 +408,13 @@ func (m *Manager) GetChannelTopic(serverID int64, channel string) (string, error
 // 7. Maintains the connection after download (channels remain joined)
 func (m *Manager) DownloadPack(ctx context.Context, pack *entities.XDCCPack, channel string, progressFn func(bytesReceived, totalBytes int64, speedBPS float64)) (string, error) {
 	m.logger.Printf("DownloadPack: starting download for %s from bot %s on %s", pack.Filename, pack.Bot, pack.Server.Address)
-	
+
 	// Find or create persistent connection for this server
 	_, conn, err := m.ensureConnection(pack.Server.Address, pack.Server.Port)
 	if err != nil {
 		return "", fmt.Errorf("ensuring connection to %s: %w", pack.Server.Address, err)
 	}
-	
+
 	// Get the underlying girc.Client from the persistent connection
 	conn.mu.RLock()
 	gircClient := conn.irc
@@ -426,9 +426,9 @@ func (m *Manager) DownloadPack(ctx context.Context, pack *entities.XDCCPack, cha
 	if gircClient == nil {
 		return "", fmt.Errorf("persistent connection to %s has no IRC client", pack.Server.Address)
 	}
-	
+
 	m.logger.Printf("Using persistent IRC connection for download on %s", pack.Server.Address)
-	
+
 	// Configure download options
 	opts := xdccirc.DownloadOptions{
 		ConnectTimeout:   120,
@@ -449,42 +449,42 @@ func (m *Manager) DownloadPack(ctx context.Context, pack *entities.XDCCPack, cha
 			return irc
 		},
 	}
-	
+
 	// Create xdccirc.Client and attach it to the existing persistent connection
 	packSlice := []*entities.XDCCPack{pack}
 	client := xdccirc.NewClient(ctx, packSlice, opts, 1) // verbosity=1 so WHOIS/JOIN logs appear
 	client.SetExistingClient(gircClient)
-	
+
 	// Tell the client about channels the managed connection is already in
 	// so it doesn't try to re-join them (which the server would silently
 	// ignore, causing XDCC to never be sent).
 	if len(joinedChs) > 0 {
 		client.SetAlreadyJoinedChannels(joinedChs)
 	}
-	
+
 	m.logger.Printf("DownloadPack: WHOIS → JOIN → XDCC for bot %s on %s (channel=%q, pack=%d)",
 		pack.Bot, pack.Server.Address, channel, pack.PackNumber)
 	results := client.DownloadAll()
-	
+
 	if len(results) == 0 {
 		m.logger.Printf("DownloadPack: ERROR — no result from download client for bot %s on %s",
 			pack.Bot, pack.Server.Address)
 		return "", fmt.Errorf("no result from download client")
 	}
-	
+
 	r := results[0]
 	if r.Error != nil {
 		m.logger.Printf("DownloadPack: FAILED for bot %s on %s — %v",
 			pack.Bot, pack.Server.Address, r.Error)
 		return "", r.Error
 	}
-	
+
 	// Return the downloaded file path
 	filePath := pack.GetFilepath()
 	if r.FilePath != "" {
 		filePath = r.FilePath
 	}
-	
+
 	m.logger.Printf("DownloadPack: SUCCESS for bot %s on %s — %s",
 		pack.Bot, pack.Server.Address, filePath)
 	return filePath, nil
@@ -515,16 +515,16 @@ func (m *Manager) ensureConnection(address string, port int) (int64, *managedCon
 		}
 	}
 	m.mu.RUnlock()
-	
+
 	// No connection exists - create one
 	m.logger.Printf("Creating new persistent connection to %s:%d", address, port)
-	
+
 	// Check if server exists in database
 	servers, err := m.store.ListServers()
 	if err != nil {
 		return 0, nil, fmt.Errorf("listing servers: %w", err)
 	}
-	
+
 	var serverID int64
 	var found bool
 	for _, s := range servers {
@@ -534,7 +534,7 @@ func (m *Manager) ensureConnection(address string, port int) (int64, *managedCon
 			break
 		}
 	}
-	
+
 	if !found {
 		// Add server to database
 		serverID, err = m.store.AddServer(store.ServerRecord{
@@ -548,18 +548,18 @@ func (m *Manager) ensureConnection(address string, port int) (int64, *managedCon
 		}
 		m.logger.Printf("Added new server %s:%d to database (ID: %d)", address, port, serverID)
 	}
-	
+
 	// Connect to the server
 	if err := m.ConnectServerByID(serverID); err != nil {
 		return 0, nil, fmt.Errorf("connecting to server: %w", err)
 	}
-	
+
 	// Wait for connection to establish
 	m.logger.Printf("Waiting for connection to %s:%d to establish...", address, port)
 	m.mu.RLock()
 	conn := m.conns[serverID]
 	m.mu.RUnlock()
-	
+
 	for i := 0; i < 30; i++ { // Wait up to 30 seconds
 		time.Sleep(1 * time.Second)
 		if conn.Status() == "connected" {
@@ -567,7 +567,7 @@ func (m *Manager) ensureConnection(address string, port int) (int64, *managedCon
 			return serverID, conn, nil
 		}
 	}
-	
+
 	return 0, nil, fmt.Errorf("connection to %s:%d did not establish in time", address, port)
 }
 

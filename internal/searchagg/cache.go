@@ -143,11 +143,11 @@ func (c *searchCache) set(queryKey, provider string, packs []*entities.XDCCPack)
 			return
 		}
 		_ = c.st.SetSearchCache(store.SearchCacheEntry{
-			QueryKey:      queryKey,
-			Provider:      provider,
-			PayloadJSON:   string(payload),
-			FetchedAt:     now,
-			ExpiresAt:     entry.ExpiresAt,
+			QueryKey:       queryKey,
+			Provider:       provider,
+			PayloadJSON:    string(payload),
+			FetchedAt:      now,
+			ExpiresAt:      entry.ExpiresAt,
 			StaleExpiresAt: entry.StaleAt,
 		})
 	}

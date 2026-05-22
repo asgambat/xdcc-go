@@ -22,14 +22,14 @@ import (
 
 // API holds all dependencies needed by the HTTP handlers.
 type API struct {
-	Store             *store.SQLiteStore
-	IRCManager        IRCManager
-	QueueManager      QueueManager
-	SearchAggregator  *searchagg.Aggregator
-	SSEHub            *sse.Hub
-	Config            *config.Config
-	Logger            *logging.Logger
-	StartTime         time.Time
+	Store            *store.SQLiteStore
+	IRCManager       IRCManager
+	QueueManager     QueueManager
+	SearchAggregator *searchagg.Aggregator
+	SSEHub           *sse.Hub
+	Config           *config.Config
+	Logger           *logging.Logger
+	StartTime        time.Time
 }
 
 // IRCManager defines the subset of ircmanager.Manager methods used by handlers.
@@ -161,8 +161,8 @@ func Logging(logger *logging.Logger) func(http.Handler) http.Handler {
 				reqID = "-"
 			}
 
-		logger.Debugf("%s %s %d %s [%s]",
-			r.Method, r.URL.Path, rw.status, duration.Round(time.Millisecond), reqID)
+			logger.Debugf("%s %s %d %s [%s]",
+				r.Method, r.URL.Path, rw.status, duration.Round(time.Millisecond), reqID)
 		})
 	}
 }
@@ -175,7 +175,7 @@ func RequestID(next http.Handler) http.Handler {
 			id = fmt.Sprintf("req-%d", time.Now().UnixNano())
 		}
 		w.Header().Set("X-Request-ID", id)
-		
+
 		// Store request ID in context so handlers can access it
 		ctx := context.WithValue(r.Context(), "request-id", id)
 		next.ServeHTTP(w, r.WithContext(ctx))

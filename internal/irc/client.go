@@ -33,8 +33,8 @@ type Client struct {
 
 	// IRC connection (reset on reconnect)
 	irc                  *girc.Client
-	ircErrCh             chan error     // receives error from irc.Connect() goroutine
-	connectedCh          chan struct{}  // closed on CONNECTED event
+	ircErrCh             chan error      // receives error from irc.Connect() goroutine
+	connectedCh          chan struct{}   // closed on CONNECTED event
 	joinedChannels       map[string]bool // channels joined in this connection (cleared on reconnect)
 	handlersRegisteredOn *girc.Client    // which girc.Client handlers are currently bound to
 	connectTime          time.Time
@@ -48,17 +48,17 @@ type Client struct {
 	packIdxVal atomic.Int32
 
 	// Per-pack state (reset via resetForPack between packs)
-	mu                 sync.Mutex
-	peerAddr           string   // stored on DCC SEND, reused on DCC ACCEPT
-	dccConn            net.Conn
-	dccFile            *os.File
-	progress           int64
-	filesize           int64
-	dccTimestamp       time.Time
-	downloading        bool
-	downloadError      error
-	lastBotNotice      string
-	downStartTime      time.Time
+	mu            sync.Mutex
+	peerAddr      string // stored on DCC SEND, reused on DCC ACCEPT
+	dccConn       net.Conn
+	dccFile       *os.File
+	progress      int64
+	filesize      int64
+	dccTimestamp  time.Time
+	downloading   bool
+	downloadError error
+	lastBotNotice string
+	downStartTime time.Time
 
 	ackQueue        chan []byte
 	downloadDone    chan struct{} // closed when pack finishes (success or error)
@@ -69,7 +69,7 @@ type Client struct {
 	// Handler CUIDs registered on the girc.Client. Tracked so handlers can be
 	// removed when the download completes, preventing accumulation of duplicate
 	// handlers on persistent connections shared across multiple downloads.
-	handlerCUIDs       []string
+	handlerCUIDs []string
 
 	// WHOIS flow control (per-pack, reset in resetForPack)
 	messageSent        atomic.Bool
@@ -164,7 +164,7 @@ func (c *Client) DownloadAll() []PackResult {
 	c.logf("=== Starting XDCC download session ===")
 	c.logf("Server: %s:%d", c.packs[0].Server.Address, c.packs[0].Server.Port)
 	c.logf("Total packs to download: %d", len(c.packs))
-	
+
 	results := make([]PackResult, len(c.packs))
 
 	if !c.usingExistingConn {

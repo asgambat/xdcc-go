@@ -15,12 +15,12 @@ import (
 // SearchOptions holds parameters for an aggregated search request.
 type SearchOptions struct {
 	Query    string   `json:"query"`
-	Prefix   string   `json:"prefix,omitempty"`   // -p: filename must start with this
-	Bot      string   `json:"bot,omitempty"`      // -b: bot name substring filter
-	Ext      []string `json:"ext,omitempty"`      // -x: allowed extensions
-	Compact  bool     `json:"compact,omitempty"`  // -c: deduplicate by bot family
-	Page     int      `json:"page"`               // 1-based
-	PageSize int      `json:"page_size"`          // items per page
+	Prefix   string   `json:"prefix,omitempty"`  // -p: filename must start with this
+	Bot      string   `json:"bot,omitempty"`     // -b: bot name substring filter
+	Ext      []string `json:"ext,omitempty"`     // -x: allowed extensions
+	Compact  bool     `json:"compact,omitempty"` // -c: deduplicate by bot family
+	Page     int      `json:"page"`              // 1-based
+	PageSize int      `json:"page_size"`         // items per page
 }
 
 // ---------------------------------------------------------------------------
@@ -63,10 +63,10 @@ type ProviderStatus struct {
 
 // Provider status constants.
 const (
-	ProviderStatusOK             = "ok"
-	ProviderStatusTimeout        = "timeout"
-	ProviderStatusFailed         = "failed"
-	ProviderStatusSkippedCache   = "skipped_cache_hit"
+	ProviderStatusOK           = "ok"
+	ProviderStatusTimeout      = "timeout"
+	ProviderStatusFailed       = "failed"
+	ProviderStatusSkippedCache = "skipped_cache_hit"
 )
 
 // ---------------------------------------------------------------------------

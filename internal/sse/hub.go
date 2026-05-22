@@ -86,12 +86,12 @@ func (h *Hub) Subscribe() chan Event {
 	h.clients[ch] = struct{}{}
 	clientCount := len(h.clients)
 	h.mu.Unlock()
-	
+
 	// Log subscription for diagnostics
 	// Note: This package doesn't have a logger, so we can't log here
 	// The API handler will log the connection
 	_ = clientCount
-	
+
 	return ch
 }
 
@@ -100,12 +100,12 @@ func (h *Hub) Subscribe() chan Event {
 func (h *Hub) Unsubscribe(ch chan Event) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	
+
 	// If hub is closed, channels are already closed - skip
 	if h.closed {
 		return
 	}
-	
+
 	// Find and remove the channel from the map
 	for c := range h.clients {
 		if c == ch {

@@ -103,11 +103,11 @@ type Store interface {
 
 // ExportData holds a snapshot of database state for export/import.
 type ExportData struct {
-	SchemaVersion int                `json:"schema_version"`
-	ExportedAt    time.Time          `json:"exported_at"`
-	Servers       []ServerRecord     `json:"servers,omitempty"`
-	Channels      []ChannelRecord    `json:"channels,omitempty"`
-	Downloads     []DownloadRecord   `json:"downloads,omitempty"`
-	SearchPresets []SearchPreset     `json:"search_presets,omitempty"`
-	Watchlists    []Watchlist        `json:"watchlists,omitempty"`
+	SchemaVersion int              `json:"schema_version"`
+	ExportedAt    time.Time        `json:"exported_at"`
+	Servers       []ServerRecord   `json:"servers,omitempty"`
+	Channels      []ChannelRecord  `json:"channels,omitempty"`
+	Downloads     []DownloadRecord `json:"downloads,omitempty"`
+	SearchPresets []SearchPreset   `json:"search_presets,omitempty"`
+	Watchlists    []Watchlist      `json:"watchlists,omitempty"`
 }

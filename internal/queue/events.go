@@ -13,7 +13,7 @@ import "time"
 type EventType string
 
 const (
-	EventDownloadQueued       EventType = "download_queued"
+	EventDownloadQueued      EventType = "download_queued"
 	EventDownloadStarted     EventType = "download_started"
 	EventDownloadProgress    EventType = "download_progress"
 	EventDownloadCompleted   EventType = "download_completed"

@@ -25,7 +25,7 @@ type DownloadConfig struct {
 	MaxRateBPS     int64
 	Nickname       string
 	Logger         xdccirc.Logger
-	
+
 	// IRCManager for persistent connections (optional - if nil, uses temporary connections)
 	IRCManager IRCManagerInterface
 }
@@ -36,12 +36,12 @@ type DownloadConfig struct {
 
 // workerResult holds the outcome of a single download execution.
 type workerResult struct {
-	DownloadID  int64
-	Error       error
-	FilePath    string // final file path on success
-	FileSize    int64
-	BotNotice   string
-	Skipped     bool   // true when file was skipped due to conflict policy
+	DownloadID int64
+	Error      error
+	FilePath   string // final file path on success
+	FileSize   int64
+	BotNotice  string
+	Skipped    bool // true when file was skipped due to conflict policy
 }
 
 // ---------------------------------------------------------------------------
@@ -135,13 +135,13 @@ func runDownload(
 	if _, err := os.Stat(destPath); err == nil {
 		// File already exists at destination
 		switch conflictPolicy {
-	case "skip":
-		// Remove the temp file and report as skipped
-		os.Remove(srcPath)
-		result.FilePath = destPath
-		result.Skipped = true
-		completeFn(result)
-		return
+		case "skip":
+			// Remove the temp file and report as skipped
+			os.Remove(srcPath)
+			result.FilePath = destPath
+			result.Skipped = true
+			completeFn(result)
+			return
 		case "overwrite":
 			// Remove destination file, then move
 			if err := os.Remove(destPath); err != nil {

@@ -12,7 +12,7 @@ func TestBotFamily(t *testing.T) {
 		{"WONDERFULBOT!", "WONDERFULB"},
 		{"1234567890ABC", "1234567890"},
 		// len < 13 and > 3 → first len-3
-		{"Bot123456789", "Bot123456"},  // len=12 → 9
+		{"Bot123456789", "Bot123456"}, // len=12 → 9
 		{"BotABCD", "BotA"},           // len=7 → 4
 		{"ABCD", "A"},                 // len=4 → 1
 		// len <= 3 → full name
@@ -41,10 +41,10 @@ func TestCompactPacks(t *testing.T) {
 	}
 
 	packs := []*XDCCPack{
-		mkPack("file.mkv", 1000, "Bot1234567890", 1), // family "Bot1234567"
-		mkPack("file.mkv", 1000, "Bot1234567XXX", 2), // same family → duplicate
-		mkPack("file.mkv", 1000, "Bot1234567YYY", 3), // same family → duplicate
-		mkPack("file.mkv", 2000, "Bot1234567890", 4), // different size → kept
+		mkPack("file.mkv", 1000, "Bot1234567890", 1),  // family "Bot1234567"
+		mkPack("file.mkv", 1000, "Bot1234567XXX", 2),  // same family → duplicate
+		mkPack("file.mkv", 1000, "Bot1234567YYY", 3),  // same family → duplicate
+		mkPack("file.mkv", 2000, "Bot1234567890", 4),  // different size → kept
 		mkPack("other.mkv", 1000, "Bot1234567890", 5), // different filename → kept
 		mkPack("file.mkv", 1000, "DiffBot123456", 6),  // different family → kept
 	}

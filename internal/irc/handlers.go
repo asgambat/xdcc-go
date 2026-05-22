@@ -81,7 +81,7 @@ func (c *Client) registerHandlers() {
 		}
 		rawChannels := e.Params[len(e.Params)-1]
 		c.infof("WHOIS response: bot is in channels: %s", rawChannels)
-		
+
 		for _, part := range strings.Fields(rawChannels) {
 			part = strings.TrimLeft(part, "@+%&~")
 			if !strings.HasPrefix(part, "#") {

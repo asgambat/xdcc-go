@@ -56,7 +56,7 @@ type QueueManager struct {
 	store store.Store
 	cfg   *config.Config
 	log   *log.Logger
-	
+
 	// IRCManager for persistent connections (optional - if nil, uses temporary connections)
 	ircMgr IRCManagerInterface
 
@@ -278,7 +278,7 @@ func (qm *QueueManager) Enqueue(d store.DownloadRecord) (int64, error) {
 	// Normalize channel (if provided)
 	// Channel is optional - if empty, WHOIS will discover it during download
 	d.Channel = normalizeChannel(d.Channel)
-	
+
 	// Check for duplicate by bot + pack message
 	dupByMsg, err := qm.store.GetDownloadByBotMessage(d.Bot, d.PackMessage)
 	if err == nil && dupByMsg != nil && dupByMsg.Status != store.DownloadStatusCompleted {
@@ -639,7 +639,7 @@ func (qm *QueueManager) startDownload(d store.DownloadRecord) {
 	qm.downloadWg.Add(1)
 	go func() {
 		defer qm.downloadWg.Done()
-		
+
 		// Progress callback: update store and emit events
 		progressFn := func(bytesReceived, totalBytes int64, speedBPS float64) {
 			// Update store
@@ -681,16 +681,16 @@ func (qm *QueueManager) startDownload(d store.DownloadRecord) {
 				return
 			}
 
-		if result.Error != nil {
-			// Download failed
-			errStr := result.Error.Error()
-			_ = qm.store.MarkDownloadFailed(d.ID, errStr)
+			if result.Error != nil {
+				// Download failed
+				errStr := result.Error.Error()
+				_ = qm.store.MarkDownloadFailed(d.ID, errStr)
 
-			qm.log.Printf("✗ download %d FAILED — bot=%s server=%s channel=%q file=%q error=%s",
-				d.ID, d.Bot, d.ServerAddress, d.Channel, d.Filename, errStr)
+				qm.log.Printf("✗ download %d FAILED — bot=%s server=%s channel=%q file=%q error=%s",
+					d.ID, d.Bot, d.ServerAddress, d.Channel, d.Filename, errStr)
 
-			// Emit failure event
-			qm.emitEvent(Event{
+				// Emit failure event
+				qm.emitEvent(Event{
 					Type:          EventDownloadFailed,
 					DownloadID:    d.ID,
 					Bot:           d.Bot,
@@ -749,7 +749,7 @@ func (qm *QueueManager) startDownload(d store.DownloadRecord) {
 func (qm *QueueManager) releaseChannelSlot(downloadID int64) {
 	qm.mu.Lock()
 	defer qm.mu.Unlock()
-	
+
 	// Find and remove the slot by download ID (we may not have the server
 	// address directly in some call sites, so scan all slots).
 	for sk, existingID := range qm.channelSlots {
@@ -825,10 +825,10 @@ func (qm *QueueManager) handleFallback(original store.DownloadRecord, result wor
 	}
 
 	qm.emitEvent(Event{
-		Type:          EventDownloadAlternative,
-		DownloadID:    original.ID,
-		Filename:      original.Filename,
-		ErrorMessage:  fmt.Sprintf("auto-retry attempt %d/%d", retryCount+1, maxRetries),
+		Type:         EventDownloadAlternative,
+		DownloadID:   original.ID,
+		Filename:     original.Filename,
+		ErrorMessage: fmt.Sprintf("auto-retry attempt %d/%d", retryCount+1, maxRetries),
 	})
 }
 

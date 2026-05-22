@@ -77,19 +77,19 @@ See config.yaml in the project root for all available settings.`,
 				return fmt.Errorf("loading configuration: %w", err)
 			}
 
-		// Setup logger with configurable level
-		logLevel, err := logging.ParseLevel(cfg.Logging.Level)
-		if err != nil {
-			logLevel = logging.LevelInfo
-		}
-		logger := logging.New(logLevel, cfg.Logging.FilePath, 10) // 10 MB rotation
-		defer logger.Close()
-		logger.Infof("starting xdcc-server on port %d", cfg.HTTP.Port)
+			// Setup logger with configurable level
+			logLevel, err := logging.ParseLevel(cfg.Logging.Level)
+			if err != nil {
+				logLevel = logging.LevelInfo
+			}
+			logger := logging.New(logLevel, cfg.Logging.FilePath, 10) // 10 MB rotation
+			defer logger.Close()
+			logger.Infof("starting xdcc-server on port %d", cfg.HTTP.Port)
 
-		// Create a stdlib *log.Logger adapter at INFO level for components
-		// that still use the old interface (ircmanager, queue, searchagg).
-		// This ensures those components' logs are also level-filtered.
-		stdLogger := log.New(logger.Writer(logging.LevelInfo), "", 0)
+			// Create a stdlib *log.Logger adapter at INFO level for components
+			// that still use the old interface (ircmanager, queue, searchagg).
+			// This ensures those components' logs are also level-filtered.
+			stdLogger := log.New(logger.Writer(logging.LevelInfo), "", 0)
 
 			// Ensure download directories exist
 			for _, dir := range []string{cfg.Download.TempDir, cfg.Download.DestDir} {
@@ -157,68 +157,83 @@ See config.yaml in the project root for all available settings.`,
 				}()
 			}
 
-	// Start IRC connection manager
-	ircMgr := ircmanager.New(st, cfg, stdLogger)
-	if err := ircMgr.Start(); err != nil {
-		return fmt.Errorf("starting IRC manager: %w", err)
-	}
-	defer ircMgr.Stop()
-	logger.Infof("IRC manager started with %d default server(s)", len(cfg.IRC.DefaultServers))
+			// Start IRC connection manager
+			ircMgr := ircmanager.New(st, cfg, stdLogger)
+			if err := ircMgr.Start(); err != nil {
+				return fmt.Errorf("starting IRC manager: %w", err)
+			}
+			defer ircMgr.Stop()
+			logger.Infof("IRC manager started with %d default server(s)", len(cfg.IRC.DefaultServers))
 
-	// Start download queue manager
-	queueMgr := queue.New(st, cfg, stdLogger)
-	queueMgr.SetIRCManager(ircMgr) // Connect IRC Manager for persistent connections
-	if err := queueMgr.Start(); err != nil {
-		return fmt.Errorf("starting queue manager: %w", err)
-	}
-	defer queueMgr.Stop()
-	if cfg.Download.StartupDelayMinutes > 0 {
-		logger.Infof("queue manager started (max_parallel=%d, startup_delay=%dm, persistent_irc=enabled)",
-			cfg.Download.MaxParallelTotal, cfg.Download.StartupDelayMinutes)
-	} else {
-		logger.Infof("queue manager started (max_parallel=%d, persistent_irc=enabled)", cfg.Download.MaxParallelTotal)
-	}
+			// Start download queue manager
+			queueMgr := queue.New(st, cfg, stdLogger)
+			queueMgr.SetIRCManager(ircMgr) // Connect IRC Manager for persistent connections
+			if err := queueMgr.Start(); err != nil {
+				return fmt.Errorf("starting queue manager: %w", err)
+			}
+			defer queueMgr.Stop()
+			if cfg.Download.StartupDelayMinutes > 0 {
+				logger.Infof("queue manager started (max_parallel=%d, startup_delay=%dm, persistent_irc=enabled)",
+					cfg.Download.MaxParallelTotal, cfg.Download.StartupDelayMinutes)
+			} else {
+				logger.Infof("queue manager started (max_parallel=%d, persistent_irc=enabled)", cfg.Download.MaxParallelTotal)
+			}
 
-	// Start search aggregator
-	searchAgg := searchagg.New(st, &cfg.Search, stdLogger)
-	if err := searchAgg.Start(context.Background()); err != nil {
-		return fmt.Errorf("starting search aggregator: %w", err)
-	}
-	defer searchAgg.Stop()
-	providerCount := len(cfg.Search.EnabledProviders)
-	if providerCount == 0 {
-		providerCount = len(search.AvailableEngines())
-	}
-	logger.Infof("search aggregator ready (%d provider(s), cache=%v)",
-		providerCount, cfg.Search.Cache.Enabled)
+			// Start search aggregator
+			searchAgg := searchagg.New(st, &cfg.Search, stdLogger)
+			if err := searchAgg.Start(context.Background()); err != nil {
+				return fmt.Errorf("starting search aggregator: %w", err)
+			}
+			defer searchAgg.Stop()
+			providerCount := len(cfg.Search.EnabledProviders)
+			if providerCount == 0 {
+				providerCount = len(search.AvailableEngines())
+			}
+			logger.Infof("search aggregator ready (%d provider(s), cache=%v)",
+				providerCount, cfg.Search.Cache.Enabled)
 
-	// Start SSE event hub (Fase 7)
-	sseHub := sse.NewHub(100) // buffer last 100 events
-	logger.Infof("SSE hub started (buffer=100)")
+			// Start SSE event hub (Fase 7)
+			sseHub := sse.NewHub(100) // buffer last 100 events
+			logger.Infof("SSE hub started (buffer=100)")
 
-	// Track event forwarding goroutines for clean shutdown
-	var eventWg sync.WaitGroup
-	eventCtx, cancelEvents := context.WithCancel(context.Background())
-	defer cancelEvents()
+			// Track event forwarding goroutines for clean shutdown
+			var eventWg sync.WaitGroup
+			eventCtx, cancelEvents := context.WithCancel(context.Background())
+			defer cancelEvents()
 
-	// Wire IRC manager events into SSE hub (Fase 7.2)
-	ircEventCh := ircMgr.Subscribe()
-	defer ircMgr.Unsubscribe(ircEventCh)
-	eventWg.Add(1)
-	go func() {
-		defer eventWg.Done()
-		for {
-			select {
-			case <-eventCtx.Done():
-				// Shutdown signal - drain remaining events with timeout
-				timeout := time.After(100 * time.Millisecond)
+			// Wire IRC manager events into SSE hub (Fase 7.2)
+			ircEventCh := ircMgr.Subscribe()
+			defer ircMgr.Unsubscribe(ircEventCh)
+			eventWg.Add(1)
+			go func() {
+				defer eventWg.Done()
 				for {
 					select {
+					case <-eventCtx.Done():
+						// Shutdown signal - drain remaining events with timeout
+						timeout := time.After(100 * time.Millisecond)
+						for {
+							select {
+							case evt, ok := <-ircEventCh:
+								if !ok {
+									return
+								}
+								// Try to publish remaining events (best effort)
+								sseHub.Publish(string(evt.Type), map[string]interface{}{
+									"server_id":   evt.ServerID,
+									"server_addr": evt.ServerAddr,
+									"channel":     evt.Channel,
+									"topic":       evt.Topic,
+									"timestamp":   evt.Timestamp,
+								})
+							case <-timeout:
+								return
+							}
+						}
 					case evt, ok := <-ircEventCh:
 						if !ok {
 							return
 						}
-						// Try to publish remaining events (best effort)
 						sseHub.Publish(string(evt.Type), map[string]interface{}{
 							"server_id":   evt.ServerID,
 							"server_addr": evt.ServerAddr,
@@ -226,43 +241,48 @@ See config.yaml in the project root for all available settings.`,
 							"topic":       evt.Topic,
 							"timestamp":   evt.Timestamp,
 						})
-					case <-timeout:
-						return
 					}
 				}
-			case evt, ok := <-ircEventCh:
-				if !ok {
-					return
-				}
-				sseHub.Publish(string(evt.Type), map[string]interface{}{
-					"server_id":   evt.ServerID,
-					"server_addr": evt.ServerAddr,
-					"channel":     evt.Channel,
-					"topic":       evt.Topic,
-					"timestamp":   evt.Timestamp,
-				})
-			}
-		}
-	}()
+			}()
 
-	// Wire queue manager events into SSE hub (Fase 7.3)
-	queueEventCh := queueMgr.Subscribe()
-	defer queueMgr.Unsubscribe(queueEventCh)
-	eventWg.Add(1)
-	go func() {
-		defer eventWg.Done()
-		for {
-			select {
-			case <-eventCtx.Done():
-				// Shutdown signal - drain remaining events with timeout
-				timeout := time.After(100 * time.Millisecond)
+			// Wire queue manager events into SSE hub (Fase 7.3)
+			queueEventCh := queueMgr.Subscribe()
+			defer queueMgr.Unsubscribe(queueEventCh)
+			eventWg.Add(1)
+			go func() {
+				defer eventWg.Done()
 				for {
 					select {
+					case <-eventCtx.Done():
+						// Shutdown signal - drain remaining events with timeout
+						timeout := time.After(100 * time.Millisecond)
+						for {
+							select {
+							case evt, ok := <-queueEventCh:
+								if !ok {
+									return
+								}
+								// Try to publish remaining events (best effort)
+								sseHub.Publish(string(evt.Type), map[string]interface{}{
+									"download_id":    evt.DownloadID,
+									"bot":            evt.Bot,
+									"server_address": evt.ServerAddress,
+									"channel":        evt.Channel,
+									"filename":       evt.Filename,
+									"progress_bytes": evt.ProgressBytes,
+									"file_size":      evt.FileSize,
+									"speed_bps":      evt.SpeedBPS,
+									"error_message":  evt.ErrorMessage,
+									"timestamp":      evt.Timestamp,
+								})
+							case <-timeout:
+								return
+							}
+						}
 					case evt, ok := <-queueEventCh:
 						if !ok {
 							return
 						}
-						// Try to publish remaining events (best effort)
 						sseHub.Publish(string(evt.Type), map[string]interface{}{
 							"download_id":    evt.DownloadID,
 							"bot":            evt.Bot,
@@ -275,48 +295,28 @@ See config.yaml in the project root for all available settings.`,
 							"error_message":  evt.ErrorMessage,
 							"timestamp":      evt.Timestamp,
 						})
-					case <-timeout:
-						return
 					}
 				}
-			case evt, ok := <-queueEventCh:
-				if !ok {
-					return
-				}
-				sseHub.Publish(string(evt.Type), map[string]interface{}{
-					"download_id":    evt.DownloadID,
-					"bot":            evt.Bot,
-					"server_address": evt.ServerAddress,
-					"channel":        evt.Channel,
-					"filename":       evt.Filename,
-					"progress_bytes": evt.ProgressBytes,
-					"file_size":      evt.FileSize,
-					"speed_bps":      evt.SpeedBPS,
-					"error_message":  evt.ErrorMessage,
-					"timestamp":      evt.Timestamp,
-				})
+			}()
+
+			// Build REST API and wire it into the HTTP server
+			apiHandler := api.New(st, ircMgr, queueMgr, searchAgg, sseHub, cfg, logger)
+			mux := apiHandler.Router()
+
+			// Create global shutdown context for request cancellation (Phase 1.1)
+			// This context will be the parent of all HTTP request contexts
+			globalShutdownCtx, globalShutdownCancel := context.WithCancel(context.Background())
+			defer globalShutdownCancel()
+
+			srv := &http.Server{
+				Addr:    fmt.Sprintf(":%d", cfg.HTTP.Port),
+				Handler: mux,
+				// BaseContext provides the base context for all incoming requests (Phase 1.2)
+				// When we cancel globalShutdownCtx, all active request contexts are cancelled
+				BaseContext: func(net.Listener) context.Context {
+					return globalShutdownCtx
+				},
 			}
-		}
-	}()
-
-	// Build REST API and wire it into the HTTP server
-	apiHandler := api.New(st, ircMgr, queueMgr, searchAgg, sseHub, cfg, logger)
-	mux := apiHandler.Router()
-
-	// Create global shutdown context for request cancellation (Phase 1.1)
-	// This context will be the parent of all HTTP request contexts
-	globalShutdownCtx, globalShutdownCancel := context.WithCancel(context.Background())
-	defer globalShutdownCancel()
-
-	srv := &http.Server{
-		Addr:    fmt.Sprintf(":%d", cfg.HTTP.Port),
-		Handler: mux,
-		// BaseContext provides the base context for all incoming requests (Phase 1.2)
-		// When we cancel globalShutdownCtx, all active request contexts are cancelled
-		BaseContext: func(net.Listener) context.Context {
-			return globalShutdownCtx
-		},
-	}
 
 			// Graceful shutdown (Fase 9.1)
 			quit := make(chan os.Signal, 1)
@@ -325,8 +325,8 @@ See config.yaml in the project root for all available settings.`,
 			go func() {
 				logger.Infof("HTTP server listening on :%d", cfg.HTTP.Port)
 				if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-				logger.Errorf("HTTP server FATAL error: %v", err)
-				os.Exit(1)
+					logger.Errorf("HTTP server FATAL error: %v", err)
+					os.Exit(1)
 				}
 			}()
 
@@ -394,7 +394,7 @@ See config.yaml in the project root for all available settings.`,
 			}, logger)
 
 			logger.Infof("server stopped gracefully")
-			
+
 			// Force exit to ensure all goroutines are terminated
 			// Some goroutines may not have shut down cleanly within timeouts
 			os.Exit(0)

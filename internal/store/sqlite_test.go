@@ -770,11 +770,11 @@ func TestSetAndGetSearchCache(t *testing.T) {
 
 	now := time.Now()
 	entry := SearchCacheEntry{
-		QueryKey:      "test query",
-		Provider:      "nibl",
-		PayloadJSON:   `[{"filename":"test.mkv","size":1000}]`,
-		FetchedAt:     now,
-		ExpiresAt:     now.Add(time.Hour),
+		QueryKey:       "test query",
+		Provider:       "nibl",
+		PayloadJSON:    `[{"filename":"test.mkv","size":1000}]`,
+		FetchedAt:      now,
+		ExpiresAt:      now.Add(time.Hour),
 		StaleExpiresAt: now.Add(24 * time.Hour),
 	}
 
@@ -814,11 +814,11 @@ func TestDeleteExpiredSearchCache(t *testing.T) {
 
 	now := time.Now()
 	entry := SearchCacheEntry{
-		QueryKey:      "stale query",
-		Provider:      "xdcc_eu",
-		PayloadJSON:   "[]",
-		FetchedAt:     now.Add(-48 * time.Hour),
-		ExpiresAt:     now.Add(-24 * time.Hour),
+		QueryKey:       "stale query",
+		Provider:       "xdcc_eu",
+		PayloadJSON:    "[]",
+		FetchedAt:      now.Add(-48 * time.Hour),
+		ExpiresAt:      now.Add(-24 * time.Hour),
 		StaleExpiresAt: now.Add(-1 * time.Hour),
 	}
 	s.SetSearchCache(entry)
@@ -842,11 +842,11 @@ func TestGetSearchCacheByQuery(t *testing.T) {
 	// Insert entries from multiple providers for same query
 	for _, prov := range []string{"nibl", "xdcc_eu", "sunxdcc"} {
 		entry := SearchCacheEntry{
-			QueryKey:      "multi provider",
-			Provider:      prov,
-			PayloadJSON:   `[{"filename":"` + prov + `.mkv"}]`,
-			FetchedAt:     now,
-			ExpiresAt:     now.Add(time.Hour),
+			QueryKey:       "multi provider",
+			Provider:       prov,
+			PayloadJSON:    `[{"filename":"` + prov + `.mkv"}]`,
+			FetchedAt:      now,
+			ExpiresAt:      now.Add(time.Hour),
 			StaleExpiresAt: now.Add(24 * time.Hour),
 		}
 		if err := s.SetSearchCache(entry); err != nil {
@@ -856,11 +856,11 @@ func TestGetSearchCacheByQuery(t *testing.T) {
 
 	// Insert entry for different query (should not appear)
 	other := SearchCacheEntry{
-		QueryKey:      "other query",
-		Provider:      "nibl",
-		PayloadJSON:   `[]`,
-		FetchedAt:     now,
-		ExpiresAt:     now.Add(time.Hour),
+		QueryKey:       "other query",
+		Provider:       "nibl",
+		PayloadJSON:    `[]`,
+		FetchedAt:      now,
+		ExpiresAt:      now.Add(time.Hour),
 		StaleExpiresAt: now.Add(24 * time.Hour),
 	}
 	s.SetSearchCache(other)
@@ -911,11 +911,11 @@ func TestGetSearchCacheByQuery_NoDeadlock(t *testing.T) {
 	// Populate cache
 	for i := 0; i < 5; i++ {
 		entry := SearchCacheEntry{
-			QueryKey:      "deadlock test",
-			Provider:      fmt.Sprintf("provider_%d", i),
-			PayloadJSON:   `[{"filename":"test.mkv"}]`,
-			FetchedAt:     now,
-			ExpiresAt:     now.Add(time.Hour),
+			QueryKey:       "deadlock test",
+			Provider:       fmt.Sprintf("provider_%d", i),
+			PayloadJSON:    `[{"filename":"test.mkv"}]`,
+			FetchedAt:      now,
+			ExpiresAt:      now.Add(time.Hour),
 			StaleExpiresAt: now.Add(24 * time.Hour),
 		}
 		s.SetSearchCache(entry)
@@ -953,10 +953,10 @@ func TestAddAndGetSearchPreset(t *testing.T) {
 	defer closeStore(t, s)
 
 	p := SearchPreset{
-		Name:    "Anime Weekly",
-		Query:   "anime 1080p",
+		Name:        "Anime Weekly",
+		Query:       "anime 1080p",
 		FiltersJSON: `{"ext":"mkv"}`,
-		IsDefault: true,
+		IsDefault:   true,
 	}
 
 	id, err := s.AddSearchPreset(p)

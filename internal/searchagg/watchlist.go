@@ -18,7 +18,7 @@ import (
 
 // WatchlistRunResult holds the outcome of executing a watchlist.
 type WatchlistRunResult struct {
-	WatchlistID int64  `json:"watchlist_id"`
+	WatchlistID   int64  `json:"watchlist_id"`
 	WatchlistName string `json:"watchlist_name"`
 
 	// AllPacks are all packs found by the watchlist search.

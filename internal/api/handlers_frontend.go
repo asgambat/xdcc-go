@@ -111,4 +111,3 @@ var placeholderHTML = `<!DOCTYPE html>
 </div>
 </body>
 </html>`
-

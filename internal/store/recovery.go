@@ -209,7 +209,7 @@ func (s *SQLiteStore) RunCleanup(retentionDays int, cleanupInterval time.Duratio
 
 	go func() {
 		defer close(doneCh)
-		
+
 		// Track when VACUUM was last run
 		lastVacuum := time.Now()
 

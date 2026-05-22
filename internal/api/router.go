@@ -28,17 +28,17 @@ func (a *API) Router() http.Handler {
 	// Servers
 	// =====================================================================
 	r.Route("/api/servers", func(r chi.Router) {
-		r.Get("/", a.handleListServers)                   // GET  /api/servers
-		r.Post("/", a.handleConnectServer)                // POST /api/servers
+		r.Get("/", a.handleListServers)    // GET  /api/servers
+		r.Post("/", a.handleConnectServer) // POST /api/servers
 		r.Route("/{serverID}", func(r chi.Router) {
-			r.Delete("/", a.handleDisconnectServer)         // DELETE /api/servers/:id
-			r.Delete("/remove", a.handleRemoveServer)       // DELETE /api/servers/:id/remove
-			r.Get("/channels", a.handleListChannels)        // GET  /api/servers/:id/channels
-			r.Post("/channels", a.handleJoinChannel)        // POST /api/servers/:id/channels
+			r.Delete("/", a.handleDisconnectServer)   // DELETE /api/servers/:id
+			r.Delete("/remove", a.handleRemoveServer) // DELETE /api/servers/:id/remove
+			r.Get("/channels", a.handleListChannels)  // GET  /api/servers/:id/channels
+			r.Post("/channels", a.handleJoinChannel)  // POST /api/servers/:id/channels
 			r.Route("/channels/{channelName}", func(r chi.Router) {
-				r.Delete("/", a.handleLeaveChannel)           // DELETE /api/servers/:id/channels/:name
-				r.Get("/topic", a.handleGetChannelTopic)      // GET  /api/servers/:id/channels/:name/topic
-				r.Patch("/", a.handleUpdateChannel)           // PATCH /api/servers/:id/channels/:name
+				r.Delete("/", a.handleLeaveChannel)      // DELETE /api/servers/:id/channels/:name
+				r.Get("/topic", a.handleGetChannelTopic) // GET  /api/servers/:id/channels/:name/topic
+				r.Patch("/", a.handleUpdateChannel)      // PATCH /api/servers/:id/channels/:name
 			})
 		})
 	})
@@ -47,12 +47,12 @@ func (a *API) Router() http.Handler {
 	// Downloads
 	// =====================================================================
 	r.Route("/api/downloads", func(r chi.Router) {
-		r.Get("/", a.handleListDownloads)                  // GET  /api/downloads
-		r.Post("/", a.handleEnqueueDownload)               // POST /api/downloads
-		r.Get("/history", a.handleDownloadHistory)         // GET  /api/downloads/history
-		r.Post("/bulk", a.handleBulkDownloads)             // POST /api/downloads/bulk
+		r.Get("/", a.handleListDownloads)          // GET  /api/downloads
+		r.Post("/", a.handleEnqueueDownload)       // POST /api/downloads
+		r.Get("/history", a.handleDownloadHistory) // GET  /api/downloads/history
+		r.Post("/bulk", a.handleBulkDownloads)     // POST /api/downloads/bulk
 		r.Route("/{downloadID}", func(r chi.Router) {
-			r.Get("/", a.handleGetDownload)                  // GET  /api/downloads/:id
+			r.Get("/", a.handleGetDownload)                   // GET  /api/downloads/:id
 			r.Delete("/", a.handleRemoveDownload)             // DELETE /api/downloads/:id
 			r.Post("/pause", a.handlePauseDownload)           // POST /api/downloads/:id/pause
 			r.Post("/resume", a.handleResumeDownload)         // POST /api/downloads/:id/resume
@@ -64,68 +64,68 @@ func (a *API) Router() http.Handler {
 	// =====================================================================
 	// Search
 	// =====================================================================
-	r.Get("/api/search", a.handleSearch)                     // GET /api/search
+	r.Get("/api/search", a.handleSearch) // GET /api/search
 
 	// Search presets
 	r.Route("/api/search/presets", func(r chi.Router) {
-		r.Get("/", a.handleListPresets)                    // GET  /api/search/presets
-		r.Post("/", a.handleCreatePreset)                  // POST /api/search/presets
+		r.Get("/", a.handleListPresets)   // GET  /api/search/presets
+		r.Post("/", a.handleCreatePreset) // POST /api/search/presets
 		r.Route("/{presetID}", func(r chi.Router) {
-			r.Put("/", a.handleUpdatePreset)                 // PUT  /api/search/presets/:id
-			r.Delete("/", a.handleDeletePreset)               // DELETE /api/search/presets/:id
+			r.Put("/", a.handleUpdatePreset)    // PUT  /api/search/presets/:id
+			r.Delete("/", a.handleDeletePreset) // DELETE /api/search/presets/:id
 		})
 	})
 
 	// Watchlists
 	r.Route("/api/watchlists", func(r chi.Router) {
-		r.Get("/", a.handleListWatchlists)                 // GET  /api/watchlists
-		r.Post("/", a.handleCreateWatchlist)               // POST /api/watchlists
+		r.Get("/", a.handleListWatchlists)   // GET  /api/watchlists
+		r.Post("/", a.handleCreateWatchlist) // POST /api/watchlists
 		r.Route("/{watchlistID}", func(r chi.Router) {
-			r.Put("/", a.handleUpdateWatchlist)              // PUT  /api/watchlists/:id
-			r.Delete("/", a.handleDeleteWatchlist)            // DELETE /api/watchlists/:id
-			r.Post("/run", a.handleRunWatchlist)              // POST /api/watchlists/:id/run
+			r.Put("/", a.handleUpdateWatchlist)    // PUT  /api/watchlists/:id
+			r.Delete("/", a.handleDeleteWatchlist) // DELETE /api/watchlists/:id
+			r.Post("/run", a.handleRunWatchlist)   // POST /api/watchlists/:id/run
 		})
 	})
 
 	// Provider management
-	r.Get("/api/search/providers", a.handleGetProviders)     // GET  /api/search/providers
+	r.Get("/api/search/providers", a.handleGetProviders)                   // GET  /api/search/providers
 	r.Patch("/api/search/providers/{providerName}", a.handlePatchProvider) // PATCH /api/search/providers/:name
 
 	// =====================================================================
 	// XDCC quick-add parser
 	// =====================================================================
-	r.Post("/api/xdcc/parse", a.handleParseXDCC)             // POST /api/xdcc/parse
+	r.Post("/api/xdcc/parse", a.handleParseXDCC) // POST /api/xdcc/parse
 
 	// =====================================================================
 	// Configuration
 	// =====================================================================
-	r.Get("/api/config", a.handleGetConfig)                  // GET  /api/config
-	r.Put("/api/config", a.handleUpdateConfig)               // PUT  /api/config
+	r.Get("/api/config", a.handleGetConfig)    // GET  /api/config
+	r.Put("/api/config", a.handleUpdateConfig) // PUT  /api/config
 
 	// =====================================================================
 	// System / Admin
 	// =====================================================================
-	r.Get("/api/stats", a.handleStats)                       // GET  /api/stats
-	r.Get("/api/status", a.handleStatus)                     // GET  /api/status
-	r.Post("/api/admin/export", a.handleAdminExport)         // POST /api/admin/export
-	r.Post("/api/admin/import", a.handleAdminImport)         // POST /api/admin/import
+	r.Get("/api/stats", a.handleStats)               // GET  /api/stats
+	r.Get("/api/status", a.handleStatus)             // GET  /api/status
+	r.Post("/api/admin/export", a.handleAdminExport) // POST /api/admin/export
+	r.Post("/api/admin/import", a.handleAdminImport) // POST /api/admin/import
 
 	// =====================================================================
 	// SSE events stream (Fase 7.1)
 	// =====================================================================
-	r.Get("/api/events", a.handleEvents)                     // GET /api/events
+	r.Get("/api/events", a.handleEvents) // GET /api/events
 
 	// =====================================================================
 	// Debug endpoints (goroutine profiling)
 	// =====================================================================
-	r.Get("/debug/goroutines", a.handleDebugGoroutines)      // GET /debug/goroutines (JSON summary)
+	r.Get("/debug/goroutines", a.handleDebugGoroutines)          // GET /debug/goroutines (JSON summary)
 	r.Get("/debug/goroutines/dump", a.handleDebugGoroutinesDump) // GET /debug/goroutines/dump (full stack traces)
 
 	// =====================================================================
 	// Setup wizard
 	// =====================================================================
-	r.Get("/api/setup/status", a.handleSetupStatus)          // GET  /api/setup/status
-	r.Post("/api/setup/bootstrap", a.handleSetupBootstrap)   // POST /api/setup/bootstrap
+	r.Get("/api/setup/status", a.handleSetupStatus)        // GET  /api/setup/status
+	r.Post("/api/setup/bootstrap", a.handleSetupBootstrap) // POST /api/setup/bootstrap
 
 	// =====================================================================
 	// Frontend SPA — serve static files with fallback to index.html

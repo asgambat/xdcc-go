@@ -624,7 +624,7 @@ func (s *SQLiteStore) CleanupSearchCache() (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("cleaning up search cache: %w", err)
 	}
-	
+
 	affected, _ := result.RowsAffected()
 	return int(affected), nil
 }

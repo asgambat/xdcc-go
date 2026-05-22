@@ -226,9 +226,9 @@ func runBrowseWithServer(serverURL, term, extFilter, botFilter string, compact, 
 
 	// Build search options matching CLI flags
 	opts := &client.SearchOptions{
-		Query:   term,
-		Compact: compact,
-		Page:    1,
+		Query:    term,
+		Compact:  compact,
+		Page:     1,
 		PageSize: 500, // Large enough for the interactive menu
 	}
 	if prefixFilter {

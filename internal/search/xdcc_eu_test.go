@@ -53,12 +53,12 @@ func validRowHTML(bot, server string, packNum int, size, filename string) string
 
 func TestExtractNumericSuffix(t *testing.T) {
 	tests := []struct{ in, want string }{
-		{"1.4 GB", "1.4 GB"},    // already starts with a digit
-		{"≈1.4 GB", "1.4 GB"},  // non-numeric prefix stripped
+		{"1.4 GB", "1.4 GB"},      // already starts with a digit
+		{"≈1.4 GB", "1.4 GB"},     // non-numeric prefix stripped
 		{"  ≈500 MB  ", "500 MB"}, // leading/trailing spaces and prefix
-		{"123", "123"},           // plain number
-		{"", ""},                 // empty input
-		{"abc", "abc"},           // no digit found → returned as-is (trimmed)
+		{"123", "123"},            // plain number
+		{"", ""},                  // empty input
+		{"abc", "abc"},            // no digit found → returned as-is (trimmed)
 	}
 	for _, tt := range tests {
 		got := extractNumericSuffix(tt.in)

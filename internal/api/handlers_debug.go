@@ -25,7 +25,7 @@ func (a *API) handleDebugGoroutines(w http.ResponseWriter, r *http.Request) {
 	}
 
 	numGoroutines := runtime.NumGoroutine()
-	
+
 	response := map[string]interface{}{
 		"timestamp":         time.Now().Format(time.RFC3339),
 		"num_goroutines":    numGoroutines,
@@ -57,7 +57,7 @@ func (a *API) handleDebugGoroutinesDump(w http.ResponseWriter, r *http.Request) 
 
 	w.Header().Set("Content-Type", "text/plain")
 	w.Header().Set("Content-Disposition", "attachment; filename=goroutines.txt")
-	
+
 	// debug=2 gives full stack traces
 	profile.WriteTo(w, 2)
 }

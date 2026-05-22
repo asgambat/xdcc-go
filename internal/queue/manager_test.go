@@ -16,10 +16,10 @@ import (
 // ===========================================================================
 
 type mockStore struct {
-	mu          sync.Mutex
-	downloads   map[int64]*store.DownloadRecord
-	nextID      int64
-	getQueueFn  func() ([]store.DownloadRecord, error)
+	mu         sync.Mutex
+	downloads  map[int64]*store.DownloadRecord
+	nextID     int64
+	getQueueFn func() ([]store.DownloadRecord, error)
 }
 
 func newMockStore() *mockStore {
@@ -55,11 +55,11 @@ func (m *mockStore) ListServers() ([]store.ServerRecord, error)   { return nil, 
 func (m *mockStore) UpdateServer(store.ServerRecord) error        { return nil }
 func (m *mockStore) DeleteServer(int64) error                     { return nil }
 func (m *mockStore) SetServerStatus(int64, string) error          { return nil }
-func (m *mockStore) SetServerConnected(int64) error              { return nil }
+func (m *mockStore) SetServerConnected(int64) error               { return nil }
 func (m *mockStore) IncrementServerRetry(int64) error             { return nil }
 
-func (m *mockStore) AddChannel(store.ChannelRecord) (int64, error)             { return 1, nil }
-func (m *mockStore) GetChannelsByServer(int64) ([]store.ChannelRecord, error)  { return nil, nil }
+func (m *mockStore) AddChannel(store.ChannelRecord) (int64, error)            { return 1, nil }
+func (m *mockStore) GetChannelsByServer(int64) ([]store.ChannelRecord, error) { return nil, nil }
 func (m *mockStore) GetChannelsByServerAndName(int64, string) (*store.ChannelRecord, error) {
 	return nil, nil
 }
@@ -223,7 +223,7 @@ func (m *mockStore) GetDownloadHistory(int, int) ([]store.DownloadRecord, int, e
 	return nil, 0, nil
 }
 
-func (m *mockStore) GetTotalDownloadedBytes() (int64, error)                       { return 0, nil }
+func (m *mockStore) GetTotalDownloadedBytes() (int64, error) { return 0, nil }
 func (m *mockStore) RecoverDownloadsOnStartup() ([]store.DownloadRecord, error) {
 	return nil, nil
 }
@@ -272,7 +272,7 @@ func (m *mockStore) GetDownloadByBotMessage(bot, packMessage string) (*store.Dow
 	return nil, nil
 }
 
-func (m *mockStore) SetSearchCache(store.SearchCacheEntry) error      { return nil }
+func (m *mockStore) SetSearchCache(store.SearchCacheEntry) error { return nil }
 func (m *mockStore) GetSearchCache(string, string) (*store.SearchCacheEntry, error) {
 	return nil, nil
 }
@@ -288,16 +288,16 @@ func (m *mockStore) UpdateSearchPreset(p store.SearchPreset) error      { return
 func (m *mockStore) DeleteSearchPreset(int64) error                     { return nil }
 func (m *mockStore) SetDefaultSearchPreset(int64) error                 { return nil }
 
-func (m *mockStore) AddWatchlist(store.Watchlist) (int64, error)  { return 1, nil }
-func (m *mockStore) GetWatchlist(int64) (*store.Watchlist, error) { return nil, nil }
-func (m *mockStore) ListWatchlists() ([]store.Watchlist, error)   { return nil, nil }
-func (m *mockStore) UpdateWatchlist(store.Watchlist) error        { return nil }
-func (m *mockStore) DeleteWatchlist(int64) error                  { return nil }
-func (m *mockStore) SetWatchlistChecked(int64, string) error      { return nil }
-func (m *mockStore) SetWatchlistNotified(int64) error             { return nil }
+func (m *mockStore) AddWatchlist(store.Watchlist) (int64, error)      { return 1, nil }
+func (m *mockStore) GetWatchlist(int64) (*store.Watchlist, error)     { return nil, nil }
+func (m *mockStore) ListWatchlists() ([]store.Watchlist, error)       { return nil, nil }
+func (m *mockStore) UpdateWatchlist(store.Watchlist) error            { return nil }
+func (m *mockStore) DeleteWatchlist(int64) error                      { return nil }
+func (m *mockStore) SetWatchlistChecked(int64, string) error          { return nil }
+func (m *mockStore) SetWatchlistNotified(int64) error                 { return nil }
 func (m *mockStore) GetEnabledWatchlists() ([]store.Watchlist, error) { return nil, nil }
 
-func (m *mockStore) RecordProviderStats(store.ProviderStats) error          { return nil }
+func (m *mockStore) RecordProviderStats(store.ProviderStats) error { return nil }
 func (m *mockStore) GetProviderStats(string, time.Time) ([]store.ProviderStats, error) {
 	return nil, nil
 }
@@ -305,12 +305,14 @@ func (m *mockStore) GetAllProviderStats(time.Time) (map[string][]store.ProviderS
 	return nil, nil
 }
 
-func (m *mockStore) CleanupOldDownloads(int) (int, error)                        { return 0, nil }
-func (m *mockStore) RunCleanup(int, time.Duration) (chan struct{}, chan struct{}, error) { return nil, nil, nil }
-func (m *mockStore) Vacuum() error                                                { return nil }
-func (m *mockStore) ExportData() (*store.ExportData, error)                       { return &store.ExportData{}, nil }
-func (m *mockStore) ImportData(*store.ExportData) error                           { return nil }
-func (m *mockStore) BackupDatabase(string) error                                  { return nil }
+func (m *mockStore) CleanupOldDownloads(int) (int, error) { return 0, nil }
+func (m *mockStore) RunCleanup(int, time.Duration) (chan struct{}, chan struct{}, error) {
+	return nil, nil, nil
+}
+func (m *mockStore) Vacuum() error                          { return nil }
+func (m *mockStore) ExportData() (*store.ExportData, error) { return &store.ExportData{}, nil }
+func (m *mockStore) ImportData(*store.ExportData) error     { return nil }
+func (m *mockStore) BackupDatabase(string) error            { return nil }
 
 // ===========================================================================
 // Test helpers
