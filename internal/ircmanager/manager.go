@@ -278,14 +278,22 @@ func (m *Manager) DisconnectServer(serverID int64) error {
 		close(done)
 	}()
 
-	// Use select with generous timeout for visibility, but always wait for completion
+	// Use select with generous timeout for visibility, with absolute max timeout
 	select {
 	case <-done:
 		m.logger.Printf("server %d disconnected cleanly", serverID)
+		return nil
 	case <-time.After(10 * time.Second):
 		m.logger.Printf("WARNING: server %d shutdown taking longer than expected, still waiting...", serverID)
-		<-done // Block until truly complete
-		m.logger.Printf("server %d shutdown completed after timeout", serverID)
+	}
+
+	// Second phase: wait up to 20 more seconds for forced termination
+	select {
+	case <-done:
+		m.logger.Printf("server %d shutdown completed after delay", serverID)
+	case <-time.After(20 * time.Second):
+		m.logger.Printf("ERROR: server %d shutdown exceeded 30s, giving up (goroutine leak likely)", serverID)
+		return fmt.Errorf("server %d shutdown timeout after 30s", serverID)
 	}
 
 	if err := m.store.SetServerStatus(serverID, "disconnected"); err != nil {
@@ -910,7 +918,12 @@ func (mc *managedConnection) connect() connectResult {
 	select {
 	case <-mc.ctx.Done():
 		client.Close()
-		<-disconnected // drain
+		// Drain with timeout to prevent indefinite blocking
+		select {
+		case <-disconnected:
+		case <-time.After(5 * time.Second):
+			mc.manager.logger.Printf("WARNING: client.Close() for %s did not complete within 5s", mc.address)
+		}
 		return connectResultExplicitCancel
 	case <-connected:
 		// Connected successfully — proceed to Phase 2
@@ -924,10 +937,14 @@ func (mc *managedConnection) connect() connectResult {
 	// Phase 2: Connection is established. Wait for disconnection or cancellation.
 	select {
 	case <-mc.ctx.Done():
-		// Explicit disconnect requested — send QUIT, close, then drain
+		// Explicit disconnect requested — send QUIT, close, then drain with timeout
 		client.Close()
-		// Drain the disconnected channel (buffered with capacity 1, so drain succeeds)
-		<-disconnected
+		// Drain with timeout to prevent indefinite blocking
+		select {
+		case <-disconnected:
+		case <-time.After(5 * time.Second):
+			mc.manager.logger.Printf("WARNING: client.Close() for %s did not complete within 5s (phase 2)", mc.address)
+		}
 		return connectResultExplicitCancel
 	case err := <-disconnected:
 		// Connection dropped — will trigger reconnect in run()

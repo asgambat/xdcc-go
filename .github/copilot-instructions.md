@@ -34,10 +34,9 @@ When generating tests:
 
 ## Quick Reference
 
-**Run tests before suggesting "done":**
+**Run tests only if allowed by user:**
 ```bash
-go test ./...
-go test -race ./internal/queue  # For concurrent code
+do not run tests if not asked permission to run them
 ```
 
 **Frontend + backend rebuild:**
