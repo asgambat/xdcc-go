@@ -30,7 +30,16 @@ jobs:
           cache: 'npm'
           cache-dependency-path: web/package-lock.json
 
-      # Backend tests
+      # Build frontend FIRST (required by go:embed in web/frontend.go)
+      - name: Install frontend dependencies
+        working-directory: ./web
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: ./web
+        run: npm run build
+
+      # Backend tests (now that web/dist exists)
       - name: Download Go dependencies
         run: |
           go mod download
@@ -83,11 +92,7 @@ jobs:
           echo "## Test Coverage Summary" >> $GITHUB_STEP_SUMMARY
           go tool cover -func=coverage.out | tail -n 1 >> $GITHUB_STEP_SUMMARY
 
-      # Frontend tests
-      - name: Install frontend dependencies
-        working-directory: ./web
-        run: npm ci
-
+      # Frontend tests (dependencies already installed, build already done)
       - name: Check for frontend tests
         id: check-frontend-tests
         working-directory: ./web
@@ -104,11 +109,6 @@ jobs:
         if: steps.check-frontend-tests.outputs.has_tests == 'true'
         working-directory: ./web
         run: npm test
-
-      # Frontend build verification
-      - name: Build frontend to verify
-        working-directory: ./web
-        run: npm run build
 
       - name: Set final status
         id: final-status
