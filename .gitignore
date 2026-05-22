@@ -9,8 +9,7 @@
 *.dylib
 xdcc-server
 xdcc-browser
-
-downloads/
+bin/
 
 # Test binary, built with `go test -c`
 *.test
@@ -21,7 +20,7 @@ coverage.*
 *.coverprofile
 profile.cov
 
-# Dependency directories (remove the comment below to include it)
+# Dependency directories
 web/dist
 web/node_modules
 
@@ -36,3 +35,7 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+#misc
+downloads/
+.task/
