@@ -270,12 +270,22 @@ func (m *Manager) DisconnectServer(serverID int64) error {
 	// Signal disconnect and wait for run() to complete
 	conn.disconnect()
 
-	// Wait for run() goroutine to finish with timeout
+	// Wait for run() goroutine to finish gracefully using WaitGroup
+	// This eliminates race conditions and guarantees cleanup completion
+	done := make(chan struct{})
+	go func() {
+		conn.wg.Wait()
+		close(done)
+	}()
+
+	// Use select with generous timeout for visibility, but always wait for completion
 	select {
-	case <-conn.done:
+	case <-done:
 		m.logger.Printf("server %d disconnected cleanly", serverID)
-	case <-time.After(5 * time.Second):
-		m.logger.Printf("WARNING: server %d disconnect exceeded 5s timeout", serverID)
+	case <-time.After(10 * time.Second):
+		m.logger.Printf("WARNING: server %d shutdown taking longer than expected, still waiting...", serverID)
+		<-done // Block until truly complete
+		m.logger.Printf("server %d shutdown completed after timeout", serverID)
 	}
 
 	if err := m.store.SetServerStatus(serverID, "disconnected"); err != nil {
@@ -594,7 +604,12 @@ type managedConnection struct {
 
 	ctx    context.Context
 	cancel context.CancelFunc
-	done   chan struct{}
+
+	// Lifecycle management with WaitGroup pattern (prevents race conditions)
+	wg           sync.WaitGroup // Tracks active run() goroutine
+	runningMu    sync.Mutex     // Protects isRunning field
+	isRunning    bool           // Prevents duplicate run() calls
+	shutdownOnce sync.Once      // Ensures cleanup happens exactly once
 
 	manager *Manager
 }
@@ -603,6 +618,14 @@ func (mc *managedConnection) Status() string {
 	mc.mu.RLock()
 	defer mc.mu.RUnlock()
 	return mc.status
+}
+
+// IsRunning returns whether the run() goroutine is currently active.
+// Useful for testing and debugging lifecycle management.
+func (mc *managedConnection) IsRunning() bool {
+	mc.runningMu.Lock()
+	defer mc.runningMu.Unlock()
+	return mc.isRunning
 }
 
 func (mc *managedConnection) setStatus(s string) {
@@ -622,9 +645,35 @@ const (
 
 // run is the main loop for a managed connection. It connects, waits for
 // disconnection, then reconnects with exponential backoff unless explicitly cancelled.
+// This method is goroutine-safe and prevents duplicate invocations.
 func (mc *managedConnection) run() {
-	mc.done = make(chan struct{})
-	defer close(mc.done)
+	// Prevent duplicate run() calls - critical for lifecycle safety
+	mc.runningMu.Lock()
+	if mc.isRunning {
+		mc.manager.logger.Printf("WARNING: run() already active for server %d, skipping duplicate call", mc.id)
+		mc.runningMu.Unlock()
+		return
+	}
+	mc.isRunning = true
+	mc.runningMu.Unlock()
+
+	// Register this goroutine with WaitGroup
+	mc.wg.Add(1)
+	defer mc.wg.Done()
+
+	// Ensure cleanup on exit
+	defer func() {
+		mc.runningMu.Lock()
+		mc.isRunning = false
+		mc.runningMu.Unlock()
+
+		// Panic recovery to prevent goroutine crash
+		if r := recover(); r != nil {
+			mc.manager.logger.Printf("PANIC in run() for server %d: %v", mc.id, r)
+			mc.setStatus("error")
+			_ = mc.manager.store.SetServerStatus(mc.id, "error")
+		}
+	}()
 
 	for {
 		result := mc.connect()

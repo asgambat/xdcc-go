@@ -211,7 +211,65 @@ tx.Commit()
 3. Spawn download workers per active download (managed by `queue.Manager`)
 4. SSE broadcasts are concurrent-safe via `sse.Hub.Broadcast()`
 
-**Example:**
+**Goroutine Lifecycle Management (CRITICAL):**
+
+When managing long-lived goroutines, **ALWAYS use the WaitGroup pattern** to prevent race conditions:
+
+```go
+type MyWorker struct {
+    wg           sync.WaitGroup  // Tracks active goroutines
+    runningMu    sync.Mutex      // Protects isRunning field
+    isRunning    bool            // Prevents duplicate start() calls
+    ctx          context.Context
+    cancel       context.CancelFunc
+}
+
+func (w *MyWorker) Start() {
+    // Prevent duplicate calls
+    w.runningMu.Lock()
+    if w.isRunning {
+        w.runningMu.Unlock()
+        return
+    }
+    w.isRunning = true
+    w.runningMu.Unlock()
+
+    w.wg.Add(1)
+    go w.run()
+}
+
+func (w *MyWorker) run() {
+    defer w.wg.Done()
+    defer func() {
+        w.runningMu.Lock()
+        w.isRunning = false
+        w.runningMu.Unlock()
+    }()
+
+    // Main loop
+    for {
+        select {
+        case <-w.ctx.Done():
+            return
+        // ... work ...
+        }
+    }
+}
+
+func (w *MyWorker) Stop() {
+    w.cancel()
+    w.wg.Wait()  // Guaranteed to wait for completion, no race
+}
+```
+
+**Why WaitGroup over done channel?**
+- ✅ Thread-safe by design (no initialization races)
+- ✅ Prevents duplicate goroutine launches
+- ✅ Guaranteed cleanup before Stop() returns
+- ✅ Easier to extend (multiple goroutines tracked by same WaitGroup)
+- ❌ **NEVER** use `done chan struct{}` initialized in the goroutine itself (race condition)
+
+**Example (download worker):**
 ```go
 func (m *Manager) processDownload(ctx context.Context, packID int64) error {
     // Context for cancellation
