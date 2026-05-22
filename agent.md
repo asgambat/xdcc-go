@@ -562,7 +562,7 @@ type Engine interface {
 ✅ **Always** use `logging.Logger`, never `log.Println`  
 ✅ **Always** pass `context.Context` as first parameter  
 ✅ **Always** use table-driven tests with `t.Run()`  
-✅ **Always** run `go test -race ./...` before committing concurrent code  
+✅ **Always** ask if user wants to run `go test -race ./...` before committing concurrent code  
 ✅ **Always** rebuild frontend (`npm run build`) before building server  
 ✅ **Always** use typed errors for control flow (`errors.Is()`, `errors.As()`)  
 ✅ **Always** access database via `store.SQLiteStore` methods  
@@ -579,7 +579,7 @@ type Engine interface {
 ❌ **Never** skip the race detector for concurrent code  
 ❌ **Never** hardcode configuration (use flags/env/yaml)  
 ❌ **Never** block the main goroutine in girc event handlers (use channels)  
-❌ **Never** commit without running `go test ./...`  
+❌ **Never** commit without asking user if he wants to run `go test ./...`  
 ❌ **Never** modify database schema without migration logic
 
 ---
@@ -680,7 +680,7 @@ type Engine interface {
 1. **Frontend changes**: `cd web && npm run dev` (hot reload on :5173, proxies API to :8080)
 2. **Backend changes**: Rebuild binary and restart server
 3. **Full rebuild**: `cd web && npm run build && cd .. && go build ./cmd/xdcc-server`
-4. **Before commit**: `go test ./...` and `go test -race ./...`
+4. **Before commit**: ask user if he wants to run `go test ./...` and `go test -race ./...`
 5. **Docker test**: `docker build -t xdcc-go .` (tests multi-stage build)
 
 ---
