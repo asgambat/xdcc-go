@@ -1,0 +1,267 @@
+name: Build Release Binaries
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-frontend:
+    name: Build Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: ./web
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: ./web
+        run: npm run build
+
+      - name: Upload frontend artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: web/dist/
+          retention-days: 1
+
+  build-binaries:
+    name: Build ${{ matrix.binary }} for ${{ matrix.goos }}-${{ matrix.goarch }}
+    needs: build-frontend
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        binary: [xdcc-server, xdcc-dl, xdcc-search, xdcc-browse]
+        include:
+          # Linux
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: linux
+            goarch: arm
+            goarm: '7'
+          
+          # macOS
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          
+          # Windows
+          - goos: windows
+            goarch: amd64
+          - goos: windows
+            goarch: arm64
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Download frontend artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: web/dist
+
+      - name: Set binary name
+        id: binary_name
+        shell: bash
+        run: |
+          BINARY_NAME="${{ matrix.binary }}"
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            BINARY_NAME="${BINARY_NAME}.exe"
+          fi
+          echo "name=${BINARY_NAME}" >> $GITHUB_OUTPUT
+
+      - name: Build binary
+        env:
+          CGO_ENABLED: 0
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          GOARM: ${{ matrix.goarm }}
+        run: |
+          go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" \
+            -o "${{ steps.binary_name.outputs.name }}" \
+            ./cmd/${{ matrix.binary }}
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.binary }}-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goarm && format('-v{0}', matrix.goarm) || '' }}
+          path: ${{ steps.binary_name.outputs.name }}
+          retention-days: 1
+
+  package-release:
+    name: Package ${{ matrix.binary }} for ${{ matrix.platform }}
+    needs: build-binaries
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        binary: [xdcc-server, xdcc-dl, xdcc-search, xdcc-browse]
+        platform:
+          - os: linux
+            arch: amd64
+            archive: tar.gz
+          - os: linux
+            arch: arm64
+            archive: tar.gz
+          - os: linux
+            arch: arm
+            armv: v7
+            archive: tar.gz
+          - os: darwin
+            arch: amd64
+            archive: tar.gz
+          - os: darwin
+            arch: arm64
+            archive: tar.gz
+          - os: windows
+            arch: amd64
+            archive: zip
+          - os: windows
+            arch: arm64
+            archive: zip
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set platform name
+        id: platform
+        shell: bash
+        run: |
+          PLATFORM="${{ matrix.platform.os }}-${{ matrix.platform.arch }}"
+          if [ -n "${{ matrix.platform.armv }}" ]; then
+            PLATFORM="${PLATFORM}-${{ matrix.platform.armv }}"
+          fi
+          echo "name=${PLATFORM}" >> $GITHUB_OUTPUT
+
+      - name: Set artifact name
+        id: artifact
+        shell: bash
+        run: |
+          ARTIFACT_NAME="${{ matrix.binary }}-${{ matrix.platform.os }}-${{ matrix.platform.arch }}"
+          if [ -n "${{ matrix.platform.armv }}" ]; then
+            ARTIFACT_NAME="${ARTIFACT_NAME}-${{ matrix.platform.armv }}"
+          fi
+          echo "name=${ARTIFACT_NAME}" >> $GITHUB_OUTPUT
+
+      - name: Download binary artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ steps.artifact.outputs.name }}
+          path: ./package
+
+      - name: Set archive name
+        id: archive
+        shell: bash
+        run: |
+          VERSION="${{ github.ref_name }}"
+          ARCHIVE_NAME="${{ matrix.binary }}-${VERSION}-${{ steps.platform.outputs.name }}"
+          echo "name=${ARCHIVE_NAME}" >> $GITHUB_OUTPUT
+
+      - name: Copy extra files
+        run: |
+          cp LICENSE ./package/
+          cp config.yaml ./package/
+
+      - name: Create tar.gz archive
+        if: matrix.platform.archive == 'tar.gz'
+        working-directory: ./package
+        run: |
+          tar czf "../${{ steps.archive.outputs.name }}.tar.gz" *
+
+      - name: Create zip archive
+        if: matrix.platform.archive == 'zip'
+        working-directory: ./package
+        run: |
+          zip -r "../${{ steps.archive.outputs.name }}.zip" *
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ steps.archive.outputs.name }}
+          path: ${{ steps.archive.outputs.name }}.${{ matrix.platform.archive }}
+          retention-days: 1
+
+  create-release:
+    name: Create GitHub Release
+    needs: package-release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: ./release-assets
+          merge-multiple: true
+
+      - name: Generate checksums
+        working-directory: ./release-assets
+        run: |
+          sha256sum * > checksums.txt
+          cat checksums.txt
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: ./release-assets/*
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          body: |
+            ## 📦 Downloads
+            
+            ### Binaries
+            
+            Download the appropriate archive for your platform and extract it:
+            
+            **Linux:**
+            - `xdcc-*-linux-amd64.tar.gz` - Intel/AMD 64-bit
+            - `xdcc-*-linux-arm64.tar.gz` - ARM 64-bit (Raspberry Pi 4, servers)
+            - `xdcc-*-linux-arm-v7.tar.gz` - ARM 32-bit (Raspberry Pi 3)
+            
+            **macOS:**
+            - `xdcc-*-darwin-amd64.tar.gz` - Intel Macs
+            - `xdcc-*-darwin-arm64.tar.gz` - Apple Silicon (M1/M2/M3)
+            
+            **Windows:**
+            - `xdcc-*-windows-amd64.zip` - Intel/AMD 64-bit
+            - `xdcc-*-windows-arm64.zip` - ARM 64-bit
+            
+            ### Verification
+            
+            Verify your download with SHA256 checksums (see `checksums.txt`):
+            ```bash
+            # Linux/macOS
+            sha256sum -c checksums.txt --ignore-missing
+            
+            # Windows (PowerShell)
+            Get-FileHash .\xdcc-*.zip -Algorithm SHA256
+            ```
+            
+            ### Docker
+            
+            Multi-architecture Docker images are also available:
+            ```bash
+            docker pull ghcr.io/asgambat/xdcc-go:${{ github.ref_name }}
+            ```

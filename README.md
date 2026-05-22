@@ -240,17 +240,60 @@ Open **http://localhost:8080** in your browser.
 
 ### Option 2: Pre-built Binaries
 
-Download the latest release for your platform:
+Pre-compiled binaries are automatically built for every release and available on the [Releases page](https://github.com/asgambat/xdcc-go/releases).
+
+**Supported Platforms:**
+- **Linux**: x86_64, ARM64, ARMv7
+- **macOS**: Intel (x86_64), Apple Silicon (ARM64)
+- **Windows**: x86_64, ARM64
+
+**Available Tools:**
+- `xdcc-server` - Server daemon with web UI and REST API
+- `xdcc-dl` - Command-line download tool
+- `xdcc-search` - Multi-provider search tool
+- `xdcc-browse` - Interactive TUI browser
+
+Each binary is distributed as a separate archive containing:
+- The executable
+- `LICENSE` file
+- Default `config.yaml`
+
+**Quick Install:**
 
 ```bash
-# Linux/macOS
-curl -L https://github.com/asgambat/xdcc-go/releases/latest/download/xdcc-server-$(uname -s)-$(uname -m) -o xdcc-server
+# Linux x86_64
+wget https://github.com/asgambat/xdcc-go/releases/latest/download/xdcc-server-v1.0.0-linux-amd64.tar.gz
+tar xzf xdcc-server-v1.0.0-linux-amd64.tar.gz
 chmod +x xdcc-server
 ./xdcc-server
 
-# Windows
-# Download xdcc-server-Windows-x86_64.exe from releases page
-xdcc-server.exe
+# macOS (Intel)
+curl -L https://github.com/asgambat/xdcc-go/releases/latest/download/xdcc-server-v1.0.0-darwin-amd64.tar.gz | tar xz
+chmod +x xdcc-server
+./xdcc-server
+
+# macOS (Apple Silicon)
+curl -L https://github.com/asgambat/xdcc-go/releases/latest/download/xdcc-server-v1.0.0-darwin-arm64.tar.gz | tar xz
+chmod +x xdcc-server
+./xdcc-server
+
+# Windows (PowerShell)
+Invoke-WebRequest -Uri "https://github.com/asgambat/xdcc-go/releases/latest/download/xdcc-server-v1.0.0-windows-amd64.zip" -OutFile "xdcc-server.zip"
+Expand-Archive xdcc-server.zip -DestinationPath .
+.\xdcc-server.exe
+```
+
+**Verify Downloads:**
+
+Each release includes a `checksums.txt` file with SHA256 hashes:
+
+```bash
+# Linux/macOS
+wget https://github.com/asgambat/xdcc-go/releases/latest/download/checksums.txt
+sha256sum -c checksums.txt --ignore-missing
+
+# Windows (PowerShell)
+Get-FileHash .\xdcc-server-*.zip -Algorithm SHA256
 ```
 
 ### Option 3: Build from Source
@@ -304,6 +347,11 @@ go build -o xdcc-server ./cmd/xdcc-server
 
 ### Requirements
 
+**For Using Pre-built Binaries:**
+- No requirements! Just download and run.
+
+**For Building from Source:**
+
 | Requirement | Version | Purpose |
 |-------------|---------|---------|
 | **Go** | 1.22+ | Building from source |
@@ -313,9 +361,9 @@ go build -o xdcc-server ./cmd/xdcc-server
 
 ### Pre-built Binaries
 
-> **Note**: Pre-built binaries will be available in the Releases section once the project reaches v1.0.
+Pre-compiled binaries are automatically built and published for every release.
 
-Until then, build from source (see below).
+> **Automated Releases**: When a new version tag (e.g., `v1.0.0`) is pushed, GitHub Actions automatically compiles binaries for all supported platforms and architectures, then publishes them to the [Releases page](https://github.com/asgambat/xdcc-go/releases).
 
 ### Build from Source
 
@@ -373,10 +421,45 @@ go build -ldflags="-s -w" -o xdcc-browse ./cmd/xdcc-browse
 
 ### Docker
 
-#### Docker (Single Command)
+#### Pre-built Multi-Architecture Images
+
+Official Docker images are available on GitHub Container Registry with support for multiple architectures:
 
 ```bash
-# Build the image
+# Pull and run the latest version
+docker run -d \
+  --name xdcc-server \
+  -p 8080:8080 \
+  -v xdcc-data:/data \
+  ghcr.io/asgambat/xdcc-go:latest
+
+# Or use a specific version
+docker run -d \
+  --name xdcc-server \
+  -p 8080:8080 \
+  -v xdcc-data:/data \
+  ghcr.io/asgambat/xdcc-go:v1.0.0
+
+# Access the web UI
+open http://localhost:8080
+```
+
+**Supported Architectures:**
+- `linux/amd64` - x86_64 (Intel/AMD 64-bit)
+- `linux/arm64` - ARM 64-bit (Raspberry Pi 4, Apple Silicon, AWS Graviton)
+- `linux/arm/v7` - ARM 32-bit (Raspberry Pi 3, older ARM devices)
+
+Docker automatically pulls the correct image for your platform.
+
+**Available Tags:**
+- `latest` - Latest stable release
+- `v1.0.0`, `v1.0`, `v1` - Semantic versioning tags
+- New images are automatically built and published when a release tag is created
+
+#### Build from Source (Docker)
+
+```bash
+# Build the image locally
 docker build -t xdcc-go .
 
 # Run the container
@@ -385,9 +468,6 @@ docker run -d \
   -p 8080:8080 \
   -v xdcc-data:/data \
   xdcc-go
-
-# Access the web UI
-open http://localhost:8080
 ```
 
 The `/data` volume persists:
@@ -405,7 +485,8 @@ version: '3.8'
 
 services:
   xdcc-server:
-    build: .
+    image: ghcr.io/asgambat/xdcc-go:latest  # Use pre-built multi-arch image
+    # Or build locally: build: .
     container_name: xdcc-server
     ports:
       - "8080:8080"
@@ -433,14 +514,23 @@ docker-compose up -d
 docker-compose logs -f xdcc-server
 ```
 
-#### Multi-Architecture Build
+#### Building Multi-Architecture Images Locally
 
-For Raspberry Pi or ARM servers:
+For building custom multi-arch images (e.g., for testing):
 
 ```bash
-docker buildx create --use
-docker buildx build --platform linux/amd64,linux/arm64 -t xdcc-go:latest . --push
+# Create and use a buildx builder
+docker buildx create --use --name multiarch-builder
+
+# Build for multiple platforms
+docker buildx build \
+  --platform linux/amd64,linux/arm64,linux/arm/v7 \
+  -t xdcc-go:local \
+  --load \
+  .
 ```
+
+**Note:** Official multi-architecture images are automatically built and published to GitHub Container Registry when a new version tag (e.g., `v1.0.0`) is pushed to the repository.
 
 ---
 
