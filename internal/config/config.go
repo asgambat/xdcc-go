@@ -60,7 +60,8 @@ type DownloadConfig struct {
 	MaxParallelTotal int    `yaml:"max_parallel_total"  env:"XDCC_DOWNLOAD_MAX_PARALLEL"`
 	MaxRateBPS       int64  `yaml:"max_rate_bps"       env:"XDCC_DOWNLOAD_MAX_RATE_BPS"`
 	MinDiskSpace     int64  `yaml:"min_disk_space_bytes" env:"XDCC_DOWNLOAD_MIN_DISK_SPACE"`
-	MaxRetryAttempts int    `yaml:"max_retry_attempts"  env:"XDCC_DOWNLOAD_MAX_RETRY"`
+	MaxRetryAttempts      int    `yaml:"max_retry_attempts"      env:"XDCC_DOWNLOAD_MAX_RETRY"`
+	StartupDelayMinutes   int    `yaml:"startup_delay_minutes"   env:"XDCC_DOWNLOAD_STARTUP_DELAY_MINUTES"`
 }
 
 type SearchConfig struct {
@@ -128,7 +129,8 @@ func DefaultConfig() *Config {
 			MaxParallelTotal: 5,
 			MaxRateBPS:       0,
 			MinDiskSpace:     1 * 1024 * 1024 * 1024, // 1 GB default
-			MaxRetryAttempts: 3,
+			MaxRetryAttempts:    3,
+			StartupDelayMinutes: 0,
 		},
 		Search: SearchConfig{
 			ProviderTimeout:  5,
@@ -230,6 +232,9 @@ func (c *Config) loadFile(path string) error {
 //	XDCC_DOWNLOAD_FAIL_FALLBACK
 //	XDCC_DOWNLOAD_MAX_PARALLEL
 //	XDCC_DOWNLOAD_MAX_RATE_BPS
+//	XDCC_DOWNLOAD_MIN_DISK_SPACE
+//	XDCC_DOWNLOAD_MAX_RETRY
+//	XDCC_DOWNLOAD_STARTUP_DELAY_MINUTES
 //	XDCC_SEARCH_PROVIDER_TIMEOUT
 //	XDCC_SEARCH_PAGE_SIZE
 //	XDCC_SEARCH_CACHE_ENABLED
@@ -277,6 +282,11 @@ func (c *Config) applyEnvOverrides() {
 	if v := os.Getenv("XDCC_DOWNLOAD_MAX_RETRY"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			c.Download.MaxRetryAttempts = n
+		}
+	}
+	if v := os.Getenv("XDCC_DOWNLOAD_STARTUP_DELAY_MINUTES"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			c.Download.StartupDelayMinutes = n
 		}
 	}
 	if v := os.Getenv("XDCC_SEARCH_PROVIDER_TIMEOUT"); v != "" {
@@ -407,6 +417,11 @@ func (c *Config) validate() error {
 	// Max parallel
 	if c.Download.MaxParallelTotal < 1 {
 		return fmt.Errorf("download.max_parallel_total must be at least 1, got %d", c.Download.MaxParallelTotal)
+	}
+
+	// Startup delay
+	if c.Download.StartupDelayMinutes < 0 {
+		return fmt.Errorf("download.startup_delay_minutes must be >= 0, got %d", c.Download.StartupDelayMinutes)
 	}
 
 	// Search

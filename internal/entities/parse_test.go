@@ -9,15 +9,15 @@ func TestResolveServer_TLTAlwaysMapped(t *testing.T) {
 	// what fallback server is passed. The only override is the explicit
 	// --server CLI flag, which is applied at the CLI level after resolveServer.
 	for _, fallback := range []string{"irc.rizon.net", "irc.custom.net", "irc.other.net", ""} {
-		s := resolveServer("TLTBot", fallback)
+		s := ResolveServer("TLTBot", fallback)
 		if s.Address != "irc.williamgattone.it" {
-			t.Errorf("resolveServer(TLTBot, %q) = %s, want irc.williamgattone.it", fallback, s.Address)
+			t.Errorf("ResolveServer(TLTBot, %q) = %s, want irc.williamgattone.it", fallback, s.Address)
 		}
 	}
 }
 
 func TestResolveServer_TLTPrefix(t *testing.T) {
-	s := resolveServer("TLTBot", "irc.rizon.net")
+	s := ResolveServer("TLTBot", "irc.rizon.net")
 	if s.Address != "irc.williamgattone.it" {
 		t.Errorf("expected irc.williamgattone.it, got %s", s.Address)
 	}
@@ -26,15 +26,15 @@ func TestResolveServer_TLTPrefix(t *testing.T) {
 func TestResolveServer_WeCPrefix(t *testing.T) {
 	// WeC bots MUST always connect to irc.explosionirc.net, regardless of fallback.
 	for _, fallback := range []string{"irc.rizon.net", "irc.custom.net", ""} {
-		s := resolveServer("WeCBot", fallback)
+		s := ResolveServer("WeCBot", fallback)
 		if s.Address != "irc.explosionirc.net" {
-			t.Errorf("resolveServer(WeCBot, %q) = %s, want irc.explosionirc.net", fallback, s.Address)
+			t.Errorf("ResolveServer(WeCBot, %q) = %s, want irc.explosionirc.net", fallback, s.Address)
 		}
 	}
 }
 
 func TestResolveServer_Default(t *testing.T) {
-	s := resolveServer("SomeBot", "irc.rizon.net")
+	s := ResolveServer("SomeBot", "irc.rizon.net")
 	if s.Address != "irc.rizon.net" {
 		t.Errorf("expected irc.rizon.net, got %s", s.Address)
 	}
@@ -42,7 +42,7 @@ func TestResolveServer_Default(t *testing.T) {
 
 func TestResolveServer_DefaultEmptyFallback(t *testing.T) {
 	// Empty fallback should default to irc.rizon.net for non-TLT/WeC bots.
-	s := resolveServer("SomeBot", "")
+	s := ResolveServer("SomeBot", "")
 	if s.Address != "irc.rizon.net" {
 		t.Errorf("expected irc.rizon.net, got %s", s.Address)
 	}
@@ -50,9 +50,30 @@ func TestResolveServer_DefaultEmptyFallback(t *testing.T) {
 
 func TestResolveServer_CustomFallback(t *testing.T) {
 	// Non-TLT/WeC bots use whatever fallback server is given.
-	s := resolveServer("SomeBot", "irc.custom.net")
+	s := ResolveServer("SomeBot", "irc.custom.net")
 	if s.Address != "irc.custom.net" {
 		t.Errorf("expected irc.custom.net, got %s", s.Address)
+	}
+}
+
+func TestResolveChannel_TLT(t *testing.T) {
+	ch := ResolveChannel("TLTBot")
+	if ch != "#tlt@XDCC|Bots|Channel" {
+		t.Errorf("expected #tlt@XDCC|Bots|Channel, got %s", ch)
+	}
+}
+
+func TestResolveChannel_WeC(t *testing.T) {
+	ch := ResolveChannel("WeCBot")
+	if ch != "#WeC@XDCC" {
+		t.Errorf("expected #WeC@XDCC, got %s", ch)
+	}
+}
+
+func TestResolveChannel_Other(t *testing.T) {
+	ch := ResolveChannel("SomeBot")
+	if ch != "" {
+		t.Errorf("expected empty string for non-TLT/WeC bot, got %s", ch)
 	}
 }
 

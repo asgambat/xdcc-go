@@ -278,6 +278,7 @@ func (m *mockStore) SetDefaultSearchPreset(int64) error                 { return
 
 func (m *mockStore) AddWatchlist(store.Watchlist) (int64, error)  { return 1, nil }
 func (m *mockStore) GetWatchlist(int64) (*store.Watchlist, error) { return nil, nil }
+func (m *mockStore) GetTotalDownloadedBytes() (int64, error) { return 0, nil }
 func (m *mockStore) ListWatchlists() ([]store.Watchlist, error)   { return nil, nil }
 func (m *mockStore) UpdateWatchlist(store.Watchlist) error        { return nil }
 func (m *mockStore) DeleteWatchlist(int64) error                  { return nil }

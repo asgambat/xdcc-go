@@ -32,7 +32,7 @@ func ParseXDCCMessage(msg, directory, server string) ([]*XDCCPack, error) {
 	}
 
 	bot := extractBot(msg)
-	ircServer := resolveServer(bot, server)
+	ircServer := ResolveServer(bot, server)
 
 	// Everything after the last "#" is the pack specification.
 	packPart := msg[strings.LastIndex(msg, "#")+1:]
@@ -128,7 +128,7 @@ func newPack(srv IrcServer, bot, directory string, num int) *XDCCPack {
 	return p
 }
 
-// resolveServer returns the appropriate IrcServer for the given bot name.
+// ResolveServer returns the appropriate IrcServer for the given bot name.
 //
 // IMPORTANT RULE — Bot-prefix → server mapping:
 //   - Bots whose name starts with "TLT" MUST connect to irc.williamgattone.it
@@ -140,7 +140,7 @@ func newPack(srv IrcServer, bot, directory string, num int) *XDCCPack {
 // function runs (see xdcc-dl, xdcc-browse main.go).
 //
 // Do NOT add conditions that skip these mappings (e.g. checking defaultServer).
-func resolveServer(bot, fallbackServer string) IrcServer {
+func ResolveServer(bot, fallbackServer string) IrcServer {
 	switch {
 	case strings.HasPrefix(bot, "TLT"):
 		return NewIrcServer("irc.williamgattone.it")
@@ -154,10 +154,26 @@ func resolveServer(bot, fallbackServer string) IrcServer {
 	}
 }
 
+// ResolveChannel returns the canonical channel hint for a given bot.
+// It uses the same prefix rules as ResolveServer so that TLT bots get
+// #tlt@XDCC|Bots|Channel and WeC bots get #WeC@XDCC. For all other bots
+// an empty string is returned, meaning the channel should be discovered
+// via WHOIS.
+func ResolveChannel(bot string) string {
+	switch {
+	case strings.HasPrefix(bot, "TLT"):
+		return "#tlt@XDCC|Bots|Channel"
+	case strings.HasPrefix(bot, "WeC"):
+		return "#WeC@XDCC"
+	default:
+		return ""
+	}
+}
+
 // PreparePacks applies output path and server overrides to a list of packs.
 //
 // Bot-prefix → server mapping (TLT→williamgattone, WeC→explosionirc) is
-// always applied here via resolveServer. This is critical for packs coming
+// always applied here via ResolveServer. This is critical for packs coming
 // from search engines that may report a generic server (e.g. irc.rizon.net).
 // The only override is the explicit --server CLI flag, handled by the caller
 // AFTER this function returns.
@@ -168,10 +184,10 @@ func resolveServer(bot, fallbackServer string) IrcServer {
 func PreparePacks(packs []*XDCCPack, location string) {
 	// Apply server overrides based on bot name.
 	// This is intentionally kept even though ParseXDCCMessage also calls
-	// resolveServer, because PreparePacks is also used for packs originating
+	// ResolveServer, because PreparePacks is also used for packs originating
 	// from search engines (e.g. xdcc-browse) that bypass ParseXDCCMessage.
 	for _, p := range packs {
-		p.Server = resolveServer(p.Bot, p.Server.Address)
+		p.Server = ResolveServer(p.Bot, p.Server.Address)
 	}
 
 	if location == "" {

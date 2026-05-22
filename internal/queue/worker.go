@@ -94,20 +94,27 @@ func runDownload(
 	// --- Execute download with IRCManager (persistent) or temp connection ---
 	if cfg.IRCManager != nil {
 		// Use persistent IRC connections via IRCManager
-		logger.Printf("→ Using persistent IRC connection for %s", rec.ServerAddress)
+		logger.Printf("→ [download %d] Using persistent IRC connection for %s (bot=%s, channel=%q, file=%s)",
+			rec.ID, rec.ServerAddress, rec.Bot, channel, rec.Filename)
 		srcPath, downloadErr = cfg.IRCManager.DownloadPack(ctx, pack, channel, progressFn)
 	} else {
 		// Fallback to temporary IRC connection (for CLI tools)
-		logger.Printf("→ Using temporary IRC connection for %s", rec.ServerAddress)
+		logger.Printf("→ [download %d] Using temporary IRC connection for %s (bot=%s, channel=%q, file=%s)",
+			rec.ID, rec.ServerAddress, rec.Bot, channel, rec.Filename)
 		srcPath, downloadErr = downloadWithTempConnection(ctx, pack, channel, cfg, progressFn)
 	}
 
 	if downloadErr != nil {
+		logger.Printf("✗ [download %d] FAILED — bot=%s server=%s channel=%q file=%q error=%v",
+			rec.ID, rec.Bot, rec.ServerAddress, channel, rec.Filename, downloadErr)
 		result.Error = downloadErr
 		result.BotNotice = "" // TODO: extract from error if available
 		completeFn(result)
 		return
 	}
+
+	logger.Printf("✓ [download %d] Transfer complete — moving from temp to destination (file=%s)",
+		rec.ID, rec.Filename)
 
 	// Verify the file exists
 	if _, err := os.Stat(srcPath); err != nil {

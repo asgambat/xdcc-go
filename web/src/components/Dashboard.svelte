@@ -1,8 +1,76 @@
 <script>
+  import { onMount, onDestroy } from 'svelte';
   import { stats, status, downloads, activeDownloads, servers } from '../lib/stores.js';
+  import { ServersAPI, sseClient } from '../lib/api.js';
   import { formatBytes, formatSpeed, formatUptime, statusBadge } from '../lib/utils.js';
+  import { addToast } from '../lib/stores.js';
 
   let { openModal = () => {} } = $props();
+
+  let connectingServers = $state(new Set());
+  let unsubServerConnected, unsubServerDisconnected;
+
+  onMount(() => {
+    // When a server_connected SSE event arrives, check if we were waiting for it.
+    // If so, show the success toast and stop showing "Connecting...".
+    unsubServerConnected = sseClient.on('server_connected', (data) => {
+      const serverId = data.server_id;
+      if (serverId && connectingServers.has(serverId)) {
+        connectingServers.delete(serverId);
+        connectingServers = connectingServers;
+        const addr = data.server_addr || '';
+        addToast(addr ? `Connected to ${addr}` : 'Server connected', 'success');
+      }
+    });
+
+    // When a server_disconnected SSE event arrives while a server is in the
+    // connecting state, it means the initial connection attempt failed.
+    unsubServerDisconnected = sseClient.on('server_disconnected', (data) => {
+      const serverId = data.server_id;
+      if (serverId && connectingServers.has(serverId)) {
+        connectingServers.delete(serverId);
+        connectingServers = connectingServers;
+        const addr = data.server_addr || '';
+        addToast(addr ? `Connection to ${addr} failed` : 'Connection failed', 'error');
+      }
+    });
+  });
+
+  onDestroy(() => {
+    if (unsubServerConnected) unsubServerConnected();
+    if (unsubServerDisconnected) unsubServerDisconnected();
+  });
+
+  async function loadServers() {
+    try {
+      servers.set(await ServersAPI.list());
+    } catch (e) {
+      // Silently ignore; servers may not be loaded yet
+    }
+  }
+
+  async function connectServer(id) {
+    connectingServers.add(id);
+    connectingServers = connectingServers;
+    try {
+      await ServersAPI.connect(id);
+      // Wait for SSE server_connected (success) or server_disconnected (failure)
+      // before showing any toast or removing from the connecting set.
+      // Do NOT call loadServers() here — the SSE refreshServers handler does it.
+    } catch (e) {
+      connectingServers.delete(id);
+      connectingServers = connectingServers;
+      addToast(e.message, 'error');
+    }
+  }
+
+  async function disconnectServer(id) {
+    try {
+      await ServersAPI.disconnect(id);
+      addToast('Server disconnected', 'info');
+      await loadServers();
+    } catch (e) { addToast(e.message, 'error'); }
+  }
 
   let s = $derived($stats || {});
   let st = $derived($status || {});
@@ -94,7 +162,7 @@
   {#if $servers.length > 0}
     <div class="table-container">
       <table>
-        <thead><tr><th>Server</th><th>Status</th><th>Channels</th><th>Uptime</th></tr></thead>
+        <thead><tr><th>Server</th><th>Status</th><th>Channels</th><th>Uptime</th><th>Actions</th></tr></thead>
         <tbody>
           {#each $servers as srv}
             <tr>
@@ -102,6 +170,15 @@
               <td><span class="badge badge-{statusBadge(srv.status).cls}"><span class="badge-dot"></span>{srv.status}</span></td>
               <td>{srv.channel_count || 0}</td>
               <td>{formatUptime(srv.uptime_seconds || 0)}</td>
+              <td>
+                {#if connectingServers.has(srv.id)}
+                  <button class="btn btn-sm btn-success" disabled>Connecting...</button>
+                {:else if srv.status !== 'connected'}
+                  <button class="btn btn-sm btn-success" onclick={() => connectServer(srv.id)}>Connect</button>
+                {:else}
+                  <button class="btn btn-sm btn-danger" onclick={() => disconnectServer(srv.id)}>Disconnect</button>
+                {/if}
+              </td>
             </tr>
           {/each}
         </tbody>

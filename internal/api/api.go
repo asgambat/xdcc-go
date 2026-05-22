@@ -6,11 +6,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"time"
 
 	"xdcc-go/internal/config"
+	"xdcc-go/internal/logging"
 	"xdcc-go/internal/searchagg"
 	"xdcc-go/internal/sse"
 	"xdcc-go/internal/store"
@@ -28,7 +28,7 @@ type API struct {
 	SearchAggregator  *searchagg.Aggregator
 	SSEHub            *sse.Hub
 	Config            *config.Config
-	Logger            *log.Logger
+	Logger            *logging.Logger
 	StartTime         time.Time
 }
 
@@ -58,7 +58,7 @@ type QueueManager interface {
 // New creates a new API handler container.
 func New(st *store.SQLiteStore, ircMgr IRCManager, queueMgr QueueManager,
 	searchAgg *searchagg.Aggregator, sseHub *sse.Hub,
-	cfg *config.Config, logger *log.Logger) *API {
+	cfg *config.Config, logger *logging.Logger) *API {
 	return &API{
 		Store:            st,
 		IRCManager:       ircMgr,
@@ -146,7 +146,8 @@ func CORS(next http.Handler) http.Handler {
 }
 
 // Logging returns middleware that logs each request.
-func Logging(logger *log.Logger) func(http.Handler) http.Handler {
+// HTTP request logs are at DEBUG level since they are high-frequency.
+func Logging(logger *logging.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
@@ -160,8 +161,8 @@ func Logging(logger *log.Logger) func(http.Handler) http.Handler {
 				reqID = "-"
 			}
 
-			logger.Printf("%s %s %d %s [%s]",
-				r.Method, r.URL.Path, rw.status, duration.Round(time.Millisecond), reqID)
+		logger.Debugf("%s %s %d %s [%s]",
+			r.Method, r.URL.Path, rw.status, duration.Round(time.Millisecond), reqID)
 		})
 	}
 }
@@ -213,6 +214,6 @@ func parsePageParams(r *http.Request) (page, pageSize int) {
 
 // logAndError is a helper to log and write an error response.
 func (a *API) logAndError(w http.ResponseWriter, status int, code, msg string) {
-	a.Logger.Printf("ERROR: %s: %s", code, msg)
+	a.Logger.Errorf("ERROR: %s: %s", code, msg)
 	writeError(w, status, code, msg)
 }

@@ -8,7 +8,11 @@ import (
 )
 
 func (c *Client) registerHandlers() {
-	c.irc.Handlers.Add(girc.CONNECTED, func(client *girc.Client, e girc.Event) {
+	// Clear previous CUIDs in case registerHandlers is called multiple times
+	// on the same client (e.g. after reconnect with a new girc.Client).
+	c.handlerCUIDs = nil
+
+	cuid := c.irc.Handlers.Add(girc.CONNECTED, func(client *girc.Client, e girc.Event) {
 		c.connectTime = time.Now()
 		c.infof("✓ Connected to IRC server successfully")
 		// Safe close: handle already-closed channel (e.g. when using existing connection)
@@ -18,21 +22,38 @@ func (c *Client) registerHandlers() {
 			close(c.connectedCh)
 		}
 	})
+	c.handlerCUIDs = append(c.handlerCUIDs, cuid)
 
 	// End of WHOIS: decide whether to send XDCC now or wait for JOIN.
-	c.irc.Handlers.Add(girc.RPL_ENDOFWHOIS, func(client *girc.Client, e girc.Event) {
-		c.debugf("WHOIS response completed")
+	cuid = c.irc.Handlers.Add(girc.RPL_ENDOFWHOIS, func(client *girc.Client, e girc.Event) {
+		c.infof("WHOIS response completed for %s", c.currentPack().Bot)
 		if c.messageSent.Load() {
 			return
 		}
 		if c.needsJoin.Load() {
 			// We sent a JOIN; wait for the JOIN event to trigger XDCC.
-			c.debugf("Waiting for JOIN confirmation before sending XDCC request")
+			// But add a safety timeout: if the server doesn't re-emit JOIN
+			// (e.g. because we were already in the channel via an auto-join),
+			// send XDCC anyway after a few seconds.
+			c.infof("Waiting for JOIN confirmation before sending XDCC request (fallback in 5s)")
+			go func() {
+				select {
+				case <-c.downloadDone:
+					return
+				case <-c.ctx.Done():
+					return
+				case <-time.After(5 * time.Second):
+					if !c.messageSent.Load() {
+						c.infof("JOIN confirmation not received, sending XDCC request anyway")
+						c.sendXDCCRequest(client)
+					}
+				}
+			}()
 			return
 		}
 		if c.whoisFoundChannels.Load() {
 			// All channels were already joined — send XDCC directly.
-			c.logf("All channels already joined, sending XDCC request")
+			c.infof("All channels already joined, sending XDCC request")
 			c.sendXDCCRequest(client)
 			return
 		}
@@ -42,23 +63,24 @@ func (c *Client) registerHandlers() {
 			if !strings.HasPrefix(ch, "#") {
 				ch = "#" + ch
 			}
-			c.logf("No channels from WHOIS, joining fallback channel: %s", ch)
+			c.infof("No channels from WHOIS, joining fallback channel: %s", ch)
 			c.needsJoin.Store(true)
 			client.Cmd.Join(ch)
 		} else {
-			c.logf("No channels from WHOIS and no fallback, sending XDCC request directly")
+			c.infof("No channels from WHOIS and no fallback, sending XDCC request directly")
 			c.sendXDCCRequest(client)
 		}
 	})
+	c.handlerCUIDs = append(c.handlerCUIDs, cuid)
 
 	// WHOIS channels: join only channels we have not yet joined.
 	// If the bot is in exactly one channel, that will be automatically joined.
-	c.irc.Handlers.Add(girc.RPL_WHOISCHANNELS, func(client *girc.Client, e girc.Event) {
+	cuid = c.irc.Handlers.Add(girc.RPL_WHOISCHANNELS, func(client *girc.Client, e girc.Event) {
 		if len(e.Params) < 2 {
 			return
 		}
 		rawChannels := e.Params[len(e.Params)-1]
-		c.logf("WHOIS response: bot is in channels: %s", rawChannels)
+		c.infof("WHOIS response: bot is in channels: %s", rawChannels)
 		
 		for _, part := range strings.Fields(rawChannels) {
 			part = strings.TrimLeft(part, "@+%&~")
@@ -71,18 +93,19 @@ func (c *Client) registerHandlers() {
 			alreadyIn := c.joinedChannels[ch]
 			c.mu.Unlock()
 			if alreadyIn {
-				c.logf("Already in channel %s, skipping JOIN", part)
+				c.infof("Already in channel %s, skipping JOIN", part)
 			} else {
-				c.logf("Joining channel: %s", part)
+				c.infof("Joining channel: %s", part)
 				c.needsJoin.Store(true)
 				time.Sleep(time.Duration(1+randN(2)) * time.Second)
 				client.Cmd.Join(part)
 			}
 		}
 	})
+	c.handlerCUIDs = append(c.handlerCUIDs, cuid)
 
 	// JOIN: record membership, send XDCC if pending.
-	c.irc.Handlers.Add(girc.JOIN, func(client *girc.Client, e girc.Event) {
+	cuid = c.irc.Handlers.Add(girc.JOIN, func(client *girc.Client, e girc.Event) {
 		if e.Source == nil || !strings.EqualFold(e.Source.Name, client.GetNick()) {
 			return
 		}
@@ -90,13 +113,16 @@ func (c *Client) registerHandlers() {
 		c.mu.Lock()
 		c.joinedChannels[ch] = true
 		c.mu.Unlock()
-		c.logf("✓ Joined channel: %s", e.Params[0])
+		c.infof("✓ Joined channel: %s", e.Params[0])
 		if !c.messageSent.Load() {
 			c.sendXDCCRequest(client)
 		}
 	})
+	c.handlerCUIDs = append(c.handlerCUIDs, cuid)
 
 	// CTCP DCC handler (DCC SEND / DCC ACCEPT for resume).
+	// Note: CTCP.Set() does not return a CUID and simply overwrites any
+	// previous handler for the same command, so it does not accumulate.
 	c.irc.CTCP.Set("DCC", func(client *girc.Client, ctcp girc.CTCPEvent) {
 		sourceHost := ""
 		if ctcp.Source != nil {
@@ -113,7 +139,7 @@ func (c *Client) registerHandlers() {
 	//   3. "Denied / slot busy" messages — abort with ErrBotDenied.
 	// Message patterns include both English and Italian strings because several
 	// Rizon bots (particularly Italian ones) reply in Italian.
-	c.irc.Handlers.Add(girc.NOTICE, func(client *girc.Client, e girc.Event) {
+	cuid = c.irc.Handlers.Add(girc.NOTICE, func(client *girc.Client, e girc.Event) {
 		notice := e.Last()
 		msg := strings.ToLower(notice)
 		// These are standard IRC server ident/hostname check messages — suppress in quiet mode.
@@ -153,16 +179,29 @@ func (c *Client) registerHandlers() {
 			}
 		}
 	})
+	c.handlerCUIDs = append(c.handlerCUIDs, cuid)
 
-	c.irc.Handlers.Add(girc.ERR_NOSUCHNICK, func(client *girc.Client, e girc.Event) {
+	cuid = c.irc.Handlers.Add(girc.ERR_NOSUCHNICK, func(client *girc.Client, e girc.Event) {
 		c.noticef("Bot '%s' not found on server", c.currentPack().Bot)
 		c.finishWithError(ErrBotNotFound)
 	})
+	c.handlerCUIDs = append(c.handlerCUIDs, cuid)
 
-	c.irc.Handlers.Add(girc.ERROR, func(client *girc.Client, e girc.Event) {
+	cuid = c.irc.Handlers.Add(girc.ERROR, func(client *girc.Client, e girc.Event) {
 		c.noticef("IRC error: %s", e.Last())
 		c.finishWithError(ErrUnrecoverable)
 	})
+	c.handlerCUIDs = append(c.handlerCUIDs, cuid)
+}
+
+// removeHandlers removes all handlers previously registered by this client
+// from the girc.Client. This prevents accumulation of duplicate handlers when
+// multiple downloads share the same persistent IRC connection.
+func (c *Client) removeHandlers() {
+	for _, cuid := range c.handlerCUIDs {
+		c.irc.Handlers.Remove(cuid)
+	}
+	c.handlerCUIDs = nil
 }
 
 func (c *Client) sendXDCCRequest(client *girc.Client) {

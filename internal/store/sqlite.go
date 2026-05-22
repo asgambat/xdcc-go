@@ -405,7 +405,7 @@ func (s *SQLiteStore) DeleteDownload(id int64) error {
 
 func (s *SQLiteStore) RetryDownload(id int64) error {
 	_, err := s.db.Exec(
-		`UPDATE downloads SET status='queued', progress_bytes=0, error_message='', completed_at=NULL WHERE id=? AND status IN ('failed', 'paused')`,
+		`UPDATE downloads SET status='queued', progress_bytes=0, error_message='', completed_at=NULL WHERE id=? AND status IN ('failed', 'paused', 'completed', 'skipped_existing')`,
 		id,
 	)
 	return err
@@ -422,6 +422,20 @@ func (s *SQLiteStore) RequeueDownload(id int64) error {
 func (s *SQLiteStore) SetDownloadPriority(id int64, priority int) error {
 	_, err := s.db.Exec(`UPDATE downloads SET priority=? WHERE id=?`, priority, id)
 	return err
+}
+
+func (s *SQLiteStore) GetTotalDownloadedBytes() (int64, error) {
+	var total sql.NullInt64
+	err := s.db.QueryRow(
+		`SELECT SUM(progress_bytes) FROM downloads`,
+	).Scan(&total)
+	if err != nil {
+		return 0, fmt.Errorf("getting total downloaded bytes: %w", err)
+	}
+	if total.Valid {
+		return total.Int64, nil
+	}
+	return 0, nil
 }
 
 func (s *SQLiteStore) GetDownloadHistory(page, pageSize int) ([]DownloadRecord, int, error) {

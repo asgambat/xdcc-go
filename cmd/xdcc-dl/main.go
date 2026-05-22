@@ -163,16 +163,11 @@ func runWithServer(serverURL, message, outDir string) error {
 	entities.PreparePacks(packs, outDir)
 
 	for _, p := range packs {
-		// Channel derivation: the xdcc-server will resolve the correct channel
-		// via WHOIS on the bot, just like the standalone downloader does.
-		// Use a placeholder channel; the server handles final resolution.
-		channel := "#xdcc"
-		// TLT and WeC bot families have known channels; hint them for faster dispatch
-		// (the server's IRC manager will verify/override these as needed).
-		if p.Server.Address == "irc.williamgattone.it" {
-			channel = "#tlt@XDCC|Bots|Channel"
-		} else if p.Server.Address == "irc.explosionirc.net" {
-			channel = "#WeC@XDCC"
+		// Use the canonical channel hint for known bot families; otherwise
+		// let the server discover the channel via WHOIS.
+		channel := entities.ResolveChannel(p.Bot)
+		if channel == "" {
+			channel = "#xdcc"
 		}
 
 		rec := store.DownloadRecord{

@@ -294,11 +294,11 @@ func runBrowseWithServer(serverURL, term, extFilter, botFilter string, compact, 
 	for _, p := range selected {
 		entities.PreparePacks([]*entities.XDCCPack{p}, outDir)
 
-		channel := "#xdcc"
-		if p.Server.Address == "irc.williamgattone.it" {
-			channel = "#tlt@XDCC|Bots|Channel"
-		} else if p.Server.Address == "irc.explosionirc.net" {
-			channel = "#WeC@XDCC"
+		// Use the canonical channel hint for known bot families; otherwise
+		// let the server discover the channel via WHOIS.
+		channel := entities.ResolveChannel(p.Bot)
+		if channel == "" {
+			channel = "#xdcc"
 		}
 
 		rec := store.DownloadRecord{

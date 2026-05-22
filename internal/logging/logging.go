@@ -147,6 +147,65 @@ func (l *Logger) Error(msg string, kv ...interface{}) {
 	l.log(LevelError, msg, kv...)
 }
 
+// Debugf logs a formatted debug message.
+func (l *Logger) Debugf(format string, args ...interface{}) {
+	l.log(LevelDebug, fmt.Sprintf(format, args...))
+}
+
+// Infof logs a formatted info message.
+func (l *Logger) Infof(format string, args ...interface{}) {
+	l.log(LevelInfo, fmt.Sprintf(format, args...))
+}
+
+// Warnf logs a formatted warning message.
+func (l *Logger) Warnf(format string, args ...interface{}) {
+	l.log(LevelWarn, fmt.Sprintf(format, args...))
+}
+
+// Errorf logs a formatted error message.
+func (l *Logger) Errorf(format string, args ...interface{}) {
+	l.log(LevelError, fmt.Sprintf(format, args...))
+}
+
+// Writer returns an io.Writer that logs each line at the given level.
+// This is useful for adapting to APIs that expect a stdlib *log.Logger.
+// The returned writer logs at the specified level; it strips trailing newlines.
+func (l *Logger) Writer(level Level) io.Writer {
+	return &levelWriter{l: l, level: level}
+}
+
+type levelWriter struct {
+	l     *Logger
+	level Level
+	buf   []byte
+}
+
+func (w *levelWriter) Write(p []byte) (int, error) {
+	n := len(p)
+	w.buf = append(w.buf, p...)
+	for {
+		i := indexByte(w.buf, '\n')
+		if i < 0 {
+			break
+		}
+		line := string(w.buf[:i])
+		w.buf = w.buf[i+1:]
+		if len(line) > 0 {
+			w.l.log(w.level, line)
+		}
+	}
+	return n, nil
+}
+
+func indexByte(b []byte, c byte) int {
+	for i, x := range b {
+		if x == c {
+			return i
+		}
+	}
+	return -1
+}
+
 // log formats and writes a structured log entry.
 func (l *Logger) log(level Level, msg string, kv ...interface{}) {
 	l.mu.Lock()

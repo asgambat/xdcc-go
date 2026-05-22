@@ -49,6 +49,7 @@ type Store interface {
 	DeleteDownload(id int64) error
 	RetryDownload(id int64) error
 	GetDownloadHistory(page, pageSize int) ([]DownloadRecord, int, error)
+	GetTotalDownloadedBytes() (int64, error)
 	RecoverDownloadsOnStartup() ([]DownloadRecord, error)
 	RequeueDownload(id int64) error
 	SetDownloadPriority(id int64, priority int) error

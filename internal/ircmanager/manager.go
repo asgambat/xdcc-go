@@ -360,9 +360,16 @@ func (m *Manager) GetChannels(serverID int64) []store.ChannelRecord {
 			if topic, joined := conn.joinedChs[ch.Name]; joined {
 				channels[i].Joined = true
 				channels[i].Topic = topic
+			} else {
+				channels[i].Joined = false
 			}
 		}
 		conn.mu.RUnlock()
+	} else {
+		// Server is not currently managed (disconnected) — reflect reality
+		for i := range channels {
+			channels[i].Joined = false
+		}
 	}
 
 	return channels
@@ -411,6 +418,10 @@ func (m *Manager) DownloadPack(ctx context.Context, pack *entities.XDCCPack, cha
 	// Get the underlying girc.Client from the persistent connection
 	conn.mu.RLock()
 	gircClient := conn.irc
+	var joinedChs []string
+	for ch := range conn.joinedChs {
+		joinedChs = append(joinedChs, ch)
+	}
 	conn.mu.RUnlock()
 	if gircClient == nil {
 		return "", fmt.Errorf("persistent connection to %s has no IRC client", pack.Server.Address)
@@ -429,22 +440,42 @@ func (m *Manager) DownloadPack(ctx context.Context, pack *entities.XDCCPack, cha
 		Username:         m.cfg.IRC.Nickname,
 		Logger:           xdccirc.LoggerFunc(m.logger.Printf),
 		ProgressCallback: progressFn,
+		// When the persistent connection drops and reconnects, the xdccirc.Client
+		// calls this to get the new girc.Client and re-bind its handlers.
+		ReconnectCallback: func() *girc.Client {
+			conn.mu.RLock()
+			irc := conn.irc
+			conn.mu.RUnlock()
+			return irc
+		},
 	}
 	
 	// Create xdccirc.Client and attach it to the existing persistent connection
 	packSlice := []*entities.XDCCPack{pack}
-	client := xdccirc.NewClient(ctx, packSlice, opts, 0) // 0 = normal verbosity
+	client := xdccirc.NewClient(ctx, packSlice, opts, 1) // verbosity=1 so WHOIS/JOIN logs appear
 	client.SetExistingClient(gircClient)
 	
-	m.logger.Printf("DownloadPack: WHOIS + channel join + XDCC on persistent connection to %s", pack.Server.Address)
+	// Tell the client about channels the managed connection is already in
+	// so it doesn't try to re-join them (which the server would silently
+	// ignore, causing XDCC to never be sent).
+	if len(joinedChs) > 0 {
+		client.SetAlreadyJoinedChannels(joinedChs)
+	}
+	
+	m.logger.Printf("DownloadPack: WHOIS → JOIN → XDCC for bot %s on %s (channel=%q, pack=%d)",
+		pack.Bot, pack.Server.Address, channel, pack.PackNumber)
 	results := client.DownloadAll()
 	
 	if len(results) == 0 {
+		m.logger.Printf("DownloadPack: ERROR — no result from download client for bot %s on %s",
+			pack.Bot, pack.Server.Address)
 		return "", fmt.Errorf("no result from download client")
 	}
 	
 	r := results[0]
 	if r.Error != nil {
+		m.logger.Printf("DownloadPack: FAILED for bot %s on %s — %v",
+			pack.Bot, pack.Server.Address, r.Error)
 		return "", r.Error
 	}
 	
@@ -454,7 +485,8 @@ func (m *Manager) DownloadPack(ctx context.Context, pack *entities.XDCCPack, cha
 		filePath = r.FilePath
 	}
 	
-	m.logger.Printf("DownloadPack: completed successfully - %s", filePath)
+	m.logger.Printf("DownloadPack: SUCCESS for bot %s on %s — %s",
+		pack.Bot, pack.Server.Address, filePath)
 	return filePath, nil
 }
 
@@ -697,14 +729,28 @@ func (mc *managedConnection) connect() connectResult {
 			return
 		}
 		ch := normalizeChannel(e.Params[0])
+		mc.manager.logger.Printf("joined channel %s on %s", ch, mc.address)
 		mc.mu.Lock()
 		mc.joinedChs[ch] = "" // topic will be updated by TOPIC event
 		mc.mu.Unlock()
 
-		// Update DB
+		// Update DB: mark existing channel as joined, or create it if it was
+		// joined automatically (e.g. via WHOIS during a download).
 		channels, err := mc.manager.store.GetChannelsByServerAndName(mc.id, ch)
 		if err == nil && channels != nil {
 			_ = mc.manager.store.SetChannelJoined(channels.ID, true)
+		} else if err == nil {
+			_, err = mc.manager.store.AddChannel(store.ChannelRecord{
+				ServerID: mc.id,
+				Name:     ch,
+				AutoJoin: false,
+				Joined:   true,
+			})
+			if err != nil {
+				mc.manager.logger.Printf("WARNING: failed to add joined channel %s to DB: %v", ch, err)
+			}
+		} else {
+			mc.manager.logger.Printf("WARNING: looking up channel %s in DB failed: %v", ch, err)
 		}
 
 		mc.manager.emitEvent(Event{
@@ -723,6 +769,7 @@ func (mc *managedConnection) connect() connectResult {
 			return
 		}
 		ch := normalizeChannel(e.Params[0])
+		mc.manager.logger.Printf("kicked from channel %s on %s", ch, mc.address)
 		mc.mu.Lock()
 		delete(mc.joinedChs, ch)
 		mc.mu.Unlock()
@@ -745,6 +792,7 @@ func (mc *managedConnection) connect() connectResult {
 			return
 		}
 		ch := normalizeChannel(e.Params[0])
+		mc.manager.logger.Printf("left channel %s on %s", ch, mc.address)
 		mc.mu.Lock()
 		delete(mc.joinedChs, ch)
 		mc.mu.Unlock()
@@ -767,7 +815,7 @@ func (mc *managedConnection) connect() connectResult {
 			return
 		}
 		ch := normalizeChannel(e.Params[0])
-		topic := e.Last()
+		topic := stripIRCFormatting(e.Last())
 		mc.mu.Lock()
 		mc.joinedChs[ch] = topic
 		mc.mu.Unlock()
@@ -791,7 +839,7 @@ func (mc *managedConnection) connect() connectResult {
 			return
 		}
 		ch := normalizeChannel(e.Params[1])
-		topic := e.Params[len(e.Params)-1]
+		topic := stripIRCFormatting(e.Params[len(e.Params)-1])
 		mc.mu.Lock()
 		mc.joinedChs[ch] = topic
 		mc.mu.Unlock()
@@ -924,6 +972,7 @@ func (mc *managedConnection) joinChannel(channel string) error {
 	}
 
 	// Send JOIN command to IRC
+	mc.manager.logger.Printf("joining channel %s on %s (server_id=%d)", channel, mc.address, mc.id)
 	client.Cmd.Join(channel)
 
 	// Add to auto-join for reconnection (in-memory)
@@ -956,6 +1005,12 @@ func (mc *managedConnection) leaveChannel(channel string) error {
 	// Normalize channel name
 	channel = normalizeChannel(channel)
 
+	// Remove from in-memory joined state immediately so GetChannels()
+	// reflects the change even before the server responds.
+	mc.mu.Lock()
+	delete(mc.joinedChs, channel)
+	mc.mu.Unlock()
+
 	// Update DB: set auto_join=false and joined=false
 	existingCh, err := mc.manager.store.GetChannelsByServerAndName(mc.id, channel)
 	if err == nil && existingCh != nil {
@@ -967,6 +1022,7 @@ func (mc *managedConnection) leaveChannel(channel string) error {
 	}
 
 	// Send PART command to IRC
+	mc.manager.logger.Printf("leaving channel %s on %s (server_id=%d)", channel, mc.address, mc.id)
 	client.Cmd.Part(channel)
 
 	// Remove from auto-join list (in-memory)

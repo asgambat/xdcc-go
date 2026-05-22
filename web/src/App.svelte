@@ -58,6 +58,7 @@
 
   // ---- SSE Event -> Notification mapping ----
   let notificationHandlers = [];
+  let statsInterval; // periodic stats refresh timer
 
   onMount(async () => {
     // Register service worker for PWA
@@ -148,6 +149,20 @@
       } catch {}
     }, 1000); // 1s debounce
 
+    // ---- Periodic stats refresh (uptime, disk, speed counters) ----
+    // Stats are computed server-side and need periodic polling to stay fresh.
+    const refreshStatsOnly = async () => {
+      try {
+        const [statsData, statusData] = await Promise.all([
+          SystemAPI.stats().catch(() => null),
+          SystemAPI.status().catch(() => null),
+        ]);
+        if (statsData) stats.set(statsData);
+        if (statusData) status.set(statusData);
+      } catch {}
+    };
+    statsInterval = setInterval(refreshStatsOnly, 30000); // every 30s
+
     const serverEvents = ['server_connected', 'server_disconnected', 'server_reconnecting', 'channel_joined', 'channel_left', 'channel_topic_updated'];
     for (const evt of serverEvents) {
       sseClient.on(evt, refreshServers);
@@ -174,6 +189,7 @@
   onDestroy(() => {
     sseClient.disconnect();
     notificationHandlers.forEach(fn => fn());
+    clearInterval(statsInterval);
   });
 </script>
 
@@ -219,7 +235,7 @@
     {:else if $currentView === 'servers'}
       <Servers on:navigate />
     {:else if $currentView === 'downloads'}
-      <Downloads {openModal} />
+      <Downloads />
     {:else if $currentView === 'search'}
       <Search {openModal} />
     {:else if $currentView === 'presets'}

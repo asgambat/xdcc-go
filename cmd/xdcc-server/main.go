@@ -5,7 +5,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"net/http"
@@ -20,6 +19,7 @@ import (
 	"xdcc-go/internal/api"
 	"xdcc-go/internal/config"
 	"xdcc-go/internal/ircmanager"
+	"xdcc-go/internal/logging"
 	"xdcc-go/internal/queue"
 	"xdcc-go/internal/search"
 	"xdcc-go/internal/searchagg"
@@ -77,20 +77,19 @@ See config.yaml in the project root for all available settings.`,
 				return fmt.Errorf("loading configuration: %w", err)
 			}
 
-			// Setup logger
-			var logWriter io.Writer = os.Stderr
-			if cfg.Logging.FilePath != "" {
-				logFile, err := os.OpenFile(cfg.Logging.FilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-				if err != nil {
-					return fmt.Errorf("opening log file %s: %w", cfg.Logging.FilePath, err)
-				}
-				defer logFile.Close()
-				logWriter = logFile
-				// Also write to stderr for immediate feedback
-				logWriter = io.MultiWriter(os.Stderr, logFile)
-			}
-			logger := log.New(logWriter, "[xdcc-server] ", log.LstdFlags|log.Lmsgprefix)
-			logger.Printf("starting xdcc-server on port %d", cfg.HTTP.Port)
+		// Setup logger with configurable level
+		logLevel, err := logging.ParseLevel(cfg.Logging.Level)
+		if err != nil {
+			logLevel = logging.LevelInfo
+		}
+		logger := logging.New(logLevel, cfg.Logging.FilePath, 10) // 10 MB rotation
+		defer logger.Close()
+		logger.Infof("starting xdcc-server on port %d", cfg.HTTP.Port)
+
+		// Create a stdlib *log.Logger adapter at INFO level for components
+		// that still use the old interface (ircmanager, queue, searchagg).
+		// This ensures those components' logs are also level-filtered.
+		stdLogger := log.New(logger.Writer(logging.LevelInfo), "", 0)
 
 			// Ensure download directories exist
 			for _, dir := range []string{cfg.Download.TempDir, cfg.Download.DestDir} {
@@ -102,7 +101,7 @@ See config.yaml in the project root for all available settings.`,
 			// Initialize SQLite store
 			dbDir := filepath.Dir(cfg.Download.TempDir)
 			dbPath := filepath.Join(dbDir, "xdcc-server.db")
-			logger.Printf("initializing database at %s", dbPath)
+			logger.Infof("initializing database at %s", dbPath)
 
 			st, err := store.NewSQLiteStore(dbPath)
 			if err != nil {
@@ -114,23 +113,23 @@ See config.yaml in the project root for all available settings.`,
 			if err := st.Migrate(); err != nil {
 				return fmt.Errorf("running database migrations: %w", err)
 			}
-			logger.Printf("database migrations complete (schema v%d)", currentSchemaVersion(st))
+			logger.Infof("database migrations complete (schema v%d)", currentSchemaVersion(st))
 
 			// Recovery: requeue downloads stuck in 'downloading' status
 			recovered, err := st.RecoverDownloadsOnStartup()
 			if err != nil {
-				logger.Printf("WARNING: download recovery failed: %v", err)
+				logger.Warnf("download recovery failed: %v", err)
 			} else if len(recovered) > 0 {
-				logger.Printf("recovered %d downloads from previous session", len(recovered))
+				logger.Infof("recovered %d downloads from previous session", len(recovered))
 			}
 
 			// Filesystem reconciliation
 			actions, err := st.ReconcileFileSystem(cfg.Download.TempDir, "move", "")
 			if err != nil {
-				logger.Printf("WARNING: filesystem reconciliation failed: %v", err)
+				logger.Warnf("filesystem reconciliation failed: %v", err)
 			} else {
 				for _, action := range actions {
-					logger.Printf("reconciliation: %s", action)
+					logger.Infof("reconciliation: %s", action)
 				}
 			}
 
@@ -145,38 +144,43 @@ See config.yaml in the project root for all available settings.`,
 			}
 			stopCleanup, cleanupDone, err := st.RunCleanup(retentionDays, cleanupInterval)
 			if err != nil {
-				logger.Printf("WARNING: starting cleanup goroutine failed: %v", err)
+				logger.Warnf("starting cleanup goroutine failed: %v", err)
 			} else {
 				defer func() {
 					close(stopCleanup)
 					select {
 					case <-cleanupDone:
-						logger.Printf("cleanup goroutine stopped")
+						logger.Infof("cleanup goroutine stopped")
 					case <-time.After(3 * time.Second):
-						logger.Printf("WARNING: cleanup goroutine did not stop within 3s")
+						logger.Warnf("cleanup goroutine did not stop within 3s")
 					}
 				}()
 			}
 
 	// Start IRC connection manager
-	ircMgr := ircmanager.New(st, cfg, logger)
+	ircMgr := ircmanager.New(st, cfg, stdLogger)
 	if err := ircMgr.Start(); err != nil {
 		return fmt.Errorf("starting IRC manager: %w", err)
 	}
 	defer ircMgr.Stop()
-	logger.Printf("IRC manager started with %d default server(s)", len(cfg.IRC.DefaultServers))
+	logger.Infof("IRC manager started with %d default server(s)", len(cfg.IRC.DefaultServers))
 
 	// Start download queue manager
-	queueMgr := queue.New(st, cfg, logger)
+	queueMgr := queue.New(st, cfg, stdLogger)
 	queueMgr.SetIRCManager(ircMgr) // Connect IRC Manager for persistent connections
 	if err := queueMgr.Start(); err != nil {
 		return fmt.Errorf("starting queue manager: %w", err)
 	}
 	defer queueMgr.Stop()
-	logger.Printf("queue manager started (max_parallel=%d, persistent_irc=enabled)", cfg.Download.MaxParallelTotal)
+	if cfg.Download.StartupDelayMinutes > 0 {
+		logger.Infof("queue manager started (max_parallel=%d, startup_delay=%dm, persistent_irc=enabled)",
+			cfg.Download.MaxParallelTotal, cfg.Download.StartupDelayMinutes)
+	} else {
+		logger.Infof("queue manager started (max_parallel=%d, persistent_irc=enabled)", cfg.Download.MaxParallelTotal)
+	}
 
 	// Start search aggregator
-	searchAgg := searchagg.New(st, &cfg.Search, logger)
+	searchAgg := searchagg.New(st, &cfg.Search, stdLogger)
 	if err := searchAgg.Start(context.Background()); err != nil {
 		return fmt.Errorf("starting search aggregator: %w", err)
 	}
@@ -185,12 +189,12 @@ See config.yaml in the project root for all available settings.`,
 	if providerCount == 0 {
 		providerCount = len(search.AvailableEngines())
 	}
-	logger.Printf("search aggregator ready (%d provider(s), cache=%v)",
+	logger.Infof("search aggregator ready (%d provider(s), cache=%v)",
 		providerCount, cfg.Search.Cache.Enabled)
 
 	// Start SSE event hub (Fase 7)
 	sseHub := sse.NewHub(100) // buffer last 100 events
-	logger.Printf("SSE hub started (buffer=100)")
+	logger.Infof("SSE hub started (buffer=100)")
 
 	// Track event forwarding goroutines for clean shutdown
 	var eventWg sync.WaitGroup
@@ -319,14 +323,15 @@ See config.yaml in the project root for all available settings.`,
 			signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
 
 			go func() {
-				logger.Printf("HTTP server listening on :%d", cfg.HTTP.Port)
+				logger.Infof("HTTP server listening on :%d", cfg.HTTP.Port)
 				if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-					logger.Fatalf("HTTP server error: %v", err)
+				logger.Errorf("HTTP server FATAL error: %v", err)
+				os.Exit(1)
 				}
 			}()
 
 			sig := <-quit
-			logger.Printf("received signal %v, shutting down...", sig)
+			logger.Infof("received signal %v, shutting down...", sig)
 
 			// Create shutdown context with 15s timeout
 			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -335,7 +340,7 @@ See config.yaml in the project root for all available settings.`,
 			// === Ordered Shutdown Sequence (Fase 9.1) ===
 
 			// 0. Stop event forwarding loops FIRST (prevents deadlock)
-			logger.Printf("shutdown: stopping event forwarding...")
+			logger.Infof("shutdown: stopping event forwarding...")
 			cancelEvents()
 			eventStopDone := make(chan struct{})
 			go func() {
@@ -344,51 +349,51 @@ See config.yaml in the project root for all available settings.`,
 			}()
 			select {
 			case <-eventStopDone:
-				logger.Printf("shutdown: event forwarding stopped")
+				logger.Infof("shutdown: event forwarding stopped")
 			case <-time.After(2 * time.Second):
-				logger.Printf("WARNING: event forwarding did not stop within 2s")
+				logger.Warnf("event forwarding did not stop within 2s")
 			}
 
 			// 1. Close SSE hub after event loops stopped
-			logger.Printf("shutdown: closing SSE hub...")
+			logger.Infof("shutdown: closing SSE hub...")
 			sseHub.Close()
 
 			// 2. Cancel all active HTTP request contexts (Phase 1.3)
-			logger.Printf("shutdown: cancelling all active requests...")
+			logger.Infof("shutdown: cancelling all active requests...")
 			globalShutdownCancel()
 			time.Sleep(100 * time.Millisecond) // Give handlers time to see cancellation
 
 			// 3. Stop the HTTP server (handlers should exit quickly now)
-			logger.Printf("shutdown: stopping HTTP server...")
+			logger.Infof("shutdown: stopping HTTP server...")
 			if err := srv.Shutdown(shutdownCtx); err != nil {
-				logger.Printf("shutdown: HTTP server forced shutdown: %v", err)
+				logger.Infof("shutdown: HTTP server forced shutdown: %v", err)
 			}
 
 			// 4. Cancel the search aggregator context (with timeout)
-			logger.Printf("shutdown: stopping search aggregator...")
+			logger.Infof("shutdown: stopping search aggregator...")
 			stopWithTimeout("search aggregator", 2*time.Second, func() {
 				searchAgg.Stop()
 			}, logger)
 
 			// 4. Cancel all active queue downloads (saves progress first, with timeout)
-			logger.Printf("shutdown: stopping queue manager...")
+			logger.Infof("shutdown: stopping queue manager...")
 			stopWithTimeout("queue manager", 10*time.Second, func() {
 				queueMgr.Stop()
 			}, logger)
 
 			// 5. Disconnect all IRC servers with QUIT message (with timeout)
-			logger.Printf("shutdown: disconnecting IRC servers...")
+			logger.Infof("shutdown: disconnecting IRC servers...")
 			stopWithTimeout("IRC manager", 5*time.Second, func() {
 				ircMgr.Stop()
 			}, logger)
 
 			// 6. Run final cleanup save (with timeout)
-			logger.Printf("shutdown: running final database cleanup...")
+			logger.Infof("shutdown: running final database cleanup...")
 			stopWithTimeout("database cleanup", 3*time.Second, func() {
 				st.Vacuum()
 			}, logger)
 
-			logger.Printf("server stopped gracefully")
+			logger.Infof("server stopped gracefully")
 			
 			// Force exit to ensure all goroutines are terminated
 			// Some goroutines may not have shut down cleanly within timeouts
@@ -423,7 +428,7 @@ func currentSchemaVersion(st *store.SQLiteStore) int {
 
 // stopWithTimeout executes a stop function with a timeout.
 // If the function doesn't complete within the timeout, it logs a warning and continues.
-func stopWithTimeout(name string, timeout time.Duration, fn func(), logger *log.Logger) {
+func stopWithTimeout(name string, timeout time.Duration, fn func(), logger *logging.Logger) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -434,6 +439,6 @@ func stopWithTimeout(name string, timeout time.Duration, fn func(), logger *log.
 	case <-done:
 		// Completed successfully
 	case <-time.After(timeout):
-		logger.Printf("WARNING: %s stop exceeded timeout (%v), forcing shutdown", name, timeout)
+		logger.Warnf("%s stop exceeded timeout (%v), forcing shutdown", name, timeout)
 	}
 }

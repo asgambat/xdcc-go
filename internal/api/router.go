@@ -32,6 +32,7 @@ func (a *API) Router() http.Handler {
 		r.Post("/", a.handleConnectServer)                // POST /api/servers
 		r.Route("/{serverID}", func(r chi.Router) {
 			r.Delete("/", a.handleDisconnectServer)         // DELETE /api/servers/:id
+			r.Delete("/remove", a.handleRemoveServer)       // DELETE /api/servers/:id/remove
 			r.Get("/channels", a.handleListChannels)        // GET  /api/servers/:id/channels
 			r.Post("/channels", a.handleJoinChannel)        // POST /api/servers/:id/channels
 			r.Route("/channels/{channelName}", func(r chi.Router) {

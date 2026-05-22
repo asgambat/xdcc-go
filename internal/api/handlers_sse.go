@@ -26,11 +26,11 @@ func (a *API) handleEvents(w http.ResponseWriter, r *http.Request) {
 	
 	// Log SSE client connection with current client count
 	clientsBefore := a.SSEHub.ClientCount()
-	a.Logger.Printf("[SSE] client connected [%s] remote=%s clients_before=%d", reqID, r.RemoteAddr, clientsBefore)
+	a.Logger.Debugf("[SSE] client connected [%s] remote=%s clients_before=%d", reqID, r.RemoteAddr, clientsBefore)
 	defer func() {
 		duration := time.Since(start)
 		clientsAfter := a.SSEHub.ClientCount()
-		a.Logger.Printf("[SSE] client disconnected [%s] duration=%v clients_after=%d", reqID, duration, clientsAfter)
+		a.Logger.Debugf("[SSE] client disconnected [%s] duration=%v clients_after=%d", reqID, duration, clientsAfter)
 	}()
 	
 	flusher, ok := w.(http.Flusher)
@@ -52,7 +52,7 @@ func (a *API) handleEvents(w http.ResponseWriter, r *http.Request) {
 	
 	// Log after subscription
 	clientsAfterSub := a.SSEHub.ClientCount()
-	a.Logger.Printf("[SSE] subscribed [%s] total_clients=%d", reqID, clientsAfterSub)
+	a.Logger.Debugf("[SSE] subscribed [%s] total_clients=%d", reqID, clientsAfterSub)
 
 	// Handle Last-Event-ID reconnection (Fase 7.5)
 	lastEventIDStr := r.Header.Get("Last-Event-ID")
@@ -92,25 +92,25 @@ func (a *API) handleEvents(w http.ResponseWriter, r *http.Request) {
 	defer keepalive.Stop()
 
 	// Main event loop
-	a.Logger.Printf("[SSE] entering main event loop [%s]", reqID)
+	a.Logger.Debugf("[SSE] entering main event loop [%s]", reqID)
 	for {
 		select {
 		case <-r.Context().Done():
 			// Client disconnected or server shutting down
-			a.Logger.Printf("[SSE] context canceled [%s]: %v", reqID, r.Context().Err())
+			a.Logger.Debugf("[SSE] context canceled [%s]: %v", reqID, r.Context().Err())
 			return
 		case <-keepalive.C:
 			// Send keepalive comment to prevent connection timeout
-			a.Logger.Printf("[SSE] sending keepalive [%s]", reqID)
+			a.Logger.Debugf("[SSE] sending keepalive [%s]", reqID)
 			fmt.Fprintf(w, ": keepalive\n\n")
 			flusher.Flush()
 		case evt, ok := <-ch:
 			if !ok {
 				// Hub closed - channel was closed
-				a.Logger.Printf("[SSE] channel closed (hub shutdown) [%s]", reqID)
+				a.Logger.Debugf("[SSE] channel closed (hub shutdown) [%s]", reqID)
 				return
 			}
-			a.Logger.Printf("[SSE] received event type=%s [%s]", evt.Type, reqID)
+			a.Logger.Debugf("[SSE] received event type=%s [%s]", evt.Type, reqID)
 			writeSSEEvent(w, evt)
 			flusher.Flush()
 		}

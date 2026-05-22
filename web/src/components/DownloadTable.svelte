@@ -21,10 +21,10 @@
           {/if}
           <th>File</th>
           <th>Bot</th>
-          <th>Channel</th>
           <th>Size</th>
           <th>Progress</th>
           <th>Speed</th>
+          <th>ETA</th>
           <th>Actions</th>
         </tr>
       </thead>
@@ -38,7 +38,6 @@
             {/if}
             <td class="truncate" style="max-width:200px" title={item.filename}>{item.filename || 'Unknown'}</td>
             <td>{item.bot || '—'}</td>
-            <td>{item.channel || '—'}</td>
             <td class="text-sm">{formatBytes(item.file_size)}</td>
             <td style="min-width:120px">
               {#if item.status === 'downloading'}
@@ -54,6 +53,7 @@
               {/if}
             </td>
             <td class="text-sm">{formatSpeed(item.speed_bps)}</td>
+            <td class="text-sm">{formatETA(item.file_size - item.progress_bytes, item.speed_bps)}</td>
             <td>
               <div class="btn-group">
                 {#if item.status === 'queued' || item.status === 'paused'}
@@ -66,7 +66,7 @@
                 {#if item.status === 'paused'}
                   <button class="btn btn-sm btn-success" onclick={() => handleResume(item.id)} title="Resume">▶️</button>
                 {/if}
-                {#if ['failed', 'skipped_existing'].includes(item.status)}
+                {#if ['failed', 'skipped_existing', 'completed'].includes(item.status)}
                   <button class="btn btn-sm btn-primary" onclick={() => handleRetry(item.id)} title="Retry">🔄</button>
                 {/if}
                 <button class="btn btn-sm btn-ghost" onclick={() => handleRemove(item.id)} title="Remove">🗑️</button>

@@ -379,7 +379,7 @@ func (a *API) handleGetProviders(w http.ResponseWriter, r *http.Request) {
 	insights, err := a.SearchAggregator.GetProviderInsights()
 	if err != nil {
 		// Non-fatal — just log
-		a.Logger.Printf("WARNING: getting provider insights: %v", err)
+		a.Logger.Warnf("getting provider insights: %v", err)
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{

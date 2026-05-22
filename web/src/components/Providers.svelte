@@ -3,7 +3,6 @@
   import { providers } from '../lib/stores.js';
   import { ProvidersAPI } from '../lib/api.js';
   import { addToast } from '../lib/stores.js';
-  import { timeAgo } from '../lib/utils.js';
 
   let loading = $state(true);
 
@@ -26,7 +25,6 @@
           enabled: insight?.enabled !== false,
           latency_ms: state.latency_ms || insight?.avg_latency_ms_24h,
           result_count: insight?.successes_24h || 0,
-          last_checked_at: null, // not provided by backend
         };
       });
       
@@ -71,7 +69,7 @@
     {#if $providers.length > 0}
       <div class="table-container">
         <table>
-          <thead><tr><th>Provider</th><th>Status</th><th>Enabled</th><th>Last Check</th><th>Latency</th><th>Results</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Provider</th><th>Status</th><th>Enabled</th><th>Latency</th><th>Results</th><th>Actions</th></tr></thead>
           <tbody>
             {#each $providers as p}
               <tr>
@@ -86,7 +84,6 @@
                     {p.enabled !== false ? 'Yes' : 'No'}
                   </span>
                 </td>
-                <td class="text-sm text-muted">{timeAgo(p.last_check_at || p.last_checked_at)}</td>
                 <td class="text-sm">{p.latency_ms ? `${p.latency_ms}ms` : '—'}</td>
                 <td class="text-sm">{p.result_count || p.total_results || 0}</td>
                 <td>

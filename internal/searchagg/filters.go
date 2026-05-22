@@ -3,7 +3,6 @@ package searchagg
 import (
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 
 	"xdcc-go/internal/entities"
@@ -112,36 +111,12 @@ func filterByExt(packs []*entities.XDCCPack, exts []string) []*entities.XDCCPack
 // Deduplication / compact
 // ---------------------------------------------------------------------------
 
-// compactPacks removes duplicates by (filename, size, bot family).
-// "Bot family" is the bot name with trailing digits stripped,
-// so e.g. "MyBot|123" and "MyBot|456" are considered the same family.
+// compactPacks removes duplicates by (filename, size, bot family) using
+// the same algorithm as the --compact flag in xdcc-browse.
+// The bot family is derived via entities.BotFamily (name prefix grouping)
+// so that e.g. "SubsPlease01" and "SubsPlease99" are collapsed.
 func compactPacks(packs []*entities.XDCCPack) []*entities.XDCCPack {
-	seen := make(map[string]bool)
-	var out []*entities.XDCCPack
-
-	for _, p := range packs {
-		botFamily := botFamily(p.Bot)
-		key := strings.ToLower(p.Filename) + "|" + botFamily + "|" + itoa(p.Size)
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-		out = append(out, p)
-	}
-
-	return out
-}
-
-// botFamily extracts the bot family name by stripping trailing digits.
-// E.g. "MyBot123" → "MyBot", "SubsPlease" → "SubsPlease".
-func botFamily(bot string) string {
-	bot = strings.TrimRight(bot, "0123456789")
-	return bot
-}
-
-// itoa is a fast int64 → string for dedup keys.
-func itoa(n int64) string {
-	return strconv.FormatInt(n, 10)
+	return entities.CompactPacks(packs)
 }
 
 // ---------------------------------------------------------------------------

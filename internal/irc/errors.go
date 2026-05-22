@@ -1,6 +1,10 @@
 package irc
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/lrstanley/girc"
+)
 
 // XDCCDownloadError represents a typed error from the XDCC download process.
 type XDCCDownloadError struct {
@@ -53,6 +57,13 @@ type DownloadOptions struct {
 	// If nil, no progress reporting occurs (default CLI progress printing is
 	// is unaffected — it still prints to stdout based on verbosity).
 	ProgressCallback func(bytesReceived, totalBytes int64, speedBPS float64)
+
+	// ReconnectCallback returns an up-to-date *girc.Client when using a
+	// persistent connection managed externally (e.g. by ircmanager).
+	// When the IRC connection drops and the external manager recreates it,
+	// this callback provides the new client so handlers can be rebound.
+	// Return nil if the connection has not been re-established yet.
+	ReconnectCallback func() *girc.Client
 }
 
 // PackResult holds the outcome of a single pack download.

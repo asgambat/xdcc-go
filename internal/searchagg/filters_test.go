@@ -221,22 +221,29 @@ func TestCompactPacks_DifferentSizes(t *testing.T) {
 // ===========================================================================
 
 func TestBotFamily(t *testing.T) {
+	// Delegate to entities.BotFamily after unification of compact logic
 	tests := []struct {
 		bot    string
 		family string
 	}{
-		{"SubsPlease", "SubsPlease"},
-		{"AnimeBot123", "AnimeBot"},
-		{"Bot123456", "Bot"},
-		{"Test", "Test"},
-		{"123Bot", "123Bot"},
+		{"SubsPlease", "SubsPle"},       // len=10: n > 3, so first 7 chars
+		{"SubsPlease01", "SubsPleas"},  // len=12: n > 3, so first 9 chars
+		{"AnimeBot123", "AnimeBot"},     // len=11: n > 3, so first 8 chars
+		{"Bot123456", "Bot123"},         // len=9:  n > 3, so first 6 chars
+		{"WOND-ZeroTwo_001", "WOND-ZeroT"}, // len=16: n >= 13, so first 10 chars
+		{"Test", "T"},                    // len=4:  n > 3, so first 1 char (n-3)
+		{"A", "A"},                       // len=1:  default, no truncation
+		{"AB", "AB"},                     // len=2:  default
+		{"ABC", "ABC"},                   // len=3:  default
+		{"ABCD", "A"},                    // len=4:  n > 3, so first 1 char (n-3)
+		{"123Bot", "123"},             // len=6:  n > 3, so first 3 chars
 		{"", ""},
 	}
 
 	for _, tt := range tests {
-		got := botFamily(tt.bot)
+		got := entities.BotFamily(tt.bot)
 		if got != tt.family {
-			t.Errorf("botFamily(%q) = %q, want %q", tt.bot, got, tt.family)
+			t.Errorf("BotFamily(%q) = %q, want %q", tt.bot, got, tt.family)
 		}
 	}
 }

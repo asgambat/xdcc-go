@@ -7,12 +7,12 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"xdcc-go/internal/config"
+	"xdcc-go/internal/logging"
 	"xdcc-go/internal/searchagg"
 	"xdcc-go/internal/sse"
 	"xdcc-go/internal/store"
@@ -45,13 +45,18 @@ func newTestAPI(t *testing.T) *testAPI {
 	cfg := config.DefaultConfig()
 
 	hub := sse.NewHub(50)
-	logger := log.New(os.Stderr, "[api-test] ", log.LstdFlags)
+
+	// Create a leveled logger for the API (debug level so all logs are visible in tests)
+	apiLogger := logging.New(logging.LevelDebug, "", 0)
+
+	// For legacy components that still expect *log.Logger, create a stdlib adapter
+	stdLogger := log.New(apiLogger.Writer(logging.LevelInfo), "", 0)
 
 	// Create a real searchagg.Aggregator so preset/watchlist CRUD handlers
 	// don't return 503. This uses the same store, so CRUD operations work.
-	agg := searchagg.New(st, &cfg.Search, logger)
+	agg := searchagg.New(st, &cfg.Search, stdLogger)
 
-	api := New(st, nil, nil, agg, hub, cfg, logger)
+	api := New(st, nil, nil, agg, hub, cfg, apiLogger)
 
 	router := api.Router()
 
@@ -162,6 +167,64 @@ func TestEnqueueDownload_Success(t *testing.T) {
 	}
 }
 
+func TestEnqueueDownload_TLTBotServerOverride(t *testing.T) {
+	ta := newTestAPI(t)
+
+	body := map[string]interface{}{
+		"pack_message":   "xdcc send #1",
+		"bot":            "TLTBot",
+		"server_address": "irc.rizon.net",
+		"channel":        "#xdcc",
+		"filename":       "test.mkv",
+		"file_size":      1000,
+	}
+	createResp := ta.request(t, "POST", "/api/downloads", body)
+	if createResp.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", createResp.Code, createResp.Body.String())
+	}
+
+	var createData map[string]int64
+	json.NewDecoder(createResp.Body).Decode(&createData)
+	id := createData["id"]
+
+	// Verify the stored server address was corrected to irc.williamgattone.it
+	getResp := ta.request(t, "GET", "/api/downloads/"+itoa(id), nil)
+	var dl store.DownloadRecord
+	json.NewDecoder(getResp.Body).Decode(&dl)
+	if dl.ServerAddress != "irc.williamgattone.it" {
+		t.Errorf("expected server_address irc.williamgattone.it for TLT bot, got %s", dl.ServerAddress)
+	}
+}
+
+func TestEnqueueDownload_WeCBotServerOverride(t *testing.T) {
+	ta := newTestAPI(t)
+
+	body := map[string]interface{}{
+		"pack_message":   "xdcc send #1",
+		"bot":            "WeCBot",
+		"server_address": "irc.rizon.net",
+		"channel":        "#xdcc",
+		"filename":       "test.mkv",
+		"file_size":      1000,
+	}
+	createResp := ta.request(t, "POST", "/api/downloads", body)
+	if createResp.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", createResp.Code, createResp.Body.String())
+	}
+
+	var createData map[string]int64
+	json.NewDecoder(createResp.Body).Decode(&createData)
+	id := createData["id"]
+
+	// Verify the stored server address was corrected to irc.explosionirc.net
+	getResp := ta.request(t, "GET", "/api/downloads/"+itoa(id), nil)
+	var dl store.DownloadRecord
+	json.NewDecoder(getResp.Body).Decode(&dl)
+	if dl.ServerAddress != "irc.explosionirc.net" {
+		t.Errorf("expected server_address irc.explosionirc.net for WeC bot, got %s", dl.ServerAddress)
+	}
+}
+
 func TestEnqueueDownload_MissingFields(t *testing.T) {
 	ta := newTestAPI(t)
 
@@ -172,7 +235,6 @@ func TestEnqueueDownload_MissingFields(t *testing.T) {
 		{"missing pack_message", map[string]interface{}{"bot": "Bot", "server_address": "irc.t.net", "channel": "#x"}},
 		{"missing bot", map[string]interface{}{"pack_message": "xdcc send #1", "server_address": "irc.t.net", "channel": "#x"}},
 		{"missing server_address", map[string]interface{}{"pack_message": "xdcc send #1", "bot": "Bot", "channel": "#x"}},
-		{"missing channel", map[string]interface{}{"pack_message": "xdcc send #1", "bot": "Bot", "server_address": "irc.t.net"}},
 	}
 
 	for _, tt := range tests {
@@ -182,6 +244,57 @@ func TestEnqueueDownload_MissingFields(t *testing.T) {
 				t.Errorf("expected 400, got %d: %s", w.Code, w.Body.String())
 			}
 		})
+	}
+}
+
+func TestEnqueueDownload_OptionalChannel(t *testing.T) {
+	ta := newTestAPI(t)
+
+	w := ta.request(t, "POST", "/api/downloads", map[string]interface{}{
+		"pack_message":   "xdcc send #1",
+		"bot":            "TestBot",
+		"server_address": "irc.test.net",
+		"filename":       "test.mkv",
+		"file_size":      1000,
+	})
+	if w.Code != http.StatusCreated {
+		t.Errorf("expected 201 when channel is omitted, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestListServers_IncludesChannelCount(t *testing.T) {
+	ta := newTestAPI(t)
+
+	// Add a server with some channels
+	id, err := ta.store.AddServer(store.ServerRecord{
+		Address: "irc.test.net",
+		Port:    6667,
+		Status:  "disconnected",
+	})
+	if err != nil {
+		t.Fatalf("AddServer: %v", err)
+	}
+	_, err = ta.store.AddChannel(store.ChannelRecord{ServerID: id, Name: "#channel1", Joined: true})
+	if err != nil {
+		t.Fatalf("AddChannel: %v", err)
+	}
+	_, err = ta.store.AddChannel(store.ChannelRecord{ServerID: id, Name: "#channel2", Joined: false})
+	if err != nil {
+		t.Fatalf("AddChannel: %v", err)
+	}
+
+	w := ta.request(t, "GET", "/api/servers", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var resp []map[string]interface{}
+	json.NewDecoder(w.Body).Decode(&resp)
+	if len(resp) != 1 {
+		t.Fatalf("expected 1 server, got %d", len(resp))
+	}
+	if resp[0]["channel_count"] != float64(1) {
+		t.Errorf("expected channel_count=1 (only joined), got %v", resp[0]["channel_count"])
 	}
 }
 
@@ -229,6 +342,44 @@ func TestListDownloads_WithItems(t *testing.T) {
 	downloads := resp["downloads"].([]interface{})
 	if len(downloads) != 2 {
 		t.Errorf("expected 2 downloads, got %d", len(downloads))
+	}
+}
+
+func TestListDownloads_IncludesRecentCompleted(t *testing.T) {
+	ta := newTestAPI(t)
+
+	// Enqueue a download, then complete it
+	createResp := ta.request(t, "POST", "/api/downloads", map[string]interface{}{
+		"pack_message": "xdcc send #1", "bot": "Bot",
+		"server_address": "irc.t.net", "channel": "#x", "filename": "f.mkv", "file_size": 100,
+	})
+	var createData map[string]int64
+	json.NewDecoder(createResp.Body).Decode(&createData)
+	id := createData["id"]
+
+	ta.store.MarkDownloadStarted(id)
+	ta.store.MarkDownloadCompleted(id)
+
+	// The completed download should still appear in the list
+	w := ta.request(t, "GET", "/api/downloads", nil)
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+
+	var resp map[string]interface{}
+	json.NewDecoder(w.Body).Decode(&resp)
+
+	downloads := resp["downloads"].([]interface{})
+	if len(downloads) != 1 {
+		t.Errorf("expected 1 download (completed), got %d", len(downloads))
+	}
+
+	// Verify the record has status 'completed'
+	dlJSON, _ := json.Marshal(downloads[0])
+	var dl store.DownloadRecord
+	json.Unmarshal(dlJSON, &dl)
+	if dl.Status != store.DownloadStatusCompleted {
+		t.Errorf("expected status 'completed', got %s", dl.Status)
 	}
 }
 
@@ -311,6 +462,44 @@ func TestRetryDownload(t *testing.T) {
 	w := ta.request(t, "POST", "/api/downloads/"+itoa(id)+"/retry", nil)
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200 on retry, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Verify status is now queued
+	getResp := ta.request(t, "GET", "/api/downloads/"+itoa(id), nil)
+	var dl store.DownloadRecord
+	json.NewDecoder(getResp.Body).Decode(&dl)
+	if dl.Status != store.DownloadStatusQueued {
+		t.Errorf("expected status 'queued' after retry, got %s", dl.Status)
+	}
+}
+
+func TestRetryDownload_Completed(t *testing.T) {
+	ta := newTestAPI(t)
+
+	createResp := ta.request(t, "POST", "/api/downloads", map[string]interface{}{
+		"pack_message": "xdcc send #1", "bot": "Bot",
+		"server_address": "irc.t.net", "channel": "#x", "filename": "f.mkv", "file_size": 100,
+	})
+	var createData map[string]int64
+	json.NewDecoder(createResp.Body).Decode(&createData)
+	id := createData["id"]
+
+	// Mark as completed
+	ta.store.MarkDownloadStarted(id)
+	ta.store.MarkDownloadCompleted(id)
+
+	// Retry via API — should succeed now that RetryDownload accepts 'completed'
+	w := ta.request(t, "POST", "/api/downloads/"+itoa(id)+"/retry", nil)
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200 on retry of completed download, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Verify status is now queued
+	getResp := ta.request(t, "GET", "/api/downloads/"+itoa(id), nil)
+	var dl store.DownloadRecord
+	json.NewDecoder(getResp.Body).Decode(&dl)
+	if dl.Status != store.DownloadStatusQueued {
+		t.Errorf("expected status 'queued' after retry of completed, got %s", dl.Status)
 	}
 }
 

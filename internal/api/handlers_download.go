@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"xdcc-go/internal/entities"
 	"xdcc-go/internal/store"
 )
 
@@ -30,6 +31,26 @@ func (a *API) handleListDownloads(w http.ResponseWriter, r *http.Request) {
 	}
 	if activeIDs == nil {
 		activeIDs = []int64{}
+	}
+
+	// Include recently completed/failed/skipped downloads so the UI can show
+	// "Completed Today" counters and recent history without a separate fetch.
+	recent, _, err := a.Store.GetDownloadHistory(1, 50)
+	if err != nil {
+		// Graceful degradation: log the warning but continue with the queue only.
+		// The frontend can still show active downloads even if history fails.
+		a.Logger.Warnf("failed to get recent download history: %v", err)
+	} else {
+		seen := make(map[int64]bool, len(queue))
+		for _, d := range queue {
+			seen[d.ID] = true
+		}
+		for _, d := range recent {
+			if !seen[d.ID] {
+				queue = append(queue, d)
+				seen[d.ID] = true
+			}
+		}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -70,6 +91,11 @@ func (a *API) handleEnqueueDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Channel is optional - if not provided, WHOIS will discover it
+
+	// Apply bot-prefix → server mapping so TLT/WeC bots always use the
+	// correct server regardless of what the search engine returned.
+	resolved := entities.ResolveServer(body.Bot, body.ServerAddress)
+	body.ServerAddress = resolved.Address
 
 	rec := store.DownloadRecord{
 		PackMessage:   body.PackMessage,

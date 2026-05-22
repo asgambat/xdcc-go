@@ -25,6 +25,22 @@ func normalizeChannel(ch string) string {
 	return ch
 }
 
+// slotKey builds the compound key used in channelSlots to enforce
+// one-active-download-per-(server,channel) pair.
+//
+// When the channel is empty (to be discovered via WHOIS), the bot name is
+// used as a discriminator so that different bots on the same server can
+// download in parallel even before their channels are known.
+func slotKey(serverAddr, channel, bot string) string {
+	normCh := normalizeChannel(channel)
+	if normCh == "" {
+		// Channel unknown — use bot name as discriminator so different bots
+		// on the same server don't all serialize on "serverAddr|".
+		return fmt.Sprintf("%s|~whois|%s", serverAddr, bot)
+	}
+	return fmt.Sprintf("%s|%s", serverAddr, normCh)
+}
+
 // ---------------------------------------------------------------------------
 // QueueManager
 // ---------------------------------------------------------------------------
@@ -47,8 +63,10 @@ type QueueManager struct {
 	mu sync.RWMutex
 	// activeJobs tracks currently running downloads: download ID → cancel function
 	activeJobs map[int64]context.CancelFunc
-	// channelSlots tracks which channels currently have an active download
-	channelSlots map[string]int64 // channel (normalized) → download ID
+	// channelSlots tracks which (server, channel) pairs currently have an active download.
+	// Key format: "serverAddress|normalizedChannel" so different channels on the
+	// same server can download in parallel.
+	channelSlots map[string]int64 // "server|channel" → download ID
 	// globalCount is the number of currently active downloads
 	globalCount int
 
@@ -68,6 +86,11 @@ type QueueManager struct {
 	diskLow       bool
 	stopDiskCheck func()
 	diskCheckDone <-chan struct{}
+
+	// startupReady is closed once the startup grace period has elapsed,
+	// allowing tryDispatch to proceed. This prevents downloads from starting
+	// before IRC servers have had time to connect and join channels.
+	startupReady chan struct{}
 }
 
 // IRCManagerInterface defines the methods needed from ircmanager for downloads.
@@ -91,6 +114,7 @@ func New(st store.Store, cfg *config.Config, logger *log.Logger) *QueueManager {
 		ctx:          ctx,
 		cancel:       cancel,
 		done:         make(chan struct{}),
+		startupReady: make(chan struct{}),
 	}
 
 	// Initialize disk monitor if threshold > 0
@@ -135,15 +159,24 @@ func (qm *QueueManager) SetIRCManager(ircMgr IRCManagerInterface) {
 // Start begins the periodic monitor goroutine. It should be called after
 // the store has been initialized and migrations have run.
 //
-// On startup, it recovers downloads that were in 'downloading' status
-// (re-queued by the store) and tries to dispatch them.
+// On startup, it waits for the configured startup delay before allowing
+// dispatch. This gives IRC servers time to connect and join channels.
 func (qm *QueueManager) Start() error {
-	// Recovery is handled by the caller (main.go) before creating the queue
-	// manager. We just need to dispatch any queued items and start the monitor.
-	qm.tryDispatch()
-
-	// Start the periodic monitor goroutine
+	// Start the periodic monitor goroutine immediately so Stop() can
+	// cleanly shut it down even during the startup delay.
 	go qm.monitorLoop()
+
+	if qm.cfg.Download.StartupDelayMinutes > 0 {
+		delay := time.Duration(qm.cfg.Download.StartupDelayMinutes) * time.Minute
+		qm.log.Printf("queue manager: delaying dispatch by %v to allow IRC connections to establish", delay)
+		time.AfterFunc(delay, func() {
+			close(qm.startupReady)
+			qm.tryDispatch()
+		})
+	} else {
+		close(qm.startupReady)
+		qm.tryDispatch()
+	}
 
 	return nil
 }
@@ -348,7 +381,7 @@ func (qm *QueueManager) PauseDownload(id int64) error {
 
 	// Release channel slot if this was active
 	if active && d != nil {
-		qm.releaseChannelSlot(d.Channel, id)
+		qm.releaseChannelSlot(id)
 	}
 
 	qm.emitEvent(Event{
@@ -390,7 +423,7 @@ func (qm *QueueManager) RemoveDownload(id int64) error {
 
 	d, _ := qm.store.GetDownload(id)
 	if d != nil && active {
-		qm.releaseChannelSlot(d.Channel, id)
+		qm.releaseChannelSlot(id)
 	}
 
 	err := qm.store.DeleteDownload(id)
@@ -475,6 +508,15 @@ func (qm *QueueManager) tryDispatch() {
 	default:
 	}
 
+	// Wait for startup grace period before dispatching downloads.
+	// This prevents downloads from starting before IRC servers are ready.
+	select {
+	case <-qm.startupReady:
+		// proceed
+	default:
+		return
+	}
+
 	// Check disk space before dispatching
 	qm.mu.RLock()
 	diskLow := qm.diskLow
@@ -522,16 +564,23 @@ func (qm *QueueManager) tryDispatch() {
 			break
 		}
 
-		// Normalize channel for consistent slot checking
-		normalizedCh := normalizeChannel(d.Channel)
-		
+		// Build compound slot key (server, channel) so downloads on different
+		// channels of the same server can run in parallel. When channel is
+		// unknown, the bot name is used as discriminator.
+		sk := slotKey(d.ServerAddress, d.Channel, d.Bot)
+
 		qm.mu.RLock()
-		_, channelBusy := qm.channelSlots[normalizedCh]
+		_, channelBusy := qm.channelSlots[sk]
 		qm.mu.RUnlock()
 
 		if channelBusy {
-			continue // Channel already has an active download
+			qm.log.Printf("dispatch: slot [%s] BUSY — download %d (%s/%s bot=%s) waiting",
+				sk, d.ID, d.ServerAddress, d.Channel, d.Bot)
+			continue // This (server, channel) pair already has an active download
 		}
+
+		qm.log.Printf("dispatch: slot [%s] FREE — starting download %d (%s/%s bot=%s)",
+			sk, d.ID, d.ServerAddress, d.Channel, d.Bot)
 
 		// Start this download
 		qm.startDownload(d)
@@ -552,17 +601,18 @@ func (qm *QueueManager) startDownload(d store.DownloadRecord) {
 
 	ctx, cancel := context.WithCancel(qm.ctx)
 
-	// Normalize channel for consistent slot tracking
-	normalizedCh := normalizeChannel(d.Channel)
+	// Build compound slot key for (server, channel) tracking.
+	// When channel is unknown, bot name is used as discriminator.
+	sk := slotKey(d.ServerAddress, d.Channel, d.Bot)
 
 	qm.mu.Lock()
 	qm.activeJobs[d.ID] = cancel
-	qm.channelSlots[normalizedCh] = d.ID
+	qm.channelSlots[sk] = d.ID
 	qm.globalCount++
 	qm.mu.Unlock()
 
-	qm.log.Printf("started download %d: %s from %s on %s/%s",
-		d.ID, d.Filename, d.Bot, d.ServerAddress, d.Channel)
+	qm.log.Printf("started download %d: slot [%s] acquired — %s from %s on %s/%s",
+		d.ID, sk, d.Filename, d.Bot, d.ServerAddress, d.Channel)
 
 	qm.emitEvent(Event{
 		Type:          EventDownloadStarted,
@@ -615,7 +665,7 @@ func (qm *QueueManager) startDownload(d store.DownloadRecord) {
 			delete(qm.activeJobs, d.ID)
 			qm.globalCount--
 			qm.mu.Unlock()
-			qm.releaseChannelSlot(d.Channel, d.ID)
+			qm.releaseChannelSlot(d.ID)
 
 			// Check if the store status was changed externally (e.g. paused)
 			// before we overwrite it. If the user explicitly paused or
@@ -631,15 +681,16 @@ func (qm *QueueManager) startDownload(d store.DownloadRecord) {
 				return
 			}
 
-			if result.Error != nil {
-				// Download failed
-				errStr := result.Error.Error()
-				_ = qm.store.MarkDownloadFailed(d.ID, errStr)
+		if result.Error != nil {
+			// Download failed
+			errStr := result.Error.Error()
+			_ = qm.store.MarkDownloadFailed(d.ID, errStr)
 
-				qm.log.Printf("download %d failed: %s (%s)", d.ID, d.Filename, errStr)
+			qm.log.Printf("✗ download %d FAILED — bot=%s server=%s channel=%q file=%q error=%s",
+				d.ID, d.Bot, d.ServerAddress, d.Channel, d.Filename, errStr)
 
-				// Emit failure event
-				qm.emitEvent(Event{
+			// Emit failure event
+			qm.emitEvent(Event{
 					Type:          EventDownloadFailed,
 					DownloadID:    d.ID,
 					Bot:           d.Bot,
@@ -670,7 +721,8 @@ func (qm *QueueManager) startDownload(d store.DownloadRecord) {
 				// Download completed successfully
 				_ = qm.store.MarkDownloadCompleted(d.ID)
 
-				qm.log.Printf("download %d completed: %s -> %s", d.ID, d.Filename, result.FilePath)
+				qm.log.Printf("✓ download %d COMPLETED — bot=%s server=%s file=%s -> %s",
+					d.ID, d.Bot, d.ServerAddress, d.Filename, result.FilePath)
 
 				// Emit completion event
 				qm.emitEvent(Event{
@@ -692,17 +744,19 @@ func (qm *QueueManager) startDownload(d store.DownloadRecord) {
 	}()
 }
 
-// releaseChannelSlot removes a channel from the active slots map if the
-// download ID matches.
-func (qm *QueueManager) releaseChannelSlot(channel string, downloadID int64) {
-	// Normalize channel for consistent slot release
-	normalizedCh := normalizeChannel(channel)
-	
+// releaseChannelSlot removes a (server, channel) pair from the active slots
+// map if the download ID matches.
+func (qm *QueueManager) releaseChannelSlot(downloadID int64) {
 	qm.mu.Lock()
 	defer qm.mu.Unlock()
 	
-	if existingID, ok := qm.channelSlots[normalizedCh]; ok && existingID == downloadID {
-		delete(qm.channelSlots, normalizedCh)
+	// Find and remove the slot by download ID (we may not have the server
+	// address directly in some call sites, so scan all slots).
+	for sk, existingID := range qm.channelSlots {
+		if existingID == downloadID {
+			delete(qm.channelSlots, sk)
+			return
+		}
 	}
 }
 

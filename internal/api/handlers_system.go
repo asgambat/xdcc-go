@@ -92,14 +92,18 @@ func (a *API) handleStats(w http.ResponseWriter, r *http.Request) {
 
 	queueCount := 0
 	activeCount := 0
+	totalSpeedBPS := int64(0)
 	for _, item := range queue {
 		switch item.Status {
 		case "queued":
 			queueCount++
 		case "downloading":
 			activeCount++
+			totalSpeedBPS += item.SpeedBPS
 		}
 	}
+
+	totalDownloadedBytes, _ := a.Store.GetTotalDownloadedBytes()
 
 	_, totalHistory, _ := a.Store.GetDownloadHistory(1, 1)
 
@@ -118,16 +122,18 @@ func (a *API) handleStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"active_downloads":     activeCount,
-		"queued_downloads":     queueCount,
-		"total_completed":      totalHistory,
-		"connected_servers":    serverCount,
-		"uptime_seconds":       uptimeSeconds,
-		"disk_free_bytes":      diskFreeBytes,
-		"disk_total_bytes":     diskTotalBytes,
-		"started_at":           a.StartTime.Format(time.RFC3339),
-		"go_version":           runtime.Version(),
-		"os":                   runtime.GOOS + "/" + runtime.GOARCH,
+		"active_downloads":       activeCount,
+		"queued_downloads":       queueCount,
+		"total_completed":        totalHistory,
+		"connected_servers":      serverCount,
+		"total_downloaded_bytes": totalDownloadedBytes,
+		"average_speed_bps":      totalSpeedBPS,
+		"uptime_seconds":         uptimeSeconds,
+		"disk_free_bytes":        diskFreeBytes,
+		"disk_total_bytes":       diskTotalBytes,
+		"started_at":             a.StartTime.Format(time.RFC3339),
+		"go_version":             runtime.Version(),
+		"os":                     runtime.GOOS + "/" + runtime.GOARCH,
 	})
 }
 

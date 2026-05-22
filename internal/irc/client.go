@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -31,11 +32,12 @@ type Client struct {
 	verbosity int // 0=normal, 1=verbose, 2=debug, -1=quiet
 
 	// IRC connection (reset on reconnect)
-	irc            *girc.Client
-	ircErrCh       chan error     // receives error from irc.Connect() goroutine
-	connectedCh    chan struct{}  // closed on CONNECTED event
-	joinedChannels map[string]bool // channels joined in this connection (cleared on reconnect)
-	connectTime    time.Time
+	irc                  *girc.Client
+	ircErrCh             chan error     // receives error from irc.Connect() goroutine
+	connectedCh          chan struct{}  // closed on CONNECTED event
+	joinedChannels       map[string]bool // channels joined in this connection (cleared on reconnect)
+	handlersRegisteredOn *girc.Client    // which girc.Client handlers are currently bound to
+	connectTime          time.Time
 
 	// When true, the client uses an existing connection managed externally
 	// (e.g. by ircmanager). connect() is skipped; the caller must call
@@ -63,6 +65,11 @@ type Client struct {
 	downloadStarted chan struct{} // closed when DCC TCP connection is established
 	closeOnce       sync.Once
 	startOnce       sync.Once
+
+	// Handler CUIDs registered on the girc.Client. Tracked so handlers can be
+	// removed when the download completes, preventing accumulation of duplicate
+	// handlers on persistent connections shared across multiple downloads.
+	handlerCUIDs       []string
 
 	// WHOIS flow control (per-pack, reset in resetForPack)
 	messageSent        atomic.Bool
@@ -124,8 +131,31 @@ func (c *Client) SetExistingClient(irc *girc.Client) {
 	c.connectedCh = make(chan struct{})
 	c.joinedChannels = make(map[string]bool)
 	c.ircErrCh = make(chan error, 1)
+
+	// Always remove previously registered handlers before registering new ones,
+	// even when reusing the same girc.Client. This prevents accumulation of
+	// duplicate handlers across multiple downloads on persistent connections.
+	if c.handlersRegisteredOn != nil {
+		c.removeHandlers()
+	}
+
 	c.registerHandlers()
+	c.handlersRegisteredOn = irc
 	close(c.connectedCh) // Already connected — signal immediately
+}
+
+// SetAlreadyJoinedChannels informs the client about channels that are already
+// joined on the persistent connection (e.g. auto-join channels). This prevents
+// the client from sending duplicate JOIN commands that the server would ignore,
+// which would cause the XDCC request to never be sent.
+//
+// Must be called after SetExistingClient and before DownloadAll().
+func (c *Client) SetAlreadyJoinedChannels(channels []string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, ch := range channels {
+		c.joinedChannels[strings.ToLower(ch)] = true
+	}
 }
 
 // DownloadAll downloads all packs sequentially, reusing the IRC connection
@@ -270,6 +300,7 @@ func (c *Client) connect() error {
 			PingTimeout: 60 * time.Second,
 		})
 		c.registerHandlers()
+		c.handlersRegisteredOn = c.irc
 		go func() { c.ircErrCh <- c.irc.Connect() }()
 
 		timeout := time.Duration(c.opts.ConnectTimeout+30) * time.Second
@@ -310,11 +341,41 @@ func (c *Client) connect() error {
 }
 
 func (c *Client) reconnect() error {
-	// When using an existing connection, the persistent connection handles
-	// reconnection itself. Just return the error to let the queue manager
-	// handle retry logic at a higher level.
+	// When using an existing persistent connection, get a fresh girc.Client
+	// from the external manager. The manager reconnects automatically with
+	// exponential backoff; we just wait for the new client to be ready.
 	if c.usingExistingConn {
-		return fmt.Errorf("cannot reconnect on persistent connection")
+		if c.opts.ReconnectCallback == nil {
+			return fmt.Errorf("cannot reconnect on persistent connection: no callback provided")
+		}
+		c.infof("Waiting for persistent connection to be re-established...")
+		for i := 0; i < 30; i++ {
+			newClient := c.opts.ReconnectCallback()
+			if newClient != nil {
+				// Avoid duplicate handler registrations on the same girc.Client.
+				// When the persistent connection hasn't actually dropped, the
+				// callback returns the same client; re-registering would pile up
+				// duplicate handlers each retry.
+				if newClient == c.handlersRegisteredOn {
+					c.infof("Persistent connection still alive, reusing existing handlers")
+					c.irc = newClient
+					c.joinedChannels = make(map[string]bool)
+					return nil
+				}
+				c.infof("Persistent connection re-established, re-binding handlers")
+				c.irc = newClient
+				c.joinedChannels = make(map[string]bool)
+				c.registerHandlers()
+				c.handlersRegisteredOn = newClient
+				return nil
+			}
+			select {
+			case <-c.ctx.Done():
+				return ErrCancelled
+			case <-time.After(1 * time.Second):
+			}
+		}
+		return fmt.Errorf("persistent connection not re-established after 30s")
 	}
 
 	c.infof("Reconnecting to IRC...")
@@ -375,11 +436,11 @@ func (c *Client) downloadPackAtIndex(idx int, retryCount int) PackResult {
 	c.resetForPack()
 	pack := c.currentPack()
 
-	c.logf("--- Starting pack download: %s (pack #%d) from bot %s ---", pack.Filename, pack.PackNumber, pack.Bot)
+	c.infof("--- Starting pack download: %s (pack #%d) from bot %s ---", pack.Filename, pack.PackNumber, pack.Bot)
 
 	// Channel-join delay only on first connection (not between packs)
 	if idx == 0 {
-		c.logf("Waiting %ds before WHOIS (channel join delay)", c.opts.ChannelJoinDelay)
+		c.infof("Waiting %ds before WHOIS (channel join delay)", c.opts.ChannelJoinDelay)
 		select {
 		case <-c.ctx.Done():
 			return PackResult{Error: ErrCancelled}
@@ -387,7 +448,7 @@ func (c *Client) downloadPackAtIndex(idx int, retryCount int) PackResult {
 		}
 	}
 
-	c.logf("→ Sending WHOIS query for bot: %s", pack.Bot)
+	c.infof("→ Sending WHOIS query for bot: %s", pack.Bot)
 	c.irc.Cmd.Whois(pack.Bot)
 
 	err := c.waitForCurrentPack()
@@ -397,6 +458,7 @@ func (c *Client) downloadPackAtIndex(idx int, retryCount int) PackResult {
 
 	switch {
 	case errors.Is(err, ErrPackAlreadyReq):
+		c.noticef("Bot %s says pack already requested, waiting 60s before retry (attempt %d/3)", pack.Bot, retryCount+1)
 		fmt.Println("Pack already requested. Waiting 60 seconds before retrying...")
 		select {
 		case <-c.ctx.Done():
@@ -406,13 +468,16 @@ func (c *Client) downloadPackAtIndex(idx int, retryCount int) PackResult {
 		return c.downloadPackAtIndex(idx, retryCount+1)
 
 	case errors.Is(err, ErrTimeout), errors.Is(err, ErrDownloadFailed):
+		c.noticef("Download for bot %s failed (%v), retrying (attempt %d/3)", pack.Bot, err, retryCount+1)
 		fmt.Printf("Retrying pack #%d (attempt %d/3)...\n", pack.PackNumber, retryCount+1)
 		if err2 := c.reconnect(); err2 != nil {
+			c.noticef("Reconnect failed for bot %s: %v", pack.Bot, err2)
 			return PackResult{Error: err2}
 		}
 		return c.downloadPackAtIndex(idx, retryCount+1)
 	}
 
+	c.noticef("Giving up on pack #%d (bot %s) after error: %v", pack.PackNumber, pack.Bot, err)
 	c.mu.Lock()
 	notice := c.lastBotNotice
 	c.mu.Unlock()
@@ -422,20 +487,24 @@ func (c *Client) downloadPackAtIndex(idx int, retryCount int) PackResult {
 func (c *Client) waitForCurrentPack() error {
 	// Phase 1: wait for DCC transfer to start.
 	// Covers: WHOIS response + channel join + bot response + WaitTime.
+	pack := c.currentPack()
 	connectTimeout := time.Duration(c.opts.ConnectTimeout+c.opts.WaitTime+30) * time.Second
-	c.debugf("Waiting up to %s for bot to initiate DCC transfer", connectTimeout)
+	c.infof("Waiting up to %v for DCC transfer to start (bot=%s, pack=%d)", connectTimeout, pack.Bot, pack.PackNumber)
 
 	select {
 	case <-c.downloadStarted:
-		c.debugf("Transfer started, switching to stall detection")
+		c.infof("DCC transfer started for bot %s", pack.Bot)
 	case <-c.downloadDone:
+		c.infof("Download finished with error for bot %s: %v", pack.Bot, c.downloadError)
 		return c.downloadError
 	case <-c.ctx.Done():
+		c.infof("Download cancelled for bot %s", pack.Bot)
 		c.finishWithError(ErrCancelled)
 		return ErrCancelled
 	case err := <-c.ircErrCh:
 		// IRC connection died before transfer started; treat as timeout so
 		// downloadPackAtIndex will reconnect and retry.
+		c.infof("IRC connection lost while waiting for DCC from bot %s: %v", pack.Bot, err)
 		if err != nil && c.downloadError == nil {
 			if isConnectError(err) {
 				return fmt.Errorf("%w: %v", ErrServerUnreachable, err)
@@ -444,6 +513,8 @@ func (c *Client) waitForCurrentPack() error {
 		}
 		return c.downloadError
 	case <-time.After(connectTimeout):
+		c.infof("TIMEOUT after %v waiting for DCC transfer from bot %s (pack=%d) — no DCC SEND received, WHOIS/join/XDDC may have failed silently",
+			connectTimeout, pack.Bot, pack.PackNumber)
 		c.finishWithError(ErrTimeout)
 		return ErrTimeout
 	}

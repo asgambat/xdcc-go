@@ -223,6 +223,7 @@ func (m *mockStore) GetDownloadHistory(int, int) ([]store.DownloadRecord, int, e
 	return nil, 0, nil
 }
 
+func (m *mockStore) GetTotalDownloadedBytes() (int64, error)                       { return 0, nil }
 func (m *mockStore) RecoverDownloadsOnStartup() ([]store.DownloadRecord, error) {
 	return nil, nil
 }
@@ -364,15 +365,24 @@ func TestEnqueue_Success(t *testing.T) {
 	}
 }
 
-func TestEnqueue_MissingChannel(t *testing.T) {
-	qm, _ := newTestQM(t)
+func TestEnqueue_OptionalChannel(t *testing.T) {
+	qm, ms := newTestQM(t)
 
-	_, err := qm.Enqueue(store.DownloadRecord{
+	// Channel is now optional — empty channel means WHOIS will discover it
+	id, err := qm.Enqueue(store.DownloadRecord{
 		Bot: "TestBot", ServerAddress: "irc.test.net",
 		Filename: "test.mkv", FileSize: 1000, PackMessage: "xdcc send #1",
 	})
-	if err == nil {
-		t.Fatal("expected error for missing channel")
+	if err != nil {
+		t.Fatalf("Enqueue with empty channel should succeed: %v", err)
+	}
+
+	d, _ := ms.GetDownload(id)
+	if d == nil {
+		t.Fatal("expected download in store")
+	}
+	if d.Channel != "" {
+		t.Errorf("expected empty channel, got %q", d.Channel)
 	}
 }
 

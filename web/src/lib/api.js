@@ -52,6 +52,7 @@ export const ServersAPI = {
     return api.post('/servers', idOrData);
   },
   disconnect(id)  { return api.del(`/servers/${id}`); },
+  remove(id)      { return api.del(`/servers/${id}/remove`); },
   listChannels(id){ return api.get(`/servers/${id}/channels`); },
   joinChannel(sid, ch)  { return api.post(`/servers/${sid}/channels`, { name: ch }); },
   leaveChannel(sid, ch) { return api.del(`/servers/${sid}/channels/${encodeURIComponent(ch)}`); },

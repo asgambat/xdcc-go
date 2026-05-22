@@ -34,15 +34,18 @@ type ProviderInsight struct {
 }
 
 // GetProviderInsights returns a summary of all provider health.
+// Returns partial results if stats query fails — the `enabled` field is
+// always correct because it's derived from config/runtime state, not stats.
 func (a *Aggregator) GetProviderInsights() ([]ProviderInsight, error) {
 	since := time.Now().Add(-24 * time.Hour)
 	allStats, err := a.store.GetAllProviderStats(since)
 	if err != nil {
-		return nil, err
+		// Non-fatal: return insights without stats data
+		a.log.Printf("WARNING: GetProviderInsights: GetAllProviderStats failed: %v", err)
 	}
 
 	engines := []string{"nibl", "xdcc-eu", "subsplease"}
-	var insights []ProviderInsight
+	insights := make([]ProviderInsight, 0, len(engines))
 
 	for _, name := range engines {
 		insight := ProviderInsight{
@@ -50,20 +53,22 @@ func (a *Aggregator) GetProviderInsights() ([]ProviderInsight, error) {
 			Enabled: a.IsProviderEnabled(name),
 		}
 
-		stats := allStats[name]
-		for _, s := range stats {
-			insight.Requests += s.Requests
-			insight.Successes += s.Successes
-			insight.Failures += s.Failures
-			insight.Timeouts += s.Timeouts
-			// Weighted average latency
-			if s.Requests > 0 {
-				insight.AvgLatencyMs = (insight.AvgLatencyMs*float64(insight.Requests-s.Requests) + s.AvgLatencyMs*float64(s.Requests)) / float64(insight.Requests)
+		if allStats != nil {
+			stats := allStats[name]
+			for _, s := range stats {
+				insight.Requests += s.Requests
+				insight.Successes += s.Successes
+				insight.Failures += s.Failures
+				insight.Timeouts += s.Timeouts
+				// Weighted average latency
+				if s.Requests > 0 {
+					insight.AvgLatencyMs = (insight.AvgLatencyMs*float64(insight.Requests-s.Requests) + s.AvgLatencyMs*float64(s.Requests)) / float64(insight.Requests)
+				}
 			}
-		}
 
-		if insight.Requests > 0 {
-			insight.SuccessRate = float64(insight.Successes) / float64(insight.Requests) * 100
+			if insight.Requests > 0 {
+				insight.SuccessRate = float64(insight.Successes) / float64(insight.Requests) * 100
+			}
 		}
 
 		// Determine status
