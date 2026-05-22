@@ -9,8 +9,13 @@ permissions:
   contents: write
 
 jobs:
+  test:
+    name: Run Tests
+    uses: ./.github/workflows/test.yml
+
   build-frontend:
     name: Build Frontend
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code

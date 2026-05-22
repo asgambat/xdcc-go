@@ -8,6 +8,7 @@
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker)](https://www.docker.com/)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey)](https://github.com/asgambat/xdcc-go)
+[![CI Tests](https://github.com/asgambat/xdcc-go/actions/workflows/ci.yml/badge.svg)](https://github.com/asgambat/xdcc-go/actions/workflows/ci.yml)
 
 *A modern XDCC downloader with daemon server, REST API, web UI, and powerful CLI tools for IRC file transfers*
 
@@ -363,7 +364,13 @@ go build -o xdcc-server ./cmd/xdcc-server
 
 Pre-compiled binaries are automatically built and published for every release.
 
-> **Automated Releases**: When a new version tag (e.g., `v1.0.0`) is pushed, GitHub Actions automatically compiles binaries for all supported platforms and architectures, then publishes them to the [Releases page](https://github.com/asgambat/xdcc-go/releases).
+> **Automated Releases**: When a new version tag (e.g., `v1.0.0`) is pushed, GitHub Actions automatically:
+> 1. ✅ **Runs comprehensive test suite** (unit tests, race detector, linting, format checks)
+> 2. 🛠️ **Compiles binaries** for all supported platforms and architectures (only if tests pass)
+> 3. 🐳 **Builds multi-arch Docker images** (only if tests pass)
+> 4. 📦 **Publishes to [Releases page](https://github.com/asgambat/xdcc-go/releases)** and GitHub Container Registry
+>
+> All releases are verified to pass the full test suite before publication.
 
 ### Build from Source
 
@@ -1345,6 +1352,29 @@ task test:package -- ./internal/entities
 task test:verbose
 ```
 
+#### Automated Testing & CI/CD
+
+The project uses GitHub Actions for automated testing and quality assurance:
+
+**Test Suite (`test.yml`)** - Reusable workflow that runs:
+- ✅ Go unit tests (`go test ./...`)
+- ✅ Race detector (`go test -race ./...`)
+- ✅ Go vet static analysis
+- ✅ Format checking (`go fmt`)
+- ✅ Linting with golangci-lint
+- ✅ Test coverage report (uploaded as artifact)
+- ✅ Frontend build verification
+
+**CI Workflow (`ci.yml`)** - Runs test suite on:
+- Push to `main` or `develop` branches
+- Pull requests to `main` or `develop`
+
+**Release Workflows** - Before building releases:
+- 🔒 **`docker-release.yml`** requires tests to pass before building Docker images
+- 🔒 **`release-binaries.yml`** requires tests to pass before building release binaries
+
+If any test fails, the release process is automatically blocked. View test results and coverage reports in the [Actions tab](https://github.com/asgambat/xdcc-go/actions).
+
 ### Project Structure
 
 ```
@@ -1373,12 +1403,59 @@ xdcc-go/
 │   └── dist/             # Built assets (embedded in binary)
 ├── agent.md               # AI coding guidelines (all tools)
 ├── .github/
-│   └── copilot-instructions.md  # GitHub Copilot specific
+│   ├── copilot-instructions.md  # GitHub Copilot specific
+│   └── workflows/         # GitHub Actions CI/CD
+│       ├── ci.yml        # Run tests on push/PR
+│       ├── test.yml      # Reusable test suite
+│       ├── docker-release.yml    # Build Docker images (after tests)
+│       └── release-binaries.yml  # Build release packages (after tests)
 ├── config.yaml            # Default configuration
 ├── Taskfile.yml           # Task automation
 ├── Dockerfile             # Multi-stage Docker build
 └── README.md              # This file
 ```
+
+### CI/CD Pipeline
+
+When you push a release tag (e.g., `v1.0.0`), the automated release pipeline executes:
+
+```
+┌─────────────────┐
+│  Push Tag       │
+│  v1.0.0         │
+└────────┬────────┘
+         │
+         ├─────────────────┐
+         │                 │
+         ▼                 ▼
+┌─────────────────┐ ┌─────────────────┐
+│ docker-release  │ │release-binaries │
+└────────┬────────┘ └────────┬────────┘
+         │                   │
+         │  ┌───────────────┐│
+         └─►│  Test Suite   ││◄───────┐
+            │  (test.yml)   ││        │
+            └───────┬───────┘│        │
+                    │        │        │
+             Tests Pass?     │        │
+                    │        │        │
+        ┌───────────┼────────┘        │
+        │ YES       │ NO              │
+        ▼           ▼                 │
+  ┌─────────┐  ❌ STOP           
+  │ Build   │  Release blocked   
+  │ Release │                    
+  └─────────┘                    
+```
+
+**Test Suite includes:**
+- Unit tests (`go test ./...`)
+- Race detector
+- Go vet
+- Format checking
+- Linting (golangci-lint)
+- Frontend build verification
+- Coverage report generation
 
 ### Code Guidelines
 

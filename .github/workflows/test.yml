@@ -1,0 +1,115 @@
+name: Test Suite
+
+on:
+  workflow_call:
+    outputs:
+      tests_passed:
+        description: "Whether all tests passed"
+        value: ${{ jobs.run-tests.outputs.result }}
+
+jobs:
+  run-tests:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    outputs:
+      result: ${{ steps.final-status.outputs.success }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      # Backend tests
+      - name: Download Go dependencies
+        run: |
+          go mod download
+          go mod verify
+
+      - name: Run Go tests
+        run: go test -v ./...
+
+      - name: Run Go tests with race detector
+        run: go test -race ./...
+
+      - name: Run go vet
+        run: go vet ./...
+
+      - name: Check Go formatting
+        run: |
+          unformatted=$(go fmt ./...)
+          if [ -n "$unformatted" ]; then
+            echo "::error::The following files are not formatted:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Install golangci-lint
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.61.0
+          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+
+      - name: Run golangci-lint
+        run: golangci-lint run ./... --timeout=5m
+        continue-on-error: false
+
+      # Test coverage
+      - name: Generate test coverage
+        run: |
+          go test -cover -coverprofile=coverage.out ./...
+          go tool cover -html=coverage.out -o coverage.html
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: |
+            coverage.out
+            coverage.html
+          retention-days: 30
+
+      - name: Display coverage summary
+        run: |
+          echo "## Test Coverage Summary" >> $GITHUB_STEP_SUMMARY
+          go tool cover -func=coverage.out | tail -n 1 >> $GITHUB_STEP_SUMMARY
+
+      # Frontend tests
+      - name: Install frontend dependencies
+        working-directory: ./web
+        run: npm ci
+
+      - name: Check for frontend tests
+        id: check-frontend-tests
+        working-directory: ./web
+        run: |
+          if npm run test --if-present 2>/dev/null; then
+            echo "has_tests=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_tests=false" >> $GITHUB_OUTPUT
+            echo "No frontend tests found, skipping..."
+          fi
+        continue-on-error: true
+
+      - name: Run frontend tests
+        if: steps.check-frontend-tests.outputs.has_tests == 'true'
+        working-directory: ./web
+        run: npm test
+
+      # Frontend build verification
+      - name: Build frontend to verify
+        working-directory: ./web
+        run: npm run build
+
+      - name: Set final status
+        id: final-status
+        run: echo "success=true" >> $GITHUB_OUTPUT
