@@ -163,13 +163,13 @@ func ipNumToQuad(ipNum string) string {
 
 func parseI64(s string) int64 {
 	var v int64
-	fmt.Sscanf(s, "%d", &v)
+	_, _ = fmt.Sscanf(s, "%d", &v)
 	return v
 }
 
 func parseU32(s string) uint32 {
 	var v uint32
-	fmt.Sscanf(s, "%d", &v)
+	_, _ = fmt.Sscanf(s, "%d", &v)
 	return v
 }
 

@@ -32,7 +32,7 @@ func TestRecoverDownloadsOnStartup_RequeuesDownloading(t *testing.T) {
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x",
 		Filename: "test.mkv", FileSize: 1000,
 	})
-	s.MarkDownloadStarted(id)
+	_ = s.MarkDownloadStarted(id)
 
 	recovered, err := s.RecoverDownloadsOnStartup()
 	if err != nil {
@@ -63,10 +63,10 @@ func TestRecoverDownloadsOnStartup_OnlyDownloading(t *testing.T) {
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x",
 		Filename: "done.mkv", FileSize: 100,
 	})
-	s.MarkDownloadCompleted(idCompleted)
+	_ = s.MarkDownloadCompleted(idCompleted)
 
 	// Queued download should NOT be recovered
-	s.EnqueueDownload(DownloadRecord{
+	_, _ = s.EnqueueDownload(DownloadRecord{
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x",
 		Filename: "pending.mkv", FileSize: 100,
 	})
@@ -76,7 +76,7 @@ func TestRecoverDownloadsOnStartup_OnlyDownloading(t *testing.T) {
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x",
 		Filename: "stuck.mkv", FileSize: 100,
 	})
-	s.MarkDownloadStarted(idStuck)
+	_ = s.MarkDownloadStarted(idStuck)
 
 	recovered, _ := s.RecoverDownloadsOnStartup()
 	if len(recovered) != 1 {
@@ -113,7 +113,7 @@ func TestReconcileFileSystem_MissingTempFile(t *testing.T) {
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x",
 		Filename: "missing_temp.mkv", FileSize: 1000,
 	})
-	s.MarkDownloadStarted(id)
+	_ = s.MarkDownloadStarted(id)
 
 	actions, err := s.ReconcileFileSystem(t.TempDir(), "skip", "")
 	if err != nil {
@@ -206,7 +206,7 @@ func TestReconcileFileSystem_NonOrphanedFileSkipped(t *testing.T) {
 	tempDir := t.TempDir()
 
 	// Create a queued download with a filename that exists as temp file
-	s.EnqueueDownload(DownloadRecord{
+	_, _ = s.EnqueueDownload(DownloadRecord{
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x",
 		Filename: "active.mkv", FileSize: 1000,
 	})
@@ -275,7 +275,7 @@ func TestCleanupOldDownloads(t *testing.T) {
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x",
 		Filename: "old.mkv", FileSize: 100,
 	})
-	s.MarkDownloadCompleted(id1)
+	_ = s.MarkDownloadCompleted(id1)
 
 	// We can't easily set completed_at to a past date via the API,
 	// so let's just verify the SQL filters work by checking that cleanup
@@ -293,14 +293,10 @@ func TestCleanupOldDownloads(t *testing.T) {
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x",
 		Filename: "failed.mkv", FileSize: 100,
 	})
-	s.MarkDownloadFailed(id2, "error")
+	_ = s.MarkDownloadFailed(id2, "error")
 
 	_ = now // used for potential future enhancements
-	deleted2, _ := s.CleanupOldDownloads(0)
-	// With retention=0, all completed/failed downloads with completed_at set should be deleted
-	if deleted2 == 0 {
-		// Might be 0 if they were already cleaned up by previous call
-	}
+	_, _ = s.CleanupOldDownloads(0)
 }
 
 func TestCleanupOldDownloads_DoesNotDeleteQueued(t *testing.T) {
@@ -308,7 +304,7 @@ func TestCleanupOldDownloads_DoesNotDeleteQueued(t *testing.T) {
 	defer closeStore(t, s)
 
 	// Queued download should NOT be deleted
-	s.EnqueueDownload(DownloadRecord{
+	_, _ = s.EnqueueDownload(DownloadRecord{
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x",
 		Filename: "pending.mkv", FileSize: 100,
 	})

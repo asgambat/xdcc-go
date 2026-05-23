@@ -14,13 +14,14 @@ import (
 
 // SearchOptions holds parameters for an aggregated search request.
 type SearchOptions struct {
-	Query    string   `json:"query"`
-	Prefix   string   `json:"prefix,omitempty"`  // -p: filename must start with this
-	Bot      string   `json:"bot,omitempty"`     // -b: bot name substring filter
-	Ext      []string `json:"ext,omitempty"`     // -x: allowed extensions
-	Compact  bool     `json:"compact,omitempty"` // -c: deduplicate by bot family
-	Page     int      `json:"page"`              // 1-based
-	PageSize int      `json:"page_size"`         // items per page
+	Query     string   `json:"query"`
+	Prefix    string   `json:"prefix,omitempty"`    // -p: filename must start with this
+	Bot       string   `json:"bot,omitempty"`       // -b: bot name substring filter
+	Ext       []string `json:"ext,omitempty"`       // -x: allowed extensions
+	Compact   bool     `json:"compact,omitempty"`   // -c: deduplicate by bot family
+	Providers []string `json:"providers,omitempty"` // restrict search to these providers
+	Page      int      `json:"page"`                // 1-based
+	PageSize  int      `json:"page_size"`           // items per page
 }
 
 // ---------------------------------------------------------------------------
@@ -55,7 +56,7 @@ type SearchResult struct {
 // ProviderStatus summarises the result of querying a single provider.
 type ProviderStatus struct {
 	Name        string `json:"name"`
-	Status      string `json:"status"` // ok | timeout | failed | skipped_cache_hit
+	Status      string `json:"status"` // ok | timeout | failed | disabled | skipped_cache_hit
 	LatencyMs   int64  `json:"latency_ms,omitempty"`
 	ResultCount int    `json:"result_count,omitempty"`
 	Error       string `json:"error,omitempty"`
@@ -66,6 +67,7 @@ const (
 	ProviderStatusOK           = "ok"
 	ProviderStatusTimeout      = "timeout"
 	ProviderStatusFailed       = "failed"
+	ProviderStatusDisabled     = "disabled"
 	ProviderStatusSkippedCache = "skipped_cache_hit"
 )
 

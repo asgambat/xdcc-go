@@ -205,7 +205,7 @@ func (qm *QueueManager) Stop() {
 		if d, err := qm.store.GetDownload(id); err == nil && d != nil && d.ProgressBytes > 0 {
 			qm.log.Printf("shutdown: saving progress for download %d: %d/%d bytes", id, d.ProgressBytes, d.FileSize)
 		}
-		qm.CancelDownload(id, "server shutting down")
+		_ = qm.CancelDownload(id, "server shutting down")
 	}
 
 	// Wait for all download workers to complete with timeout
@@ -584,7 +584,6 @@ func (qm *QueueManager) tryDispatch() {
 
 		// Start this download
 		qm.startDownload(d)
-		activeCount++
 		qm.mu.RLock()
 		activeCount = qm.globalCount
 		qm.mu.RUnlock()

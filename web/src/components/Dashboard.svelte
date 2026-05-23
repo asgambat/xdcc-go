@@ -1,7 +1,7 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
   import { stats, status, downloads, activeDownloads, servers } from '../lib/stores.js';
-  import { ServersAPI, sseClient } from '../lib/api.js';
+  import { ServersAPI, DownloadsAPI, sseClient } from '../lib/api.js';
   import { formatBytes, formatSpeed, formatUptime, statusBadge } from '../lib/utils.js';
   import { addToast } from '../lib/stores.js';
 
@@ -72,6 +72,38 @@
     } catch (e) { addToast(e.message, 'error'); }
   }
 
+  async function stopAll() {
+    if (!window.confirm('Stop everything? This will pause all downloads and disconnect from all servers.')) return;
+    const dlIds = $downloads.filter(d => d.status === 'downloading' || d.status === 'queued').map(d => d.id);
+    const svIds = $servers.filter(s => s.status === 'connected').map(s => s.id);
+
+    let messages = [];
+
+    // Pause all downloads
+    if (dlIds.length > 0) {
+      try {
+        await DownloadsAPI.bulk(dlIds, 'pause');
+        messages.push(`Paused ${dlIds.length} downloads`);
+      } catch (e) { messages.push(`Download pause failed: ${e.message}`); }
+    }
+
+    // Disconnect all servers
+    for (const id of svIds) {
+      try {
+        await ServersAPI.disconnect(id);
+      } catch (e) { /* best-effort */ }
+    }
+    if (svIds.length > 0) messages.push(`Disconnected ${svIds.length} servers`);
+
+    if (messages.length > 0) {
+      addToast(messages.join(' — '), 'success');
+    } else {
+      addToast('Nothing to stop', 'info');
+    }
+
+    await loadServers();
+  }
+
   let s = $derived($stats || {});
   let st = $derived($status || {});
   let connectedCount = $derived($servers.filter(s => s.status === 'connected').length);
@@ -81,6 +113,12 @@
     new Date(d.completed_at) > new Date(Date.now() - 86400000)
   ).length);
 </script>
+
+<div style="display:flex; align-items:center; justify-content:flex-end; margin-bottom:1rem">
+    {#if $downloads.filter(d => d.status === 'downloading' || d.status === 'queued').length > 0 || $servers.filter(s => s.status === 'connected').length > 0}
+      <button class="btn btn-danger" onclick={stopAll}>🛑 Stop All</button>
+    {/if}
+  </div>
 
 <div class="stats-grid">
   <div class="stat-card">

@@ -35,11 +35,14 @@ func (a *API) handleSearch(w http.ResponseWriter, r *http.Request) {
 	if ext := q.Get("ext"); ext != "" {
 		opts.Ext = strings.Split(ext, ",")
 	}
+	if prov := q["providers"]; len(prov) > 0 {
+		opts.Providers = prov
+	}
 	if p := q.Get("page"); p != "" {
-		fmt.Sscanf(p, "%d", &opts.Page)
+		_, _ = fmt.Sscanf(p, "%d", &opts.Page)
 	}
 	if ps := q.Get("pageSize"); ps != "" {
-		fmt.Sscanf(ps, "%d", &opts.PageSize)
+		_, _ = fmt.Sscanf(ps, "%d", &opts.PageSize)
 	}
 	if opts.Page < 1 {
 		opts.Page = 1
@@ -453,7 +456,7 @@ func (a *API) handleParseXDCC(w http.ResponseWriter, r *http.Request) {
 		parts := strings.Fields(cmd)
 		if len(parts) >= 4 && strings.EqualFold(parts[2], "XDCC") && strings.EqualFold(parts[3], "SEND") && len(parts) >= 5 {
 			bot = parts[1]
-			fmt.Sscanf(parts[4], "#%d", &packNum)
+			_, _ = fmt.Sscanf(parts[4], "#%d", &packNum)
 		}
 	}
 
@@ -466,7 +469,7 @@ func (a *API) handleParseXDCC(w http.ResponseWriter, r *http.Request) {
 				parts := strings.Fields(rest)
 				for i, p := range parts {
 					if strings.EqualFold(p, "send") && i+1 < len(parts) {
-						fmt.Sscanf(parts[i+1], "#%d", &packNum)
+						_, _ = fmt.Sscanf(parts[i+1], "#%d", &packNum)
 						break
 					}
 				}
@@ -479,7 +482,7 @@ func (a *API) handleParseXDCC(w http.ResponseWriter, r *http.Request) {
 		parts := strings.Fields(cmd)
 		for i, p := range parts {
 			if strings.EqualFold(p, "send") && i+1 < len(parts) {
-				fmt.Sscanf(parts[i+1], "#%d", &packNum)
+				_, _ = fmt.Sscanf(parts[i+1], "#%d", &packNum)
 				break
 			}
 		}

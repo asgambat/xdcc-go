@@ -37,6 +37,11 @@
   let error = $state('');
   let results = $derived($searchResults);
 
+  // --- Custom dropdown state ---
+  let showDropdown = $state(false);
+  let dropdownIndex = $state(-1);
+  let inputRef = $state(null);
+
   // --- Client-side filters ---
   let filterName = $state('');
   let filterBot = $state('');
@@ -164,24 +169,17 @@
       // Backend returns { states: [...], insights: [...] }
       const states = data?.states || [];
       const insights = data?.insights || [];
-      
-      // Merge states with insights
-      providers = states.map(state => {
-        const insight = insights.find(i => i.name === state.name);
-        // If insight is available, use its enabled field.
-        // If not (e.g. GetProviderInsights failed), fall back to checking
-        // the state's error message for 'disabled' markers — GetProviderStates
-        // already sets error="disabled in config" / "disabled at runtime"
-        // for providers that are disabled in config or at runtime.
-        let enabled;
-        if (insight !== undefined) {
-          enabled = insight.enabled;
-        } else {
-          enabled = !(state.error && state.error.includes('disabled'));
-        }
-        return { name: state.name, enabled };
-      }).filter(p => p.enabled);
-      
+
+      // Only show globally enabled providers
+      providers = states
+        .filter(state => {
+          const insight = insights.find(i => i.name === state.name);
+          if (insight !== undefined) return insight.enabled;
+          return !(state.error && state.error.includes('disabled'));
+        })
+        .map(state => ({ name: state.name, enabled: true }));
+
+      // All shown providers are enabled — pre-select all of them
       selectedProviders = providers.map(p => p.name);
     } catch (e) {
       console.error('Failed to load providers:', e);
@@ -203,15 +201,13 @@
 
   async function doSearch() {
     if (!query.trim()) return addToast('Enter a search query', 'warning');
+    if (selectedProviders.length === 0) return addToast('Enable at least one provider to search', 'warning');
     searching = true;
     error = '';
     clearFilters();
     saveQueryToHistory(query);
     try {
-      const params = { q: query.trim() };
-      if (selectedProviders.length > 0 && selectedProviders.length < providers.length) {
-        params.providers = selectedProviders;
-      }
+      const params = { q: query.trim(), providers: selectedProviders };
       if (minSize) params.min_size = minSize;
       if (maxSize) params.max_size = maxSize;
       if (compactMode) params.compact = 'true';
@@ -283,22 +279,96 @@
     }
   }
 
+  // Filtered history for dropdown
+  let filteredHistory = $derived.by(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return queryHistory;
+    return queryHistory.filter(h => h.toLowerCase().includes(q));
+  });
+
+  function handleInputFocus() {
+    if (queryHistory.length > 0) {
+      showDropdown = true;
+      dropdownIndex = -1;
+    }
+  }
+
+  function handleInputBlur(e) {
+    // Delay to allow click on dropdown item to register first
+    setTimeout(() => { showDropdown = false; dropdownIndex = -1; }, 150);
+  }
+
+  function selectHistoryItem(item) {
+    query = item;
+    showDropdown = false;
+    dropdownIndex = -1;
+  }
+
+  function handleDropdownKeydown(e) {
+    if (!showDropdown || filteredHistory.length === 0) {
+      if (e.key === 'Enter') { doSearch(); }
+      return;
+    }
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      dropdownIndex = (dropdownIndex + 1) % filteredHistory.length;
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      dropdownIndex = dropdownIndex <= 0 ? filteredHistory.length - 1 : dropdownIndex - 1;
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (dropdownIndex >= 0) {
+        selectHistoryItem(filteredHistory[dropdownIndex]);
+      } else {
+        doSearch();
+      }
+    } else if (e.key === 'Escape') {
+      showDropdown = false;
+      dropdownIndex = -1;
+    }
+  }
+
+  // Keep dropdownIndex in bounds when filtered list changes
+  $effect(() => {
+    if (dropdownIndex >= filteredHistory.length) {
+      dropdownIndex = filteredHistory.length > 0 ? filteredHistory.length - 1 : -1;
+    }
+  });
+
   // Load providers on mount
   $effect(() => { loadProviders(); });
 </script>
 
 <div class="card mb-2">
   <div class="filters-bar">
-    <div class="form-group" style="flex:1;min-width:250px">
+    <div class="form-group" style="flex:1;min-width:250px;position:relative">
       <label class="form-label">Search Query</label>
-      <input class="form-input" bind:value={query} placeholder="e.g. Ubuntu 24.04"
-        list="query-history"
-        onkeydown={(e) => e.key === 'Enter' && doSearch()} />
-      <datalist id="query-history">
-        {#each queryHistory as h}
-          <option value={h}>{h}</option>
-        {/each}
-      </datalist>
+      <input
+        class="form-input"
+        bind:value={query}
+        bind:this={inputRef}
+        placeholder="e.g. Ubuntu 24.04"
+        onfocus={handleInputFocus}
+        onblur={handleInputBlur}
+        onkeydown={handleDropdownKeydown}
+        autocomplete="off" />
+      {#if showDropdown && filteredHistory.length > 0}
+        <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+        <ul class="history-dropdown" role="listbox">
+          {#each filteredHistory as h, i}
+            <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+            <li
+              class="history-item"
+              class:highlighted={i === dropdownIndex}
+              role="option"
+              aria-selected={i === dropdownIndex}
+              tabindex="-1"
+              onmousedown={(e) => { e.preventDefault(); selectHistoryItem(h); }}>
+              {h}
+            </li>
+          {/each}
+        </ul>
+      {/if}
     </div>
     <div class="form-group" style="min-width:120px">
       <label class="form-label">Min Size</label>
@@ -646,5 +716,36 @@
   }
   .toggle-text {
     font-weight: 500;
+  }
+
+  /* --- Custom history dropdown --- */
+  .history-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    z-index: 100;
+    margin: 0;
+    padding: 0.35rem 0;
+    list-style: none;
+    background: var(--bg-card);
+    border: 1px solid var(--accent);
+    border-top: none;
+    border-radius: 0 0 var(--radius) var(--radius);
+    box-shadow: var(--shadow-lg);
+    max-height: 240px;
+    overflow-y: auto;
+  }
+  .history-item {
+    padding: 0.5rem 0.75rem;
+    cursor: pointer;
+    font-size: 0.88rem;
+    color: var(--text-primary);
+    transition: background var(--transition);
+  }
+  .history-item:hover,
+  .history-item.highlighted {
+    background: var(--bg-hover);
+    color: var(--accent-light);
   }
 </style>

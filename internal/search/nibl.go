@@ -54,7 +54,7 @@ func (e *NiblEngine) Search(term string) ([]*entities.XDCCPack, error) {
 		filename := strings.TrimSpace(cols.Eq(3).Text())
 
 		var num int
-		fmt.Sscanf(packNumStr, "%d", &num)
+		_, _ = fmt.Sscanf(packNumStr, "%d", &num)
 		if num == 0 {
 			return
 		}

@@ -25,10 +25,6 @@ func mkPackWithBot(filename string, size int64, bot string, packNum int) *entiti
 	return p
 }
 
-func setServerAddr(p *entities.XDCCPack, addr string) {
-	p.Server = entities.NewIrcServerWithPort(addr, 6667)
-}
-
 // ===========================================================================
 // filterByPrefix
 // ===========================================================================

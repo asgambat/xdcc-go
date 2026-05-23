@@ -96,14 +96,14 @@ func writeError(w http.ResponseWriter, status int, code, msg string) {
 	resp := newErrorResponse(code, msg, "")
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(resp)
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	if v != nil {
-		json.NewEncoder(w).Encode(v)
+		_ = json.NewEncoder(w).Encode(v)
 	}
 }
 
@@ -167,6 +167,12 @@ func Logging(logger *logging.Logger) func(http.Handler) http.Handler {
 	}
 }
 
+// contextKey is used for storing values in request context to avoid
+// collisions with built-in string keys.
+type contextKey string
+
+const requestIDKey contextKey = "request-id"
+
 // RequestID returns middleware that injects a unique request ID.
 func RequestID(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -177,7 +183,7 @@ func RequestID(next http.Handler) http.Handler {
 		w.Header().Set("X-Request-ID", id)
 
 		// Store request ID in context so handlers can access it
-		ctx := context.WithValue(r.Context(), "request-id", id)
+		ctx := context.WithValue(r.Context(), requestIDKey, id)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -198,10 +204,10 @@ func parsePageParams(r *http.Request) (page, pageSize int) {
 	page = 1
 	pageSize = 50
 	if p := r.URL.Query().Get("page"); p != "" {
-		fmt.Sscanf(p, "%d", &page)
+		_, _ = fmt.Sscanf(p, "%d", &page)
 	}
 	if ps := r.URL.Query().Get("pageSize"); ps != "" {
-		fmt.Sscanf(ps, "%d", &pageSize)
+		_, _ = fmt.Sscanf(ps, "%d", &pageSize)
 	}
 	if page < 1 {
 		page = 1

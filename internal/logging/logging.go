@@ -252,7 +252,7 @@ func (l *Logger) rotateIfNeeded() {
 
 	// Rename to backup
 	backupPath := fmt.Sprintf("%s.%s", l.filePath, time.Now().Format("20060102-150405"))
-	os.Rename(l.filePath, backupPath)
+	_ = os.Rename(l.filePath, backupPath)
 
 	// Open new file
 	f, err := os.OpenFile(l.filePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)

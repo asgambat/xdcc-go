@@ -175,9 +175,7 @@ func TestCacheExpiresStale(t *testing.T) {
 
 	// Immediately after set, it should be fresh (but with 1ns TTL it might already be stale)
 	got := c.get("test", "p1")
-	if got != nil {
-		if !got.isFresh() && !got.isStale() {
-			// Both expired — cache should not return it
-		}
+	if got != nil && !got.isFresh() && !got.isStale() {
+		t.Log("cache entry is fully expired — cache should not return expired entries")
 	}
 }

@@ -151,7 +151,7 @@ func (m *Manager) Stop() {
 		wg.Add(1)
 		go func(sid int64) {
 			defer wg.Done()
-			m.DisconnectServer(sid)
+			_ = m.DisconnectServer(sid)
 		}(id)
 	}
 	wg.Wait()
@@ -615,10 +615,9 @@ type managedConnection struct {
 	cancel context.CancelFunc
 
 	// Lifecycle management with WaitGroup pattern (prevents race conditions)
-	wg           sync.WaitGroup // Tracks active run() goroutine
-	runningMu    sync.Mutex     // Protects isRunning field
-	isRunning    bool           // Prevents duplicate run() calls
-	shutdownOnce sync.Once      // Ensures cleanup happens exactly once
+	wg        sync.WaitGroup // Tracks active run() goroutine
+	runningMu sync.Mutex     // Protects isRunning field
+	isRunning bool           // Prevents duplicate run() calls
 
 	manager *Manager
 }

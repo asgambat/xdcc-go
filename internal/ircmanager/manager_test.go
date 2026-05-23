@@ -55,16 +55,6 @@ func (m *mockStore) addChannel(serverID int64, name string, autoJoin bool) int64
 	return id
 }
 
-func (m *mockStore) getServer(id int64) *store.ServerRecord {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	s, ok := m.servers[id]
-	if !ok {
-		return nil
-	}
-	return s
-}
-
 // Store interface
 
 func (m *mockStore) Close() error                       { return nil }

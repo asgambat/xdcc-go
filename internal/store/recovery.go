@@ -55,7 +55,7 @@ func (s *SQLiteStore) batchRequeue(ids []int64) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 
 	stmt, err := tx.Prepare(
 		`UPDATE downloads SET status='queued', progress_bytes=0, error_message='', speed_bps=0 WHERE id=?`,
@@ -219,15 +219,10 @@ func (s *SQLiteStore) RunCleanup(retentionDays int, cleanupInterval time.Duratio
 				return
 			case <-time.After(cleanupInterval):
 				// Cleanup old downloads
-				deleted, err := s.CleanupOldDownloads(retentionDays)
-				if err == nil && deleted > 0 {
-					// log would go here
-				}
+				_, _ = s.CleanupOldDownloads(retentionDays)
 
 				// Cleanup expired search cache (entries older than stale TTL)
-				if err := s.DeleteExpiredSearchCache(time.Now().Add(-24 * time.Hour)); err != nil {
-					// log would go here
-				}
+				_ = s.DeleteExpiredSearchCache(time.Now().Add(-24 * time.Hour))
 
 				// VACUUM once a week
 				if time.Since(lastVacuum) >= 7*24*time.Hour {

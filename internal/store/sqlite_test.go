@@ -105,8 +105,8 @@ func TestListServers_Multiple(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	s.AddServer(ServerRecord{Address: "irc.alpha.net", Port: 6667, Status: "disconnected"})
-	s.AddServer(ServerRecord{Address: "irc.beta.net", Port: 6667, Status: "connected"})
+	_, _ = s.AddServer(ServerRecord{Address: "irc.alpha.net", Port: 6667, Status: "disconnected"})
+	_, _ = s.AddServer(ServerRecord{Address: "irc.beta.net", Port: 6667, Status: "connected"})
 
 	servers, err := s.ListServers()
 	if err != nil {
@@ -233,8 +233,8 @@ func TestGetChannelsByServer(t *testing.T) {
 	defer closeStore(t, s)
 
 	srvID, _ := s.AddServer(ServerRecord{Address: "irc.chan2.net", Port: 6667})
-	s.AddChannel(ChannelRecord{ServerID: srvID, Name: "#alpha"})
-	s.AddChannel(ChannelRecord{ServerID: srvID, Name: "#beta"})
+	_, _ = s.AddChannel(ChannelRecord{ServerID: srvID, Name: "#alpha"})
+	_, _ = s.AddChannel(ChannelRecord{ServerID: srvID, Name: "#beta"})
 
 	channels, err := s.GetChannelsByServer(srvID)
 	if err != nil {
@@ -304,7 +304,7 @@ func TestSetChannelJoined(t *testing.T) {
 	srvID, _ := s.AddServer(ServerRecord{Address: "irc.joined.net", Port: 6667})
 	chID, _ := s.AddChannel(ChannelRecord{ServerID: srvID, Name: "#joinedtest"})
 
-	s.SetChannelJoined(chID, true)
+	_ = s.SetChannelJoined(chID, true)
 	ch, _ := s.GetChannelsByServerAndName(srvID, "#joinedtest")
 	if !ch.Joined {
 		t.Errorf("expected joined=true after SetChannelJoined")
@@ -318,7 +318,7 @@ func TestDeleteChannel(t *testing.T) {
 	srvID, _ := s.AddServer(ServerRecord{Address: "irc.delchan.net", Port: 6667})
 	chID, _ := s.AddChannel(ChannelRecord{ServerID: srvID, Name: "#delme"})
 
-	s.DeleteChannel(chID)
+	_ = s.DeleteChannel(chID)
 	channels, _ := s.GetChannelsByServer(srvID)
 	if len(channels) != 0 {
 		t.Errorf("expected 0 channels after delete, got %d", len(channels))
@@ -333,14 +333,14 @@ func TestGetAutoJoinChannels(t *testing.T) {
 	srvID, _ := s.AddServer(ServerRecord{
 		Address: "irc.auto.net", Port: 6667, AutoConnect: true, Status: "disconnected",
 	})
-	s.AddChannel(ChannelRecord{ServerID: srvID, Name: "#auto1", AutoJoin: true})
-	s.AddChannel(ChannelRecord{ServerID: srvID, Name: "#auto2", AutoJoin: false})
+	_, _ = s.AddChannel(ChannelRecord{ServerID: srvID, Name: "#auto1", AutoJoin: true})
+	_, _ = s.AddChannel(ChannelRecord{ServerID: srvID, Name: "#auto2", AutoJoin: false})
 
 	// Add another server with auto_connect=false — its channels should NOT be returned
 	srvID2, _ := s.AddServer(ServerRecord{
 		Address: "irc.manual.net", Port: 6667, AutoConnect: false,
 	})
-	s.AddChannel(ChannelRecord{ServerID: srvID2, Name: "#manual", AutoJoin: true})
+	_, _ = s.AddChannel(ChannelRecord{ServerID: srvID2, Name: "#manual", AutoJoin: true})
 
 	autoChs, err := s.GetAutoJoinChannels()
 	if err != nil {
@@ -394,9 +394,9 @@ func TestGetQueue(t *testing.T) {
 	defer closeStore(t, s)
 
 	// Enqueue 3 downloads
-	s.EnqueueDownload(DownloadRecord{Bot: "Bot1", ServerAddress: "irc.t.net", Channel: "#a", Filename: "a.mkv", FileSize: 100})
-	s.EnqueueDownload(DownloadRecord{Bot: "Bot2", ServerAddress: "irc.t.net", Channel: "#b", Filename: "b.mkv", FileSize: 200})
-	s.EnqueueDownload(DownloadRecord{Bot: "Bot3", ServerAddress: "irc.t.net", Channel: "#c", Filename: "c.mkv", FileSize: 300})
+	_, _ = s.EnqueueDownload(DownloadRecord{Bot: "Bot1", ServerAddress: "irc.t.net", Channel: "#a", Filename: "a.mkv", FileSize: 100})
+	_, _ = s.EnqueueDownload(DownloadRecord{Bot: "Bot2", ServerAddress: "irc.t.net", Channel: "#b", Filename: "b.mkv", FileSize: 200})
+	_, _ = s.EnqueueDownload(DownloadRecord{Bot: "Bot3", ServerAddress: "irc.t.net", Channel: "#c", Filename: "c.mkv", FileSize: 300})
 
 	queue, err := s.GetQueue()
 	if err != nil {
@@ -436,9 +436,9 @@ func TestGetQueueByChannel(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	s.EnqueueDownload(DownloadRecord{Bot: "Bot1", ServerAddress: "irc.t.net", Channel: "#xdcc", Filename: "a.mkv", FileSize: 100})
-	s.EnqueueDownload(DownloadRecord{Bot: "Bot2", ServerAddress: "irc.t.net", Channel: "#other", Filename: "b.mkv", FileSize: 100})
-	s.EnqueueDownload(DownloadRecord{Bot: "Bot3", ServerAddress: "irc.t.net", Channel: "#xdcc", Filename: "c.mkv", FileSize: 100})
+	_, _ = s.EnqueueDownload(DownloadRecord{Bot: "Bot1", ServerAddress: "irc.t.net", Channel: "#xdcc", Filename: "a.mkv", FileSize: 100})
+	_, _ = s.EnqueueDownload(DownloadRecord{Bot: "Bot2", ServerAddress: "irc.t.net", Channel: "#other", Filename: "b.mkv", FileSize: 100})
+	_, _ = s.EnqueueDownload(DownloadRecord{Bot: "Bot3", ServerAddress: "irc.t.net", Channel: "#xdcc", Filename: "c.mkv", FileSize: 100})
 
 	queue, _ := s.GetQueueByChannel("#xdcc")
 	if len(queue) != 2 {
@@ -480,7 +480,7 @@ func TestUpdateDownloadProgress(t *testing.T) {
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x", Filename: "f.mkv", FileSize: 1000,
 	})
 
-	s.UpdateDownloadProgress(id, 500, 100)
+	_ = s.UpdateDownloadProgress(id, 500, 100)
 	d, _ := s.GetDownload(id)
 	if d.ProgressBytes != 500 {
 		t.Errorf("expected progress 500, got %d", d.ProgressBytes)
@@ -497,8 +497,8 @@ func TestMarkDownloadCompleted(t *testing.T) {
 	id, _ := s.EnqueueDownload(DownloadRecord{
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x", Filename: "f.mkv", FileSize: 1000,
 	})
-	s.MarkDownloadStarted(id)
-	s.UpdateDownloadProgress(id, 1000, 0)
+	_ = s.MarkDownloadStarted(id)
+	_ = s.UpdateDownloadProgress(id, 1000, 0)
 
 	err := s.MarkDownloadCompleted(id)
 	if err != nil {
@@ -542,7 +542,7 @@ func TestMarkDownloadSkipped(t *testing.T) {
 	id, _ := s.EnqueueDownload(DownloadRecord{
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x", Filename: "f.mkv", FileSize: 1000,
 	})
-	s.MarkDownloadStarted(id)
+	_ = s.MarkDownloadStarted(id)
 
 	err := s.MarkDownloadSkipped(id)
 	if err != nil {
@@ -562,7 +562,7 @@ func TestMarkDownloadPaused(t *testing.T) {
 	id, _ := s.EnqueueDownload(DownloadRecord{
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x", Filename: "f.mkv", FileSize: 1000,
 	})
-	s.MarkDownloadStarted(id)
+	_ = s.MarkDownloadStarted(id)
 
 	err := s.MarkDownloadPaused(id)
 	if err != nil {
@@ -582,7 +582,7 @@ func TestMarkDownloadPaused_OnlyQueuedOrDownloading(t *testing.T) {
 	id, _ := s.EnqueueDownload(DownloadRecord{
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x", Filename: "f.mkv", FileSize: 1000,
 	})
-	s.MarkDownloadCompleted(id)
+	_ = s.MarkDownloadCompleted(id)
 
 	// Pausing a completed download should be a no-op (no rows affected, but no error)
 	err := s.MarkDownloadPaused(id)
@@ -603,7 +603,7 @@ func TestRetryDownload(t *testing.T) {
 	id, _ := s.EnqueueDownload(DownloadRecord{
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x", Filename: "f.mkv", FileSize: 1000,
 	})
-	s.MarkDownloadFailed(id, "some error")
+	_ = s.MarkDownloadFailed(id, "some error")
 
 	err := s.RetryDownload(id)
 	if err != nil {
@@ -629,7 +629,7 @@ func TestDeleteDownload(t *testing.T) {
 	id, _ := s.EnqueueDownload(DownloadRecord{
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x", Filename: "f.mkv", FileSize: 1000,
 	})
-	s.DeleteDownload(id)
+	_ = s.DeleteDownload(id)
 
 	d, _ := s.GetDownload(id)
 	if d != nil {
@@ -660,7 +660,7 @@ func TestFindDuplicateDownload(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	s.EnqueueDownload(DownloadRecord{
+	_, _ = s.EnqueueDownload(DownloadRecord{
 		Bot: "MyBot", ServerAddress: "irc.t.net", Channel: "#x", Filename: "f.mkv", FileSize: 1000,
 		PackMessage: "xdcc send #5",
 	})
@@ -688,15 +688,15 @@ func TestGetDownloadHistory(t *testing.T) {
 	id1, _ := s.EnqueueDownload(DownloadRecord{
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x", Filename: "a.mkv", FileSize: 100,
 	})
-	s.MarkDownloadCompleted(id1)
+	_ = s.MarkDownloadCompleted(id1)
 
 	id2, _ := s.EnqueueDownload(DownloadRecord{
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x", Filename: "b.mkv", FileSize: 100,
 	})
-	s.MarkDownloadFailed(id2, "error")
+	_ = s.MarkDownloadFailed(id2, "error")
 
 	// Queued download should NOT appear in history
-	s.EnqueueDownload(DownloadRecord{
+	_, _ = s.EnqueueDownload(DownloadRecord{
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x", Filename: "c.mkv", FileSize: 100,
 	})
 
@@ -821,7 +821,7 @@ func TestDeleteExpiredSearchCache(t *testing.T) {
 		ExpiresAt:      now.Add(-24 * time.Hour),
 		StaleExpiresAt: now.Add(-1 * time.Hour),
 	}
-	s.SetSearchCache(entry)
+	_ = s.SetSearchCache(entry)
 
 	err := s.DeleteExpiredSearchCache(now)
 	if err != nil {
@@ -863,7 +863,7 @@ func TestGetSearchCacheByQuery(t *testing.T) {
 		ExpiresAt:      now.Add(time.Hour),
 		StaleExpiresAt: now.Add(24 * time.Hour),
 	}
-	s.SetSearchCache(other)
+	_ = s.SetSearchCache(other)
 
 	entries, err := s.GetSearchCacheByQuery("multi provider")
 	if err != nil {
@@ -918,7 +918,7 @@ func TestGetSearchCacheByQuery_NoDeadlock(t *testing.T) {
 			ExpiresAt:      now.Add(time.Hour),
 			StaleExpiresAt: now.Add(24 * time.Hour),
 		}
-		s.SetSearchCache(entry)
+		_ = s.SetSearchCache(entry)
 	}
 
 	// Run concurrent GetSearchCacheByQuery - should not deadlock
@@ -983,8 +983,8 @@ func TestListSearchPresets(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	s.AddSearchPreset(SearchPreset{Name: "Preset A", Query: "query a"})
-	s.AddSearchPreset(SearchPreset{Name: "Preset B", Query: "query b"})
+	_, _ = s.AddSearchPreset(SearchPreset{Name: "Preset A", Query: "query a"})
+	_, _ = s.AddSearchPreset(SearchPreset{Name: "Preset B", Query: "query b"})
 
 	presets, err := s.ListSearchPresets()
 	if err != nil {
@@ -1016,7 +1016,7 @@ func TestDeleteSearchPreset(t *testing.T) {
 	defer closeStore(t, s)
 
 	id, _ := s.AddSearchPreset(SearchPreset{Name: "Del Me", Query: "delete me"})
-	s.DeleteSearchPreset(id)
+	_ = s.DeleteSearchPreset(id)
 
 	got, _ := s.GetSearchPreset(id)
 	if got != nil {
@@ -1086,8 +1086,8 @@ func TestListWatchlists(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	s.AddWatchlist(Watchlist{Name: "WL1", Query: "query1"})
-	s.AddWatchlist(Watchlist{Name: "WL2", Query: "query2"})
+	_, _ = s.AddWatchlist(Watchlist{Name: "WL1", Query: "query1"})
+	_, _ = s.AddWatchlist(Watchlist{Name: "WL2", Query: "query2"})
 
 	lists, err := s.ListWatchlists()
 	if err != nil {
@@ -1125,7 +1125,7 @@ func TestDeleteWatchlist(t *testing.T) {
 	defer closeStore(t, s)
 
 	id, _ := s.AddWatchlist(Watchlist{Name: "Del", Query: "delete"})
-	s.DeleteWatchlist(id)
+	_ = s.DeleteWatchlist(id)
 
 	got, _ := s.GetWatchlist(id)
 	if got != nil {
@@ -1156,9 +1156,9 @@ func TestGetEnabledWatchlists(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	s.AddWatchlist(Watchlist{Name: "Enabled1", Query: "q1", Enabled: true})
-	s.AddWatchlist(Watchlist{Name: "Disabled", Query: "q2", Enabled: false})
-	s.AddWatchlist(Watchlist{Name: "Enabled2", Query: "q3", Enabled: true})
+	_, _ = s.AddWatchlist(Watchlist{Name: "Enabled1", Query: "q1", Enabled: true})
+	_, _ = s.AddWatchlist(Watchlist{Name: "Disabled", Query: "q2", Enabled: false})
+	_, _ = s.AddWatchlist(Watchlist{Name: "Enabled2", Query: "q3", Enabled: true})
 
 	enabled, err := s.GetEnabledWatchlists()
 	if err != nil {
@@ -1215,11 +1215,11 @@ func TestGetAllProviderStats(t *testing.T) {
 	defer closeStore(t, s)
 
 	now := time.Now()
-	s.RecordProviderStats(ProviderStats{
+	_ = s.RecordProviderStats(ProviderStats{
 		Provider: "nibl", WindowStart: now.Add(-30 * time.Minute),
 		WindowEnd: now, Requests: 5, Successes: 5,
 	})
-	s.RecordProviderStats(ProviderStats{
+	_ = s.RecordProviderStats(ProviderStats{
 		Provider: "xdcc_eu", WindowStart: now.Add(-30 * time.Minute),
 		WindowEnd: now, Requests: 3, Successes: 3,
 	})
@@ -1275,9 +1275,9 @@ func TestExportImportData(t *testing.T) {
 	defer closeStore(t, s)
 
 	// Add some data
-	s.AddServer(ServerRecord{Address: "irc.export.net", Port: 6667, Status: "connected"})
-	s.AddWatchlist(Watchlist{Name: "Export WL", Query: "test", Enabled: true})
-	s.AddSearchPreset(SearchPreset{Name: "Export Preset", Query: "test"})
+	_, _ = s.AddServer(ServerRecord{Address: "irc.export.net", Port: 6667, Status: "connected"})
+	_, _ = s.AddWatchlist(Watchlist{Name: "Export WL", Query: "test", Enabled: true})
+	_, _ = s.AddSearchPreset(SearchPreset{Name: "Export Preset", Query: "test"})
 
 	exp, err := s.ExportData()
 	if err != nil {
@@ -1389,7 +1389,7 @@ func TestRequeueDownload(t *testing.T) {
 	id, _ := s.EnqueueDownload(DownloadRecord{
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x", Filename: "f.mkv", FileSize: 1000,
 	})
-	s.MarkDownloadCompleted(id)
+	_ = s.MarkDownloadCompleted(id)
 
 	err := s.RequeueDownload(id)
 	if err != nil {

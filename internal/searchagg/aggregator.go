@@ -21,12 +21,13 @@ import (
 // Aggregator runs parallel searches across multiple XDCC providers, caches
 // results, applies filters, and returns paginated, deduplicated results.
 type Aggregator struct {
-	store    store.Store
-	cfg      *config.SearchConfig
-	log      *log.Logger
-	cache    *searchCache
-	disabled map[string]bool // runtime-disabled providers
-	mu       sync.RWMutex
+	store          store.Store
+	cfg            *config.SearchConfig
+	log            *log.Logger
+	cache          *searchCache
+	disabled       map[string]bool // runtime-disabled providers
+	runtimeEnabled map[string]bool // runtime-enabled providers (overrides config allowlist)
+	mu             sync.RWMutex
 
 	// Cleanup goroutine lifecycle
 	ctx    context.Context
@@ -37,12 +38,13 @@ type Aggregator struct {
 // New creates a new search Aggregator.
 func New(st store.Store, cfg *config.SearchConfig, logger *log.Logger) *Aggregator {
 	return &Aggregator{
-		store:    st,
-		cfg:      cfg,
-		log:      logger,
-		cache:    newSearchCache(st, cfg.Cache.Enabled, cfg.Cache.FreshTTL, cfg.Cache.StaleTTL),
-		disabled: make(map[string]bool),
-		done:     make(chan struct{}),
+		store:          st,
+		cfg:            cfg,
+		log:            logger,
+		cache:          newSearchCache(st, cfg.Cache.Enabled, cfg.Cache.FreshTTL, cfg.Cache.StaleTTL),
+		disabled:       make(map[string]bool),
+		runtimeEnabled: make(map[string]bool),
+		done:           make(chan struct{}),
 	}
 }
 
@@ -120,9 +122,14 @@ func (a *Aggregator) IsProviderEnabled(name string) bool {
 	name = strings.ToLower(name)
 	a.mu.RLock()
 	disabled := a.disabled[name]
+	runtimeEnabled := a.runtimeEnabled[name]
 	a.mu.RUnlock()
 	if disabled {
 		return false
+	}
+	// Runtime enable overrides the config allowlist
+	if runtimeEnabled {
+		return true
 	}
 	// If configured with an allow-list, check it
 	if len(a.cfg.EnabledProviders) > 0 {
@@ -142,6 +149,7 @@ func (a *Aggregator) EnableProvider(name string) {
 	name = strings.ToLower(name)
 	a.mu.Lock()
 	delete(a.disabled, name)
+	a.runtimeEnabled[name] = true
 	a.mu.Unlock()
 	a.log.Printf("search provider %q enabled", name)
 }
@@ -150,6 +158,7 @@ func (a *Aggregator) EnableProvider(name string) {
 func (a *Aggregator) DisableProvider(name string) {
 	name = strings.ToLower(name)
 	a.mu.Lock()
+	delete(a.runtimeEnabled, name)
 	a.disabled[name] = true
 	a.mu.Unlock()
 	a.log.Printf("search provider %q disabled", name)
@@ -166,14 +175,15 @@ func (a *Aggregator) GetProviderStates() []ProviderStatus {
 		}
 		if !a.IsProviderEnabled(name) {
 			a.mu.RLock()
+			ps.Status = ProviderStatusDisabled
 			if a.disabled[name] {
-				ps.Status = ProviderStatusFailed
 				ps.Error = "disabled at runtime"
 			} else {
-				ps.Status = ProviderStatusFailed
 				ps.Error = "disabled in config"
 			}
 			a.mu.RUnlock()
+			result = append(result, ps)
+			continue
 		}
 		// Get stats from store
 		if a.store != nil {
@@ -219,7 +229,7 @@ func (a *Aggregator) Search(ctx context.Context, opts SearchOptions) (*SearchRes
 	}
 
 	// Run parallel searches
-	allPacks, providerStatuses, hadSuccess := a.searchLive(ctx, query)
+	allPacks, providerStatuses, hadSuccess := a.searchLive(ctx, query, opts.Providers)
 	if !hadSuccess {
 		// All providers failed — try stale cache (all providers)
 		key := cacheKey(query)
@@ -240,13 +250,21 @@ func (a *Aggregator) Search(ctx context.Context, opts SearchOptions) (*SearchRes
 	return a.buildResultFromLive(allPacks, opts, providerStatuses, query), nil
 }
 
-// searchLive runs parallel searches across all enabled providers.
+// searchLive runs parallel searches across all enabled providers,
+// restricted to providers if non-empty.
 // Returns the raw packs, per-provider statuses, and whether any succeeded.
-func (a *Aggregator) searchLive(ctx context.Context, query string) ([]*entities.XDCCPack, []ProviderStatus, bool) {
+func (a *Aggregator) searchLive(ctx context.Context, query string, providers []string) ([]*entities.XDCCPack, []ProviderStatus, bool) {
 	engines := srch.AvailableEngines()
 	timeout := time.Duration(a.cfg.ProviderTimeout) * time.Second
 	if timeout < 1*time.Second {
 		timeout = 5 * time.Second
+	}
+
+	// Build a set of requested providers (empty = all enabled)
+	providerSet := make(map[string]bool, len(providers))
+	hasProviderFilter := len(providers) > 0
+	for _, p := range providers {
+		providerSet[strings.ToLower(p)] = true
 	}
 
 	type engineResult struct {
@@ -261,6 +279,10 @@ func (a *Aggregator) searchLive(ctx context.Context, query string) ([]*entities.
 
 	for _, engName := range engines {
 		if !a.IsProviderEnabled(engName) {
+			continue
+		}
+		// If the user selected specific providers, only search those
+		if hasProviderFilter && !providerSet[strings.ToLower(engName)] {
 			continue
 		}
 
@@ -403,11 +425,22 @@ func (a *Aggregator) buildResultFromCache(
 	provenance string,
 	queryKey string,
 ) *SearchResult {
+	// Build provider filter set (same as searchLive)
+	providerSet := make(map[string]bool, len(opts.Providers))
+	hasProviderFilter := len(opts.Providers) > 0
+	for _, p := range opts.Providers {
+		providerSet[strings.ToLower(p)] = true
+	}
+
 	var allPacks []*entities.XDCCPack
 	var providerStatuses []ProviderStatus
 	var cacheAge time.Duration
 
 	for provider, entry := range entries {
+		// If user selected specific providers, skip non-selected ones
+		if hasProviderFilter && !providerSet[strings.ToLower(provider)] {
+			continue
+		}
 		allPacks = append(allPacks, entry.Packs...)
 		age := time.Since(entry.FetchedAt)
 		if age > cacheAge {

@@ -53,8 +53,8 @@ func (e *SubsPleaseEngine) Search(term string) ([]*entities.XDCCPack, error) {
 		bot := data["b"]
 		filename := data["f"]
 		var packNum, fileSize int
-		fmt.Sscanf(data["n"], "%d", &packNum)
-		fmt.Sscanf(data["s"], "%d", &fileSize)
+		_, _ = fmt.Sscanf(data["n"], "%d", &packNum)
+		_, _ = fmt.Sscanf(data["s"], "%d", &fileSize)
 
 		if bot == "" || packNum == 0 {
 			continue

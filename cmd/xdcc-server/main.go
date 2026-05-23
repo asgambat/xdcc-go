@@ -390,7 +390,7 @@ See config.yaml in the project root for all available settings.`,
 			// 6. Run final cleanup save (with timeout)
 			logger.Infof("shutdown: running final database cleanup...")
 			stopWithTimeout("database cleanup", 3*time.Second, func() {
-				st.Vacuum()
+				_ = st.Vacuum()
 			}, logger)
 
 			logger.Infof("server stopped gracefully")

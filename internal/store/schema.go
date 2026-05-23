@@ -171,7 +171,7 @@ func runMigrations(db *sql.DB, dbPath string) error {
 		}
 
 		if _, err := tx.Exec(m.up); err != nil {
-			tx.Rollback()
+			_ = tx.Rollback()
 			return fmt.Errorf("applying migration v%d (%s): %w", m.version, m.description, err)
 		}
 
@@ -179,7 +179,7 @@ func runMigrations(db *sql.DB, dbPath string) error {
 			`INSERT INTO schema_version (version, applied_at) VALUES (?, datetime('now'))`,
 			m.version,
 		); err != nil {
-			tx.Rollback()
+			_ = tx.Rollback()
 			return fmt.Errorf("recording migration v%d: %w", m.version, err)
 		}
 

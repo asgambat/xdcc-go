@@ -110,7 +110,7 @@ func TestHealthz(t *testing.T) {
 	}
 
 	var resp map[string]string
-	json.NewDecoder(w.Body).Decode(&resp)
+	_ = json.NewDecoder(w.Body).Decode(&resp)
 	if resp["status"] != "ok" {
 		t.Errorf("expected status 'ok', got %s", resp["status"])
 	}
@@ -125,7 +125,7 @@ func TestVersion(t *testing.T) {
 	}
 
 	var resp map[string]string
-	json.NewDecoder(w.Body).Decode(&resp)
+	_ = json.NewDecoder(w.Body).Decode(&resp)
 	if resp["version"] == "" {
 		t.Errorf("expected version to be set, got empty")
 	}
@@ -161,7 +161,7 @@ func TestEnqueueDownload_Success(t *testing.T) {
 	}
 
 	var resp map[string]int64
-	json.NewDecoder(w.Body).Decode(&resp)
+	_ = json.NewDecoder(w.Body).Decode(&resp)
 	if resp["id"] <= 0 {
 		t.Errorf("expected positive id, got %d", resp["id"])
 	}
@@ -184,13 +184,13 @@ func TestEnqueueDownload_TLTBotServerOverride(t *testing.T) {
 	}
 
 	var createData map[string]int64
-	json.NewDecoder(createResp.Body).Decode(&createData)
+	_ = json.NewDecoder(createResp.Body).Decode(&createData)
 	id := createData["id"]
 
 	// Verify the stored server address was corrected to irc.williamgattone.it
 	getResp := ta.request(t, "GET", "/api/downloads/"+itoa(id), nil)
 	var dl store.DownloadRecord
-	json.NewDecoder(getResp.Body).Decode(&dl)
+	_ = json.NewDecoder(getResp.Body).Decode(&dl)
 	if dl.ServerAddress != "irc.williamgattone.it" {
 		t.Errorf("expected server_address irc.williamgattone.it for TLT bot, got %s", dl.ServerAddress)
 	}
@@ -213,13 +213,13 @@ func TestEnqueueDownload_WeCBotServerOverride(t *testing.T) {
 	}
 
 	var createData map[string]int64
-	json.NewDecoder(createResp.Body).Decode(&createData)
+	_ = json.NewDecoder(createResp.Body).Decode(&createData)
 	id := createData["id"]
 
 	// Verify the stored server address was corrected to irc.explosionirc.net
 	getResp := ta.request(t, "GET", "/api/downloads/"+itoa(id), nil)
 	var dl store.DownloadRecord
-	json.NewDecoder(getResp.Body).Decode(&dl)
+	_ = json.NewDecoder(getResp.Body).Decode(&dl)
 	if dl.ServerAddress != "irc.explosionirc.net" {
 		t.Errorf("expected server_address irc.explosionirc.net for WeC bot, got %s", dl.ServerAddress)
 	}
@@ -289,7 +289,7 @@ func TestListServers_IncludesChannelCount(t *testing.T) {
 	}
 
 	var resp []map[string]interface{}
-	json.NewDecoder(w.Body).Decode(&resp)
+	_ = json.NewDecoder(w.Body).Decode(&resp)
 	if len(resp) != 1 {
 		t.Fatalf("expected 1 server, got %d", len(resp))
 	}
@@ -307,7 +307,7 @@ func TestListDownloads_Empty(t *testing.T) {
 	}
 
 	var resp map[string]interface{}
-	json.NewDecoder(w.Body).Decode(&resp)
+	_ = json.NewDecoder(w.Body).Decode(&resp)
 
 	downloads, ok := resp["downloads"].([]interface{})
 	if !ok {
@@ -337,7 +337,7 @@ func TestListDownloads_WithItems(t *testing.T) {
 	}
 
 	var resp map[string]interface{}
-	json.NewDecoder(w.Body).Decode(&resp)
+	_ = json.NewDecoder(w.Body).Decode(&resp)
 
 	downloads := resp["downloads"].([]interface{})
 	if len(downloads) != 2 {
@@ -354,11 +354,11 @@ func TestListDownloads_IncludesRecentCompleted(t *testing.T) {
 		"server_address": "irc.t.net", "channel": "#x", "filename": "f.mkv", "file_size": 100,
 	})
 	var createData map[string]int64
-	json.NewDecoder(createResp.Body).Decode(&createData)
+	_ = json.NewDecoder(createResp.Body).Decode(&createData)
 	id := createData["id"]
 
-	ta.store.MarkDownloadStarted(id)
-	ta.store.MarkDownloadCompleted(id)
+	_ = ta.store.MarkDownloadStarted(id)
+	_ = ta.store.MarkDownloadCompleted(id)
 
 	// The completed download should still appear in the list
 	w := ta.request(t, "GET", "/api/downloads", nil)
@@ -367,7 +367,7 @@ func TestListDownloads_IncludesRecentCompleted(t *testing.T) {
 	}
 
 	var resp map[string]interface{}
-	json.NewDecoder(w.Body).Decode(&resp)
+	_ = json.NewDecoder(w.Body).Decode(&resp)
 
 	downloads := resp["downloads"].([]interface{})
 	if len(downloads) != 1 {
@@ -377,7 +377,7 @@ func TestListDownloads_IncludesRecentCompleted(t *testing.T) {
 	// Verify the record has status 'completed'
 	dlJSON, _ := json.Marshal(downloads[0])
 	var dl store.DownloadRecord
-	json.Unmarshal(dlJSON, &dl)
+	_ = json.Unmarshal(dlJSON, &dl)
 	if dl.Status != store.DownloadStatusCompleted {
 		t.Errorf("expected status 'completed', got %s", dl.Status)
 	}
@@ -392,7 +392,7 @@ func TestGetDownload_Found(t *testing.T) {
 		"server_address": "irc.t.net", "channel": "#x", "filename": "f.mkv", "file_size": 100,
 	})
 	var createData map[string]int64
-	json.NewDecoder(createResp.Body).Decode(&createData)
+	_ = json.NewDecoder(createResp.Body).Decode(&createData)
 	id := createData["id"]
 
 	// Get by ID
@@ -402,7 +402,7 @@ func TestGetDownload_Found(t *testing.T) {
 	}
 
 	var dl store.DownloadRecord
-	json.NewDecoder(w.Body).Decode(&dl)
+	_ = json.NewDecoder(w.Body).Decode(&dl)
 	if dl.Bot != "Bot" {
 		t.Errorf("expected bot 'Bot', got %s", dl.Bot)
 	}
@@ -428,7 +428,7 @@ func TestPauseAndResumeDownload(t *testing.T) {
 		"server_address": "irc.t.net", "channel": "#x", "filename": "f.mkv", "file_size": 100,
 	})
 	var createData map[string]int64
-	json.NewDecoder(createResp.Body).Decode(&createData)
+	_ = json.NewDecoder(createResp.Body).Decode(&createData)
 	id := createData["id"]
 
 	// Pause
@@ -452,11 +452,11 @@ func TestRetryDownload(t *testing.T) {
 		"server_address": "irc.t.net", "channel": "#x", "filename": "f.mkv", "file_size": 100,
 	})
 	var createData map[string]int64
-	json.NewDecoder(createResp.Body).Decode(&createData)
+	_ = json.NewDecoder(createResp.Body).Decode(&createData)
 	id := createData["id"]
 
 	// Mark as failed manually
-	ta.store.MarkDownloadFailed(id, "test error")
+	_ = ta.store.MarkDownloadFailed(id, "test error")
 
 	// Retry via API
 	w := ta.request(t, "POST", "/api/downloads/"+itoa(id)+"/retry", nil)
@@ -467,7 +467,7 @@ func TestRetryDownload(t *testing.T) {
 	// Verify status is now queued
 	getResp := ta.request(t, "GET", "/api/downloads/"+itoa(id), nil)
 	var dl store.DownloadRecord
-	json.NewDecoder(getResp.Body).Decode(&dl)
+	_ = json.NewDecoder(getResp.Body).Decode(&dl)
 	if dl.Status != store.DownloadStatusQueued {
 		t.Errorf("expected status 'queued' after retry, got %s", dl.Status)
 	}
@@ -481,12 +481,12 @@ func TestRetryDownload_Completed(t *testing.T) {
 		"server_address": "irc.t.net", "channel": "#x", "filename": "f.mkv", "file_size": 100,
 	})
 	var createData map[string]int64
-	json.NewDecoder(createResp.Body).Decode(&createData)
+	_ = json.NewDecoder(createResp.Body).Decode(&createData)
 	id := createData["id"]
 
 	// Mark as completed
-	ta.store.MarkDownloadStarted(id)
-	ta.store.MarkDownloadCompleted(id)
+	_ = ta.store.MarkDownloadStarted(id)
+	_ = ta.store.MarkDownloadCompleted(id)
 
 	// Retry via API — should succeed now that RetryDownload accepts 'completed'
 	w := ta.request(t, "POST", "/api/downloads/"+itoa(id)+"/retry", nil)
@@ -497,7 +497,7 @@ func TestRetryDownload_Completed(t *testing.T) {
 	// Verify status is now queued
 	getResp := ta.request(t, "GET", "/api/downloads/"+itoa(id), nil)
 	var dl store.DownloadRecord
-	json.NewDecoder(getResp.Body).Decode(&dl)
+	_ = json.NewDecoder(getResp.Body).Decode(&dl)
 	if dl.Status != store.DownloadStatusQueued {
 		t.Errorf("expected status 'queued' after retry of completed, got %s", dl.Status)
 	}
@@ -511,7 +511,7 @@ func TestRemoveDownload(t *testing.T) {
 		"server_address": "irc.t.net", "channel": "#x", "filename": "f.mkv", "file_size": 100,
 	})
 	var createData map[string]int64
-	json.NewDecoder(createResp.Body).Decode(&createData)
+	_ = json.NewDecoder(createResp.Body).Decode(&createData)
 	id := createData["id"]
 
 	w := ta.request(t, "DELETE", "/api/downloads/"+itoa(id), nil)
@@ -529,14 +529,14 @@ func TestBulkDownloads(t *testing.T) {
 		"server_address": "irc.t.net", "channel": "#a", "filename": "a.mkv", "file_size": 100,
 	})
 	var d1 map[string]int64
-	json.NewDecoder(createResp1.Body).Decode(&d1)
+	_ = json.NewDecoder(createResp1.Body).Decode(&d1)
 
 	createResp2 := ta.request(t, "POST", "/api/downloads", map[string]interface{}{
 		"pack_message": "xdcc send #2", "bot": "Bot2",
 		"server_address": "irc.t.net", "channel": "#b", "filename": "b.mkv", "file_size": 200,
 	})
 	var d2 map[string]int64
-	json.NewDecoder(createResp2.Body).Decode(&d2)
+	_ = json.NewDecoder(createResp2.Body).Decode(&d2)
 
 	// Bulk pause
 	w := ta.request(t, "POST", "/api/downloads/bulk", map[string]interface{}{
@@ -548,7 +548,7 @@ func TestBulkDownloads(t *testing.T) {
 	}
 
 	var resp map[string]interface{}
-	json.NewDecoder(w.Body).Decode(&resp)
+	_ = json.NewDecoder(w.Body).Decode(&resp)
 	if resp["successes"].(float64) != 2 {
 		t.Errorf("expected 2 successes, got %v", resp["successes"])
 	}
@@ -574,7 +574,7 @@ func TestSetDownloadPosition(t *testing.T) {
 		"server_address": "irc.t.net", "channel": "#x", "filename": "f.mkv", "file_size": 100,
 	})
 	var createData map[string]int64
-	json.NewDecoder(createResp.Body).Decode(&createData)
+	_ = json.NewDecoder(createResp.Body).Decode(&createData)
 	id := createData["id"]
 
 	w := ta.request(t, "PATCH", "/api/downloads/"+itoa(id)+"/position", map[string]interface{}{
@@ -587,7 +587,7 @@ func TestSetDownloadPosition(t *testing.T) {
 	// Verify priority was updated
 	getResp := ta.request(t, "GET", "/api/downloads/"+itoa(id), nil)
 	var dl store.DownloadRecord
-	json.NewDecoder(getResp.Body).Decode(&dl)
+	_ = json.NewDecoder(getResp.Body).Decode(&dl)
 	if dl.Priority != 1 {
 		t.Errorf("expected priority 1, got %d", dl.Priority)
 	}
@@ -606,7 +606,7 @@ func TestDownloadHistory_Empty(t *testing.T) {
 	}
 
 	var resp map[string]interface{}
-	json.NewDecoder(w.Body).Decode(&resp)
+	_ = json.NewDecoder(w.Body).Decode(&resp)
 	if resp["total"].(float64) != 0 {
 		t.Errorf("expected total 0, got %v", resp["total"])
 	}
@@ -621,11 +621,11 @@ func TestDownloadHistory_WithItems(t *testing.T) {
 		"server_address": "irc.t.net", "channel": "#x", "filename": "f.mkv", "file_size": 100,
 	})
 	var createData map[string]int64
-	json.NewDecoder(createResp.Body).Decode(&createData)
+	_ = json.NewDecoder(createResp.Body).Decode(&createData)
 	id := createData["id"]
 
-	ta.store.MarkDownloadStarted(id)
-	ta.store.MarkDownloadCompleted(id)
+	_ = ta.store.MarkDownloadStarted(id)
+	_ = ta.store.MarkDownloadCompleted(id)
 
 	w := ta.request(t, "GET", "/api/downloads/history", nil)
 	if w.Code != http.StatusOK {
@@ -633,7 +633,7 @@ func TestDownloadHistory_WithItems(t *testing.T) {
 	}
 
 	var resp map[string]interface{}
-	json.NewDecoder(w.Body).Decode(&resp)
+	_ = json.NewDecoder(w.Body).Decode(&resp)
 	if resp["total"].(float64) != 1 {
 		t.Errorf("expected total 1, got %v", resp["total"])
 	}
@@ -652,7 +652,7 @@ func TestStats(t *testing.T) {
 	}
 
 	var resp map[string]interface{}
-	json.NewDecoder(w.Body).Decode(&resp)
+	_ = json.NewDecoder(w.Body).Decode(&resp)
 	if resp["uptime"] == "" {
 		t.Errorf("expected uptime to be set")
 	}
@@ -700,7 +700,7 @@ func TestParseXDCC(t *testing.T) {
 			}
 
 			var resp map[string]interface{}
-			json.NewDecoder(w.Body).Decode(&resp)
+			_ = json.NewDecoder(w.Body).Decode(&resp)
 			if tt.wantPack > 0 && resp["pack_number"].(float64) != float64(tt.wantPack) {
 				t.Errorf("expected pack_number %d, got %v", tt.wantPack, resp["pack_number"])
 			}
@@ -737,7 +737,7 @@ func TestPresetsCRUD(t *testing.T) {
 	}
 
 	var createData map[string]int64
-	json.NewDecoder(createResp.Body).Decode(&createData)
+	_ = json.NewDecoder(createResp.Body).Decode(&createData)
 	id := createData["id"]
 
 	// List
@@ -747,7 +747,7 @@ func TestPresetsCRUD(t *testing.T) {
 	}
 
 	var presets []store.SearchPreset
-	json.NewDecoder(listResp.Body).Decode(&presets)
+	_ = json.NewDecoder(listResp.Body).Decode(&presets)
 	if len(presets) != 1 {
 		t.Errorf("expected 1 preset, got %d", len(presets))
 	}
@@ -786,7 +786,7 @@ func TestWatchlistsCRUD(t *testing.T) {
 	}
 
 	var createData map[string]int64
-	json.NewDecoder(createResp.Body).Decode(&createData)
+	_ = json.NewDecoder(createResp.Body).Decode(&createData)
 	id := createData["id"]
 
 	// List
@@ -796,7 +796,7 @@ func TestWatchlistsCRUD(t *testing.T) {
 	}
 
 	var watchlists []store.Watchlist
-	json.NewDecoder(listResp.Body).Decode(&watchlists)
+	_ = json.NewDecoder(listResp.Body).Decode(&watchlists)
 	if len(watchlists) != 1 {
 		t.Errorf("expected 1 watchlist, got %d", len(watchlists))
 	}
@@ -871,7 +871,7 @@ func TestAdminExport_Empty(t *testing.T) {
 	}
 
 	var resp map[string]interface{}
-	json.NewDecoder(w.Body).Decode(&resp)
+	_ = json.NewDecoder(w.Body).Decode(&resp)
 	if resp["exported_at"] == "" {
 		t.Errorf("expected exported_at to be set")
 	}
@@ -982,7 +982,7 @@ func TestSetupStatus(t *testing.T) {
 	}
 
 	var resp map[string]interface{}
-	json.NewDecoder(w.Body).Decode(&resp)
+	_ = json.NewDecoder(w.Body).Decode(&resp)
 	if resp["setup_completed"] != false {
 		t.Errorf("expected setup_completed=false initially, got %v", resp["setup_completed"])
 	}

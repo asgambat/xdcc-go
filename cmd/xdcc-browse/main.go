@@ -255,10 +255,6 @@ func runBrowseWithServer(serverURL, term, extFilter, botFilter string, compact, 
 	// Display results
 	fmt.Printf("\nFound %d result(s) (via server, %s):\n\n", result.Total, result.Provenance)
 	for i, pack := range result.Packs {
-		serverStr := pack.Server
-		if serverStr == "" {
-			serverStr = "?"
-		}
 		fmt.Printf("  [%3d] %s [%s] bot: %s\n", i+1,
 			pack.Filename,
 			formatBytes(pack.Size),

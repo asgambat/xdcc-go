@@ -58,7 +58,7 @@ func (a *API) handleEvents(w http.ResponseWriter, r *http.Request) {
 	lastEventIDStr := r.Header.Get("Last-Event-ID")
 	var lastEventID int64
 	if lastEventIDStr != "" {
-		fmt.Sscanf(lastEventIDStr, "%d", &lastEventID)
+		_, _ = fmt.Sscanf(lastEventIDStr, "%d", &lastEventID)
 	}
 
 	// If Last-Event-ID is provided, replay missed events

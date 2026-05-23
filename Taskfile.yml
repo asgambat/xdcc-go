@@ -370,3 +370,9 @@ tasks:
       - task: build:all
       - cmd: echo "Release binaries built in {{.BIN_DIR}}/"
         silent: true
+  
+  release:tag:
+    desc: 'Tag and push a release (usage: task release:tag -- 0.0.2)'
+    cmds:
+      - git tag v{{.CLI_ARGS}}
+      - git push origin v{{.CLI_ARGS}}
