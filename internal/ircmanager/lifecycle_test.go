@@ -45,6 +45,7 @@ func TestConnectionLifecycle_NoDuplicateRun(t *testing.T) {
 	conn.ctx, conn.cancel = mgr.ctx, mgr.cancel
 
 	// Launch run() twice - second call should be ignored
+	conn.wg.Add(1)
 	go conn.run()
 	time.Sleep(10 * time.Millisecond) // Let first run() start
 

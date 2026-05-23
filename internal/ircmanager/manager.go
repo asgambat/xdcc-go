@@ -249,6 +249,7 @@ func (m *Manager) ConnectServer(srv *store.ServerRecord) error {
 
 	// Start connection in background
 	conn.ctx, conn.cancel = context.WithCancel(m.ctx)
+	conn.wg.Add(1)
 	go conn.run()
 
 	return nil
@@ -665,8 +666,6 @@ func (mc *managedConnection) run() {
 	mc.isRunning = true
 	mc.runningMu.Unlock()
 
-	// Register this goroutine with WaitGroup
-	mc.wg.Add(1)
 	defer mc.wg.Done()
 
 	// Ensure cleanup on exit

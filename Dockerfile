@@ -17,7 +17,7 @@ RUN npm run build
 # ============================================================
 # Stage 2 — Build Go binaries
 # ============================================================
-FROM --platform=$BUILDPLATFORM golang:1.22-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS builder
 
 ARG TARGETOS
 ARG TARGETARCH

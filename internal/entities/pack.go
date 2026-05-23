@@ -93,6 +93,7 @@ func (p *XDCCPack) String() string {
 // Supported formats:
 //   - "xdcc send #42"       → 42
 //   - "/msg Bot xdcc send #42" → 42
+//
 // If parsing fails, returns 0.
 func ExtractPackNumber(msg string) int {
 	hashIdx := strings.LastIndex(msg, "#")
