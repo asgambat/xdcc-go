@@ -211,6 +211,7 @@ export class SSEClient {
       'disk_space_low', 'disk_space_ok',
       'watchlist_new_results',
       'provider_health_changed',
+      'log_entry',
       'resync_required',
     ];
 

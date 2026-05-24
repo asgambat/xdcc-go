@@ -15,6 +15,7 @@
   import Watchlists from './components/Watchlists.svelte';
   import Providers from './components/Providers.svelte';
   import Settings from './components/Settings.svelte';
+  import Logs from './components/Logs.svelte';
 
   let sidebarOpen = false;
   let modalContent = '';
@@ -227,6 +228,9 @@
       {:else if $currentView === 'settings'}
         <h1 class="page-title">Settings</h1>
         <p class="page-subtitle">Configure the XDCC server</p>
+      {:else if $currentView === 'logs'}
+        <h1 class="page-title">Logs</h1>
+        <p class="page-subtitle">Real-time server log viewer</p>
       {/if}
     </div>
 
@@ -246,6 +250,8 @@
       <Providers />
     {:else if $currentView === 'settings'}
       <Settings {openModal} />
+    {:else if $currentView === 'logs'}
+      <Logs />
     {/if}
   </main>
 </div>

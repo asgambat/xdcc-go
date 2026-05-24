@@ -38,6 +38,9 @@ const (
 	// Provider health
 	EventProviderHealthChanged = "provider_health_changed"
 
+	// Log streaming (Fase 10.1)
+	EventLogEntry = "log_entry"
+
 	// Resync
 	EventResyncRequired = "resync_required"
 )

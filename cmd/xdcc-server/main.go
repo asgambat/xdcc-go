@@ -192,14 +192,19 @@ See config.yaml in the project root for all available settings.`,
 			logger.Infof("search aggregator ready (%d provider(s), cache=%v)",
 				providerCount, cfg.Search.Cache.Enabled)
 
-			// Start SSE event hub (Fase 7)
-			sseHub := sse.NewHub(100) // buffer last 100 events
-			logger.Infof("SSE hub started (buffer=100)")
+		// Start SSE event hub (Fase 7)
+		sseHub := sse.NewHub(100) // buffer last 100 events
+		logger.Infof("SSE hub started (buffer=100)")
 
-			// Track event forwarding goroutines for clean shutdown
-			var eventWg sync.WaitGroup
-			eventCtx, cancelEvents := context.WithCancel(context.Background())
-			defer cancelEvents()
+		// Start log broadcaster: streams log lines to SSE clients (Fase 10.1)
+		logBroadcaster := logging.NewLogBroadcaster(sseHub)
+		logger.AddWriter(logBroadcaster)
+		logger.Infof("log broadcaster started (buffer=%d lines)", logging.MaxLogBufferLines)
+
+		// Track event forwarding goroutines for clean shutdown
+		var eventWg sync.WaitGroup
+		eventCtx, cancelEvents := context.WithCancel(context.Background())
+		defer cancelEvents()
 
 			// Wire IRC manager events into SSE hub (Fase 7.2)
 			ircEventCh := ircMgr.Subscribe()
@@ -299,8 +304,8 @@ See config.yaml in the project root for all available settings.`,
 				}
 			}()
 
-			// Build REST API and wire it into the HTTP server
-			apiHandler := api.New(st, ircMgr, queueMgr, searchAgg, sseHub, cfg, logger)
+		// Build REST API and wire it into the HTTP server
+		apiHandler := api.New(st, ircMgr, queueMgr, searchAgg, sseHub, logBroadcaster, cfg, logger)
 			mux := apiHandler.Router()
 
 			// Create global shutdown context for request cancellation (Phase 1.1)

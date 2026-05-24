@@ -123,6 +123,22 @@ func (l *Logger) SetLevel(level Level) {
 	l.level = level
 }
 
+// AddWriter adds an additional output destination to the logger.
+// Log lines are written to stderr + file (if configured) + all added writers.
+func (l *Logger) AddWriter(w io.Writer) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	// Re-create multi-writer with the new writer added
+	var writers []io.Writer
+	writers = append(writers, os.Stderr)
+	if l.file != nil {
+		writers = append(writers, l.file)
+	}
+	writers = append(writers, w)
+	l.logger.SetOutput(io.MultiWriter(writers...))
+}
+
 // ---------------------------------------------------------------------------
 // Structured logging methods
 // ---------------------------------------------------------------------------

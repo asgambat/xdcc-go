@@ -56,7 +56,7 @@ func newTestAPI(t *testing.T) *testAPI {
 	// don't return 503. This uses the same store, so CRUD operations work.
 	agg := searchagg.New(st, &cfg.Search, stdLogger)
 
-	api := New(st, nil, nil, agg, hub, cfg, apiLogger)
+	api := New(st, nil, nil, agg, hub, nil, cfg, apiLogger)
 
 	router := api.Router()
 

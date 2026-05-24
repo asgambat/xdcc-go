@@ -79,6 +79,22 @@ func (a *API) handleEvents(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Replay recent log entries for new clients (Fase 10.1)
+	if a.LogBroadcaster != nil {
+		recentLogs := a.LogBroadcaster.RecentEntries(100)
+		for _, entry := range recentLogs {
+			logData, _ := json.Marshal(map[string]interface{}{
+				"timestamp": entry.Timestamp,
+				"level":     entry.Level,
+				"message":   entry.Message,
+			})
+			fmt.Fprintf(w, "event: log_entry\ndata: %s\n\n", logData)
+		}
+		if len(recentLogs) > 0 {
+			flusher.Flush()
+		}
+	}
+
 	// Notify the client of successful connection
 	connectedData, _ := json.Marshal(map[string]interface{}{
 		"status":    "connected",

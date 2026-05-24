@@ -14,6 +14,7 @@
     { view: 'search',     icon: '🔍', label: 'Search',    section: 'Search' },
     { view: 'presets',    icon: '📋', label: 'Presets',   section: 'Search' },
     { view: 'watchlists', icon: '👁️', label: 'Watchlists',section: 'Search' },
+    { view: 'logs',       icon: '📜', label: 'Logs',      section: 'System' },
     { view: 'providers',  icon: '🌐', label: 'Providers', section: 'System' },
     { view: 'settings',   icon: '⚙️', label: 'Settings',  section: 'System' },
   ];

@@ -27,6 +27,7 @@ type API struct {
 	QueueManager     QueueManager
 	SearchAggregator *searchagg.Aggregator
 	SSEHub           *sse.Hub
+	LogBroadcaster   *logging.LogBroadcaster
 	Config           *config.Config
 	Logger           *logging.Logger
 	StartTime        time.Time
@@ -58,6 +59,7 @@ type QueueManager interface {
 // New creates a new API handler container.
 func New(st *store.SQLiteStore, ircMgr IRCManager, queueMgr QueueManager,
 	searchAgg *searchagg.Aggregator, sseHub *sse.Hub,
+	logBroadcaster *logging.LogBroadcaster,
 	cfg *config.Config, logger *logging.Logger) *API {
 	return &API{
 		Store:            st,
@@ -65,6 +67,7 @@ func New(st *store.SQLiteStore, ircMgr IRCManager, queueMgr QueueManager,
 		QueueManager:     queueMgr,
 		SearchAggregator: searchAgg,
 		SSEHub:           sseHub,
+		LogBroadcaster:   logBroadcaster,
 		Config:           cfg,
 		Logger:           logger,
 		StartTime:        time.Now(),
