@@ -57,7 +57,7 @@ func (a *API) handleListServers(w http.ResponseWriter, r *http.Request) {
 		}
 
 		var uptimeSeconds int64
-		if s.Status == "connected" && s.LastConnectedAt != nil {
+		if s.LastConnectedAt != nil {
 			uptimeSeconds = int64(time.Since(*s.LastConnectedAt).Seconds())
 		}
 

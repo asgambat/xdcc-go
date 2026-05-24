@@ -4,6 +4,7 @@
 package sse
 
 import (
+	"log"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -146,8 +147,9 @@ func (h *Hub) Close() {
 // ---------------------------------------------------------------------------
 
 // Publish sends an event to all connected clients. Non-blocking: if a
-// client's channel buffer is full, the event is dropped for that client
-// to prevent slow readers from blocking the hub.
+// client's channel buffer is full, the client is evicted (channel closed)
+// to force reconnection via Last-Event-ID, preventing silent state drift
+// in the frontend.
 func (h *Hub) Publish(eventType string, payload map[string]interface{}) {
 	h.mu.Lock()
 	if h.closed {
@@ -171,15 +173,56 @@ func (h *Hub) Publish(eventType string, payload map[string]interface{}) {
 		h.bufferCount++
 	}
 
-	// Broadcast to all clients
+	// Snapshot clients while holding the lock, then release before
+	// broadcasting. This allows concurrent Subscribe/Unsubscribe calls
+	// to proceed while we iterate.
+	clients := make([]chan Event, 0, len(h.clients))
 	for ch := range h.clients {
-		select {
-		case ch <- evt:
-		default:
-			// Client too slow — drop event
-		}
+		clients = append(clients, ch)
 	}
 	h.mu.Unlock()
+
+	// Broadcast to the snapshot without holding the hub lock.
+	// A recover guards against the edge case where a client's channel was
+	// closed by a concurrent Unsubscribe between our snapshot and the send.
+	var dead []chan Event
+	for _, ch := range clients {
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					// Only expected when Unsubscribe closed the channel
+					// between our snapshot and the send. Log at debug
+					// level since it's a normal race resolution.
+					log.Printf("sse.Hub.Publish: recovered from send panic (channel likely closed by Unsubscribe): %v", r)
+				}
+			}()
+			select {
+			case ch <- evt:
+			default:
+				// Buffer full — client is too slow. Evict it to force
+				// reconnection via Last-Event-ID instead of silently
+				// dropping events, which would leave the frontend with
+				// inconsistent state.
+				dead = append(dead, ch)
+			}
+		}()
+	}
+
+	// Evict slow clients under lock to avoid races with Subscribe/Unsubscribe.
+	if len(dead) > 0 {
+		h.mu.Lock()
+		if !h.closed {
+			for _, ch := range dead {
+				// Check the channel is still registered — a concurrent
+				// Unsubscribe may have already removed and closed it.
+				if _, ok := h.clients[ch]; ok {
+					delete(h.clients, ch)
+					close(ch)
+				}
+			}
+		}
+		h.mu.Unlock()
+	}
 }
 
 // ---------------------------------------------------------------------------

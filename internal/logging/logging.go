@@ -66,12 +66,13 @@ func ParseLevel(s string) (Level, error) {
 // Logger is a structured logger that writes to multiple outputs (stdout + file).
 // It supports level filtering and structured key-value pairs.
 type Logger struct {
-	mu        sync.Mutex
-	level     Level
-	logger    *log.Logger
-	file      io.WriteCloser
-	filePath  string
-	maxSizeMB int
+	mu           sync.Mutex
+	level        Level
+	logger       *log.Logger
+	file         io.WriteCloser
+	filePath     string
+	maxSizeMB    int
+	extraWriters []io.Writer // additional outputs added via AddWriter
 }
 
 // New creates a new Logger.
@@ -85,9 +86,6 @@ func New(level Level, filePath string, maxSizeMB int) *Logger {
 	}
 
 	// Create multi-writer
-	var writers []io.Writer
-	writers = append(writers, os.Stderr)
-
 	if filePath != "" {
 		dir := filepath.Dir(filePath)
 		if err := os.MkdirAll(dir, 0755); err == nil {
@@ -95,13 +93,11 @@ func New(level Level, filePath string, maxSizeMB int) *Logger {
 			if err == nil {
 				l.file = f
 				l.filePath = filePath
-				writers = append(writers, f)
 			}
 		}
 	}
 
-	multi := io.MultiWriter(writers...)
-	l.logger = log.New(multi, "", 0) // we handle prefix/time ourselves
+	l.rebuildMultiWriter()
 
 	return l
 }
@@ -125,18 +121,12 @@ func (l *Logger) SetLevel(level Level) {
 
 // AddWriter adds an additional output destination to the logger.
 // Log lines are written to stderr + file (if configured) + all added writers.
+// Multiple calls each add a new writer — previous ones are preserved.
 func (l *Logger) AddWriter(w io.Writer) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-
-	// Re-create multi-writer with the new writer added
-	var writers []io.Writer
-	writers = append(writers, os.Stderr)
-	if l.file != nil {
-		writers = append(writers, l.file)
-	}
-	writers = append(writers, w)
-	l.logger.SetOutput(io.MultiWriter(writers...))
+	l.extraWriters = append(l.extraWriters, w)
+	l.rebuildMultiWriter()
 }
 
 // ---------------------------------------------------------------------------
@@ -248,6 +238,9 @@ func (l *Logger) log(level Level, msg string, kv ...interface{}) {
 // ---------------------------------------------------------------------------
 
 // rotateIfNeeded rotates the log file if it exceeds maxSizeMB.
+// On rename failure it switches to a timestamped path to prevent an infinite
+// rotation loop (where the oversized file can't be renamed and every log write
+// triggers another rotation attempt).
 func (l *Logger) rotateIfNeeded() {
 	if l.filePath == "" || l.maxSizeMB <= 0 {
 		return
@@ -265,23 +258,48 @@ func (l *Logger) rotateIfNeeded() {
 
 	// Close current file
 	l.file.Close()
+	l.file = nil
 
-	// Rename to backup
+	// Rename current file to a timestamped backup
 	backupPath := fmt.Sprintf("%s.%s", l.filePath, time.Now().Format("20060102-150405"))
-	_ = os.Rename(l.filePath, backupPath)
+	if err := os.Rename(l.filePath, backupPath); err != nil {
+		// Rename failed (permissions, file lock, etc.). To prevent an
+		// infinite rotation loop, switch to a new log file with a
+		// timestamp suffix. The old oversized file is orphaned but
+		// won't keep growing.
+		fmt.Fprintf(os.Stderr, "WARNING: log rotation rename failed for %s: %v — switching to new path\n", l.filePath, err)
+		l.filePath = fmt.Sprintf("%s.%s", l.filePath, time.Now().Format("20060102-150405"))
+	}
 
 	// Open new file
 	f, err := os.OpenFile(l.filePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
-		// Failed to open new file, log to stderr only
-		l.file = nil
+		fmt.Fprintf(os.Stderr, "ERROR: failed to open new log file %s: %v — logging to stderr only\n", l.filePath, err)
+		l.rebuildMultiWriter()
 		return
 	}
 	l.file = f
 
-	// Re-create multi-writer
-	multi := io.MultiWriter(os.Stderr, f)
-	l.logger.SetOutput(multi)
+	l.rebuildMultiWriter()
+}
+
+// rebuildMultiWriter reconstructs the io.MultiWriter from stderr + file +
+// all extra writers. Creates the underlying log.Logger on first call
+// (during New), and updates its output on subsequent calls.
+// Caller must hold l.mu (except during New, where the Logger is not yet shared).
+func (l *Logger) rebuildMultiWriter() {
+	var writers []io.Writer
+	writers = append(writers, os.Stderr)
+	if l.file != nil {
+		writers = append(writers, l.file)
+	}
+	writers = append(writers, l.extraWriters...)
+	multi := io.MultiWriter(writers...)
+	if l.logger == nil {
+		l.logger = log.New(multi, "", 0)
+	} else {
+		l.logger.SetOutput(multi)
+	}
 }
 
 // ---------------------------------------------------------------------------

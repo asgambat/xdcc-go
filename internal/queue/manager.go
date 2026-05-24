@@ -12,6 +12,7 @@ import (
 	"xdcc-go/internal/diskmon"
 	"xdcc-go/internal/entities"
 	xdccirc "xdcc-go/internal/irc"
+	"xdcc-go/internal/pubsub"
 	"xdcc-go/internal/store"
 )
 
@@ -71,7 +72,7 @@ type QueueManager struct {
 	globalCount int
 
 	// event subscriber hub
-	subscriber *subscriberHub
+	subscriber *pubsub.Hub[Event]
 
 	// main context for lifecycle
 	ctx    context.Context
@@ -110,7 +111,7 @@ func New(st store.Store, cfg *config.Config, logger *log.Logger) *QueueManager {
 		log:          logger,
 		activeJobs:   make(map[int64]context.CancelFunc),
 		channelSlots: make(map[string]int64),
-		subscriber:   newSubscriberHub(),
+		subscriber:   pubsub.New[Event](512),
 		ctx:          ctx,
 		cancel:       cancel,
 		done:         make(chan struct{}),
@@ -251,18 +252,18 @@ func (qm *QueueManager) monitorLoop() {
 
 // Subscribe returns a channel that receives queue events.
 func (qm *QueueManager) Subscribe() chan Event {
-	return qm.subscriber.subscribe()
+	return qm.subscriber.Subscribe()
 }
 
 // Unsubscribe removes a previously subscribed channel.
 func (qm *QueueManager) Unsubscribe(ch chan Event) {
-	qm.subscriber.unsubscribe(ch)
+	qm.subscriber.Unsubscribe(ch)
 }
 
 // emitEvent sends an event to all subscribers.
 func (qm *QueueManager) emitEvent(evt Event) {
 	evt.Timestamp = time.Now()
-	qm.subscriber.publish(evt)
+	qm.subscriber.Publish(evt)
 }
 
 // ---------------------------------------------------------------------------
@@ -340,6 +341,7 @@ func (qm *QueueManager) CancelDownload(id int64, reason string) error {
 
 	if active {
 		cancelFn()
+		qm.releaseChannelSlot(id)
 		qm.log.Printf("cancelled active download %d: %s", id, reason)
 	}
 
@@ -377,10 +379,9 @@ func (qm *QueueManager) PauseDownload(id int64) error {
 		return err
 	}
 
-	d, _ := qm.store.GetDownload(id)
-
-	// Release channel slot if this was active
-	if active && d != nil {
+	// Release channel slot unconditionally when active — do not depend on
+	// GetDownload succeeding, which could leave the slot occupied forever.
+	if active {
 		qm.releaseChannelSlot(id)
 	}
 
@@ -421,8 +422,9 @@ func (qm *QueueManager) RemoveDownload(id int64) error {
 		cancelFn()
 	}
 
-	d, _ := qm.store.GetDownload(id)
-	if d != nil && active {
+	// Release channel slot unconditionally when active — do not depend on
+	// GetDownload succeeding, which could leave the slot occupied forever.
+	if active {
 		qm.releaseChannelSlot(id)
 	}
 
@@ -657,22 +659,30 @@ func (qm *QueueManager) startDownload(d store.DownloadRecord) {
 
 		// Completion callback
 		completeFn := func(result workerResult) {
-			// Release slot and remove from active jobs.
-			// globalCount is decremented here regardless of who triggered
-			// the completion (normal finish, pause, or cancel).
+			// Only clean up if the download is still tracked as active.
+			// If CancelDownload/PauseDownload/RemoveDownload already
+			// removed it from activeJobs, skip cleanup to prevent
+			// double-decrement of globalCount and double slot release.
 			qm.mu.Lock()
-			delete(qm.activeJobs, d.ID)
-			qm.globalCount--
+			_, stillActive := qm.activeJobs[d.ID]
+			if stillActive {
+				delete(qm.activeJobs, d.ID)
+				qm.globalCount--
+			}
 			qm.mu.Unlock()
-			qm.releaseChannelSlot(d.ID)
+			if stillActive {
+				qm.releaseChannelSlot(d.ID)
+			}
 
-			// Check if the store status was changed externally (e.g. paused)
-			// before we overwrite it. If the user explicitly paused or
-			// removed the download, respect that decision.
+			// Check if the store status was changed externally (e.g. paused,
+			// cancelled/requeued) before we overwrite it. If the user
+			// explicitly paused, cancelled, or removed the download, respect
+			// that decision.
 			current, err := qm.store.GetDownload(d.ID)
 			if err == nil && current != nil {
-				if current.Status == store.DownloadStatusPaused {
-					// User explicitly paused it — don't overwrite status
+				if current.Status == store.DownloadStatusPaused ||
+					current.Status == store.DownloadStatusQueued {
+					// Status was already set externally — don't overwrite
 					return
 				}
 			} else if current == nil {

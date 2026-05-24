@@ -3,7 +3,9 @@
 // channels, with a configurable global parallel limit.
 package queue
 
-import "time"
+import (
+	"time"
+)
 
 // ---------------------------------------------------------------------------
 // Queue event types
@@ -44,42 +46,4 @@ type Event struct {
 	AlternativeDesc string    `json:"alternative_desc,omitempty"`
 	Timestamp       time.Time `json:"timestamp"`
 	EventID         int64     `json:"event_id,omitempty"` // monotonic ID for SSE Last-Event-ID
-}
-
-// ---------------------------------------------------------------------------
-// subscriberHub — manages event subscribers (non-blocking fan-out)
-// ---------------------------------------------------------------------------
-
-type subscriberHub struct {
-	subscribers []chan Event
-}
-
-func newSubscriberHub() *subscriberHub {
-	return &subscriberHub{}
-}
-
-func (h *subscriberHub) subscribe() chan Event {
-	ch := make(chan Event, 512)
-	h.subscribers = append(h.subscribers, ch)
-	return ch
-}
-
-func (h *subscriberHub) unsubscribe(ch chan Event) {
-	for i, s := range h.subscribers {
-		if s == ch {
-			h.subscribers = append(h.subscribers[:i], h.subscribers[i+1:]...)
-			close(ch)
-			return
-		}
-	}
-}
-
-func (h *subscriberHub) publish(evt Event) {
-	for _, ch := range h.subscribers {
-		select {
-		case ch <- evt:
-		default:
-			// Drop event if subscriber is not consuming fast enough
-		}
-	}
 }

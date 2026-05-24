@@ -419,6 +419,14 @@ func (c *Client) resetForPack() {
 	c.whoisFoundChannels.Store(false)
 	c.needsJoin.Store(false)
 	c.lastActivity.Store(0)
+
+	// Close the previous pack's channels before creating new ones.
+	// This unblocks any goroutines still reading from the old channels
+	// (e.g. ackSender, progressPrinter, stallWatcher).
+	// closeOnce guards against double-close (both here and from finish*).
+	if c.downloadDone != nil {
+		c.closeOnce.Do(func() { close(c.downloadDone) })
+	}
 	c.downloadDone = make(chan struct{})
 	c.downloadStarted = make(chan struct{})
 	c.ackQueue = make(chan []byte, 256)

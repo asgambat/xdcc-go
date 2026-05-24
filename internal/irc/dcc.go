@@ -191,7 +191,11 @@ func (c *Client) receiveData() {
 				c.dccTimestamp = time.Now()
 				c.mu.Unlock()
 				if sleepTime > 0 {
-					time.Sleep(time.Duration(sleepTime * float64(time.Second)))
+					select {
+					case <-time.After(time.Duration(sleepTime * float64(time.Second))):
+					case <-c.downloadDone:
+						return
+					}
 				}
 			}
 			c.enqueueACK()

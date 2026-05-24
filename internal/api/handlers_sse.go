@@ -16,7 +16,7 @@ import (
 func (a *API) handleEvents(w http.ResponseWriter, r *http.Request) {
 	// Safely get request ID from context
 	reqID := "unknown"
-	if id := r.Context().Value("request-id"); id != nil {
+	if id := r.Context().Value(requestIDKey); id != nil {
 		if idStr, ok := id.(string); ok {
 			reqID = idStr
 		}
@@ -73,7 +73,7 @@ func (a *API) handleEvents(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 		} else {
 			for _, evt := range missed {
-				writeSSEEvent(w, evt)
+				a.writeSSEEvent(w, evt)
 				flusher.Flush()
 			}
 		}
@@ -127,16 +127,17 @@ func (a *API) handleEvents(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			a.Logger.Debugf("[SSE] received event type=%s [%s]", evt.Type, reqID)
-			writeSSEEvent(w, evt)
+			a.writeSSEEvent(w, evt)
 			flusher.Flush()
 		}
 	}
 }
 
 // writeSSEEvent serializes an sse.Event to SSE format and writes it.
-func writeSSEEvent(w http.ResponseWriter, evt sse.Event) {
+func (a *API) writeSSEEvent(w http.ResponseWriter, evt sse.Event) {
 	data, err := json.Marshal(evt.Payload)
 	if err != nil {
+		a.Logger.Warnf("[SSE] json marshal error for event type=%s: %v", evt.Type, err)
 		return
 	}
 

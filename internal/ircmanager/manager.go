@@ -11,6 +11,7 @@ import (
 	"xdcc-go/internal/config"
 	"xdcc-go/internal/entities"
 	xdccirc "xdcc-go/internal/irc"
+	"xdcc-go/internal/pubsub"
 	"xdcc-go/internal/store"
 )
 
@@ -29,7 +30,8 @@ type Manager struct {
 	logger *log.Logger
 
 	conns      map[int64]*managedConnection
-	subscriber *subscriberHub
+	connecting map[int64]struct{} // servers currently being connected
+	subscriber *pubsub.Hub[Event]
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -43,7 +45,8 @@ func New(st store.Store, cfg *config.Config, logger *log.Logger) *Manager {
 		cfg:        cfg,
 		logger:     logger,
 		conns:      make(map[int64]*managedConnection),
-		subscriber: newSubscriberHub(),
+		connecting: make(map[int64]struct{}),
+		subscriber: pubsub.New[Event](256),
 		ctx:        ctx,
 		cancel:     cancel,
 	}
@@ -167,18 +170,18 @@ func (m *Manager) Stop() {
 // The caller MUST consume from the channel, or the manager will block on
 // event emission when the subscriber queue fills up.
 func (m *Manager) Subscribe() chan Event {
-	return m.subscriber.subscribe()
+	return m.subscriber.Subscribe()
 }
 
 // Unsubscribe removes a previously subscribed channel.
 func (m *Manager) Unsubscribe(ch chan Event) {
-	m.subscriber.unsubscribe(ch)
+	m.subscriber.Unsubscribe(ch)
 }
 
 // emitEvent sends an event to all subscribers (non-blocking).
 func (m *Manager) emitEvent(evt Event) {
 	evt.Timestamp = time.Now()
-	m.subscriber.publish(evt)
+	m.subscriber.Publish(evt)
 }
 
 // ---------------------------------------------------------------------------
@@ -202,19 +205,44 @@ func (m *Manager) ConnectServerByID(serverID int64) error {
 // If the server is already connected, it returns nil.
 func (m *Manager) ConnectServer(srv *store.ServerRecord) error {
 	m.mu.Lock()
-	// Check if already connected or connecting
+
+	// If already connected, return immediately.
+	if existing, ok := m.conns[srv.ID]; ok && existing.Status() == "connected" {
+		m.mu.Unlock()
+		return nil
+	}
+
+	// If another goroutine is already connecting this server, don't
+	// create a duplicate. This prevents the race condition where two
+	// callers both see a stale connection and both try to reconnect.
+	if _, connecting := m.connecting[srv.ID]; connecting {
+		m.mu.Unlock()
+		return nil
+	}
+
+	// Mark as connecting to prevent other goroutines from creating
+	// a duplicate connection for the same serverID.
+	m.connecting[srv.ID] = struct{}{}
+	defer func() {
+		m.mu.Lock()
+		delete(m.connecting, srv.ID)
+		m.mu.Unlock()
+	}()
+
+	// Grab the old connection (if any) for cleanup outside the lock.
+	var oldConn *managedConnection
 	if existing, ok := m.conns[srv.ID]; ok {
-		m.mu.Unlock()
-		if existing.Status() == "connected" {
-			// Already connected — return without modification
-			return nil
-		}
-		// Cancel the old stale connection outside critical section
-		existing.cancel()
-		// Wait briefly for cleanup
-		time.Sleep(10 * time.Millisecond)
-	} else {
-		m.mu.Unlock()
+		oldConn = existing
+	}
+
+	m.mu.Unlock()
+
+	// Cancel and wait for the old connection's run() goroutine to
+	// finish. This replaces the fragile time.Sleep(10ms) with
+	// proper synchronization via WaitGroup.
+	if oldConn != nil {
+		oldConn.cancel()
+		oldConn.wg.Wait()
 	}
 
 	// Create new managed connection
@@ -238,8 +266,10 @@ func (m *Manager) ConnectServer(srv *store.ServerRecord) error {
 		}
 	}
 
+	// Insert the new connection and clear the connecting flag atomically.
 	m.mu.Lock()
 	m.conns[srv.ID] = conn
+	delete(m.connecting, srv.ID)
 	m.mu.Unlock()
 
 	// Update DB status to 'connecting' (not 'connected' yet)
@@ -279,22 +309,22 @@ func (m *Manager) DisconnectServer(serverID int64) error {
 		close(done)
 	}()
 
-	// Use select with generous timeout for visibility, with absolute max timeout
+	// Use select with timeout for visibility
 	select {
 	case <-done:
 		m.logger.Printf("server %d disconnected cleanly", serverID)
 		return nil
-	case <-time.After(10 * time.Second):
+	case <-time.After(5 * time.Second):
 		m.logger.Printf("WARNING: server %d shutdown taking longer than expected, still waiting...", serverID)
 	}
 
-	// Second phase: wait up to 20 more seconds for forced termination
+	// Second phase: wait up to 10 more seconds (15s total)
 	select {
 	case <-done:
 		m.logger.Printf("server %d shutdown completed after delay", serverID)
-	case <-time.After(20 * time.Second):
-		m.logger.Printf("ERROR: server %d shutdown exceeded 30s, giving up (goroutine leak likely)", serverID)
-		return fmt.Errorf("server %d shutdown timeout after 30s", serverID)
+	case <-time.After(10 * time.Second):
+		m.logger.Printf("ERROR: server %d shutdown exceeded 15s, giving up (goroutine leak likely)", serverID)
+		return fmt.Errorf("server %d shutdown timeout after 15s", serverID)
 	}
 
 	if err := m.store.SetServerStatus(serverID, "disconnected"); err != nil {
@@ -522,15 +552,14 @@ func (m *Manager) ensureConnection(address string, port int) (int64, *managedCon
 				m.logger.Printf("Reusing existing connection to %s:%d", address, port)
 				return id, conn, nil
 			}
-			// Connection exists but not connected yet - wait a bit
+			// Connection exists but not connected yet — wait efficiently
+			// using the connectedCh notification channel when available,
+			// with a short polling fallback.
 			m.logger.Printf("Waiting for connection to %s:%d to establish...", address, port)
-			for i := 0; i < 30; i++ { // Wait up to 30 seconds
-				time.Sleep(1 * time.Second)
-				if conn.Status() == "connected" {
-					return id, conn, nil
-				}
+			if !conn.waitConnected(30 * time.Second) {
+				return 0, nil, fmt.Errorf("connection to %s:%d did not establish in time", address, port)
 			}
-			return 0, nil, fmt.Errorf("connection to %s:%d did not establish in time", address, port)
+			return id, conn, nil
 		}
 	}
 	m.mu.RUnlock()
@@ -573,21 +602,18 @@ func (m *Manager) ensureConnection(address string, port int) (int64, *managedCon
 		return 0, nil, fmt.Errorf("connecting to server: %w", err)
 	}
 
-	// Wait for connection to establish
+	// Wait for connection to establish using notification channel
 	m.logger.Printf("Waiting for connection to %s:%d to establish...", address, port)
 	m.mu.RLock()
 	conn := m.conns[serverID]
 	m.mu.RUnlock()
 
-	for i := 0; i < 30; i++ { // Wait up to 30 seconds
-		time.Sleep(1 * time.Second)
-		if conn.Status() == "connected" {
-			m.logger.Printf("Connection to %s:%d established successfully", address, port)
-			return serverID, conn, nil
-		}
+	if !conn.waitConnected(30 * time.Second) {
+		return 0, nil, fmt.Errorf("connection to %s:%d did not establish in time", address, port)
 	}
 
-	return 0, nil, fmt.Errorf("connection to %s:%d did not establish in time", address, port)
+	m.logger.Printf("Connection to %s:%d established successfully", address, port)
+	return serverID, conn, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -610,6 +636,10 @@ type managedConnection struct {
 	backoffIdx int
 
 	irc *girc.Client
+
+	// connectedCh is closed when the IRC connection is established.
+	// Used by ensureConnection to wait efficiently instead of polling.
+	connectedCh chan struct{}
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -678,6 +708,16 @@ func (mc *managedConnection) run() {
 			mc.manager.logger.Printf("PANIC in run() for server %d: %v", mc.id, r)
 			mc.setStatus("error")
 			_ = mc.manager.store.SetServerStatus(mc.id, "error")
+
+			// Clean up IRC client resources to prevent goroutine/channel
+			// leaks. If the panic happened inside connect(), there may be
+			// a girc.Client with active handlers and spawned goroutines.
+			mc.mu.RLock()
+			if mc.irc != nil {
+				mc.manager.logger.Printf("closing IRC client for server %d after panic", mc.id)
+				mc.irc.Close()
+			}
+			mc.mu.RUnlock()
 		}
 	}()
 
@@ -748,6 +788,26 @@ func (mc *managedConnection) connect() connectResult {
 	connected := make(chan struct{})
 	disconnected := make(chan error, 1)
 
+	// Ensure the connected channel is closed exactly once when connect()
+	// exits, whether by successful CONNECTED event (handler closes it)
+	// or by failure/cancellation (defer closes it). This prevents
+	// waitConnected() from blocking forever on a channel that will
+	// never receive a close signal.
+	var closeConnectedOnce sync.Once
+	closeConnected := func() { close(connected) }
+
+	// Expose the connected channel so ensureConnection can wait on it
+	// without busy-polling Status().
+	mc.mu.Lock()
+	mc.connectedCh = connected
+	mc.mu.Unlock()
+	defer func() {
+		mc.mu.Lock()
+		mc.connectedCh = nil
+		mc.mu.Unlock()
+		closeConnectedOnce.Do(closeConnected)
+	}()
+
 	// Register handlers
 	client.Handlers.Add(girc.CONNECTED, func(cl *girc.Client, e girc.Event) {
 		mc.mu.Lock()
@@ -776,7 +836,7 @@ func (mc *managedConnection) connect() connectResult {
 			cl.Cmd.Join(ch)
 		}
 
-		close(connected)
+		closeConnectedOnce.Do(closeConnected)
 	})
 
 	client.Handlers.Add(girc.JOIN, func(cl *girc.Client, e girc.Event) {
@@ -1001,6 +1061,35 @@ func (mc *managedConnection) disconnect() {
 	}
 }
 
+// waitConnected waits for the managed connection to reach "connected"
+// status. Uses the connectedCh notification channel when available,
+// with a short polling fallback. Returns true if connected within the
+// timeout, false otherwise.
+func (mc *managedConnection) waitConnected(timeout time.Duration) bool {
+	mc.mu.RLock()
+	ch := mc.connectedCh
+	mc.mu.RUnlock()
+
+	if ch != nil {
+		select {
+		case <-ch:
+			return mc.Status() == "connected"
+		case <-time.After(timeout):
+			return false
+		}
+	}
+
+	// Fallback: connectedCh not yet populated, poll briefly
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if mc.Status() == "connected" {
+			return true
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	return false
+}
+
 // joinChannel sends a JOIN command for the given channel.
 func (mc *managedConnection) joinChannel(channel string) error {
 	mc.mu.RLock()
@@ -1100,49 +1189,4 @@ func (mc *managedConnection) leaveChannel(channel string) error {
 	mc.mu.Unlock()
 
 	return nil
-}
-
-// ---------------------------------------------------------------------------
-// subscriberHub — manages event subscribers (Fase 3.6)
-// ---------------------------------------------------------------------------
-
-type subscriberHub struct {
-	mu          sync.RWMutex
-	subscribers []chan Event
-}
-
-func newSubscriberHub() *subscriberHub {
-	return &subscriberHub{}
-}
-
-func (h *subscriberHub) subscribe() chan Event {
-	ch := make(chan Event, 256)
-	h.mu.Lock()
-	h.subscribers = append(h.subscribers, ch)
-	h.mu.Unlock()
-	return ch
-}
-
-func (h *subscriberHub) unsubscribe(ch chan Event) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	for i, s := range h.subscribers {
-		if s == ch {
-			h.subscribers = append(h.subscribers[:i], h.subscribers[i+1:]...)
-			close(ch)
-			return
-		}
-	}
-}
-
-func (h *subscriberHub) publish(evt Event) {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	for _, ch := range h.subscribers {
-		select {
-		case ch <- evt:
-		default:
-			// Drop event if subscriber is not consuming fast enough
-		}
-	}
 }
