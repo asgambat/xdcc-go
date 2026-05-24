@@ -11,7 +11,7 @@
 
   // Track which servers are currently being connected to prevent double-clicks
   let connectingServers = $state(new Set());
-  let unsubServerConnected, unsubServerDisconnected;
+  let unsubServerConnected, unsubServerDisconnected, unsubServerReconnecting;
 
   // Sort servers: connected first, then disconnected, then by address.
   // Server records may use either `address` or `server_address`.
@@ -29,25 +29,51 @@
 
     // When a server_connected SSE event arrives while we're waiting,
     // show the success toast and stop showing "Connecting...".
+    // Also update the server status in the store for auto-refresh.
     unsubServerConnected = sseClient.on('server_connected', (data) => {
       const serverId = data.server_id;
-      if (serverId && connectingServers.has(serverId)) {
-        connectingServers.delete(serverId);
-        connectingServers = connectingServers;
-        const addr = data.server_addr || '';
-        addToast(addr ? `Connected to ${addr}` : 'Server connected', 'success');
+      if (serverId) {
+        // Update server status in store so the UI auto-updates
+        servers.update(list => list.map(s =>
+          s.id === serverId ? { ...s, status: 'connected' } : s
+        ));
+        // Reload channels for this server (may have changed during disconnect)
+        loadChannels(serverId);
+        if (connectingServers.has(serverId)) {
+          connectingServers.delete(serverId);
+          connectingServers = connectingServers;
+          const addr = data.server_addr || '';
+          addToast(addr ? `Connected to ${addr}` : 'Server connected', 'success');
+        }
       }
     });
 
-    // If a server_disconnected arrives while we're in connecting state,
-    // the initial connection attempt failed.
+    // When server_disconnected arrives, update the server status in the store
+    // so the UI auto-updates instead of waiting for a manual refresh.
     unsubServerDisconnected = sseClient.on('server_disconnected', (data) => {
       const serverId = data.server_id;
-      if (serverId && connectingServers.has(serverId)) {
-        connectingServers.delete(serverId);
-        connectingServers = connectingServers;
-        const addr = data.server_addr || '';
-        addToast(addr ? `Connection to ${addr} failed` : 'Connection failed', 'error');
+      if (serverId) {
+        // Update server status in store
+        servers.update(list => list.map(s =>
+          s.id === serverId ? { ...s, status: 'disconnected' } : s
+        ));
+        if (connectingServers.has(serverId)) {
+          connectingServers.delete(serverId);
+          connectingServers = connectingServers;
+          const addr = data.server_addr || '';
+          addToast(addr ? `Connection to ${addr} failed` : 'Connection failed', 'error');
+        }
+      }
+    });
+
+    // When server_reconnecting arrives (e.g. connection dropped, auto-retry),
+    // update the server status in the store so the UI reflects it immediately.
+    unsubServerReconnecting = sseClient.on('server_reconnecting', (data) => {
+      const serverId = data.server_id;
+      if (serverId) {
+        servers.update(list => list.map(s =>
+          s.id === serverId ? { ...s, status: 'reconnecting' } : s
+        ));
       }
     });
   });
@@ -55,6 +81,7 @@
   onDestroy(() => {
     if (unsubServerConnected) unsubServerConnected();
     if (unsubServerDisconnected) unsubServerDisconnected();
+    if (unsubServerReconnecting) unsubServerReconnecting();
   });
 
   async function loadServers() {
@@ -210,6 +237,8 @@
         <div class="btn-group">
           {#if connectingServers.has(srv.id)}
             <button class="btn btn-sm btn-success" disabled>Connecting...</button>
+          {:else if srv.status === 'reconnecting'}
+            <button class="btn btn-sm btn-warning" disabled>Reconnecting...</button>
           {:else if srv.status !== 'connected'}
             <button class="btn btn-sm btn-success" onclick={() => connectServer(srv.id)}>Connect</button>
           {:else}

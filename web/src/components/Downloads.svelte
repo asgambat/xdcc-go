@@ -84,6 +84,26 @@
   async function retryDownload(id) { try { await DownloadsAPI.retry(id); addToast('Retrying', 'info'); await refresh(); if (activeTab === 'history') await loadHistoryPage(historyData.page); } catch (e) { addToast(e.message, 'error'); } }
   async function removeDownload(id) { try { await DownloadsAPI.remove(id); addToast('Removed', 'info'); await refresh(); if (activeTab === 'history') await loadHistoryPage(historyData.page); } catch (e) { addToast(e.message, 'error'); } }
 
+  async function pauseAll() {
+    const ids = $downloads.filter(d => d.status === 'downloading' || d.status === 'queued').map(d => d.id);
+    if (ids.length === 0) return addToast('No downloads to pause', 'warning');
+    try {
+      await DownloadsAPI.bulk(ids, 'pause');
+      addToast(`Paused ${ids.length} downloads`, 'success');
+      await refresh();
+    } catch (e) { addToast(e.message, 'error'); }
+  }
+
+  async function resumeAll() {
+    const ids = $downloads.filter(d => d.status === 'paused').map(d => d.id);
+    if (ids.length === 0) return addToast('No paused downloads to resume', 'warning');
+    try {
+      await DownloadsAPI.bulk(ids, 'resume');
+      addToast(`Resumed ${ids.length} downloads`, 'success');
+      await refresh();
+    } catch (e) { addToast(e.message, 'error'); }
+  }
+
   async function moveUp(id) {
     const idx = $downloads.findIndex(d => d.id === id);
     if (idx <= 0) return;
@@ -116,6 +136,17 @@
         <button class="btn btn-sm btn-success" onclick={() => bulkAction('resume')}>Resume</button>
         <button class="btn btn-sm btn-danger" onclick={() => bulkAction('remove')}>Remove</button>
         <button class="btn btn-sm btn-ghost" onclick={() => selectedDownloads.set(new Set())}>Clear</button>
+      </div>
+    {/if}
+
+    {#if active.length + queued.length > 0 || paused.length > 0}
+      <div class="flex gap-1 mb-2" style="align-items:center">
+        {#if active.length + queued.length > 0}
+          <button class="btn btn-sm btn-warning" onclick={pauseAll}>⏸️ Pause All</button>
+        {/if}
+        {#if paused.length > 0}
+          <button class="btn btn-sm btn-success" onclick={resumeAll}>▶️ Resume All</button>
+        {/if}
       </div>
     {/if}
 

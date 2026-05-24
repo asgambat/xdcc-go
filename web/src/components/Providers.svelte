@@ -42,8 +42,8 @@
     } catch (e) { addToast(e.message, 'error'); }
   }
 
-  let ok = $derived($providers.filter(p => p.status === 'ok' || p.status === 'healthy' || p.enabled === false));
-  let failing = $derived($providers.filter(p => p.status !== 'ok' && p.status !== 'healthy' && p.enabled !== false));
+  let ok = $derived($providers.filter(p => p.status === 'ok' || p.status === 'healthy'));
+  let failing = $derived($providers.filter(p => p.status !== 'ok' && p.status !== 'healthy' && p.status !== 'disabled'));
 </script>
 
 {#if loading}
@@ -75,9 +75,13 @@
               <tr>
                 <td><strong>{p.name}</strong></td>
                 <td>
-                  <span class="badge" class:badge-ok={p.status === 'ok' || p.status === 'healthy'} class:badge-danger={p.status !== 'ok' && p.status !== 'healthy' && p.enabled !== false} class:badge-info={p.enabled === false}>
-                    <span class="badge-dot"></span>{p.status || 'unknown'}
-                  </span>
+                  {#if p.enabled === false}
+                    <span class="text-muted">—</span>
+                  {:else}
+                    <span class="badge" class:badge-ok={p.status === 'ok' || p.status === 'healthy'} class:badge-danger={p.status !== 'ok' && p.status !== 'healthy'}>
+                      <span class="badge-dot"></span>{p.status || 'unknown'}
+                    </span>
+                  {/if}
                 </td>
                 <td>
                   <span class="badge" class:badge-ok={p.enabled !== false} class:badge-warning={p.enabled === false}>

@@ -38,18 +38,6 @@ func normalizeChannel(ch string) string {
 	return ch
 }
 
-// randN returns a random integer in [0, n).
-func randN(n int) int {
-	if n <= 0 {
-		return 0
-	}
-	r, err := rand.Int(rand.Reader, big.NewInt(int64(n)))
-	if err != nil {
-		return 0
-	}
-	return int(r.Int64())
-}
-
 // ServerAddr formats address:port as a string.
 func ServerAddr(address string, port int) string {
 	return fmt.Sprintf("%s:%d", address, port)

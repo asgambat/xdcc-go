@@ -57,8 +57,7 @@ func TestConnectionLifecycle_NoDuplicateRun(t *testing.T) {
 
 	// Verify: should still be running (not panicked, not closed twice)
 	if !conn.IsRunning() {
-		// May be false if connection failed immediately (no real IRC server)
-		// That's OK - we just verify no panic occurred
+		t.Log("connection may have failed immediately (no real IRC server) — OK")
 	}
 
 	// Cleanup
@@ -187,7 +186,7 @@ func TestConnectionLifecycle_ManagerStopWaitsForAll(t *testing.T) {
 	// Attempting operations after Stop() should fail gracefully
 	err := mgr.ConnectServerByID(1)
 	if err == nil {
-		// Context should be cancelled, but exact behavior may vary
+		t.Log("ConnectServerByID succeeded after Stop — context behavior may vary")
 	}
 }
 

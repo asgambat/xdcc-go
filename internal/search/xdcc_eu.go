@@ -125,7 +125,7 @@ func (e *XdccEuEngine) parseRow(i int, row *goquery.Selection) (*entities.XDCCPa
 
 	bot := strings.TrimSpace(msgParts[0])
 	var packNum int
-	fmt.Sscanf(msgParts[1], "%d", &packNum)
+	_, _ = fmt.Sscanf(msgParts[1], "%d", &packNum)
 	if packNum == 0 {
 		return nil, false
 	}

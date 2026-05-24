@@ -29,21 +29,6 @@ func newMockStore() *mockStore {
 	}
 }
 
-func (m *mockStore) addDefaults() {
-	m.EnqueueDownload(store.DownloadRecord{
-		Bot: "Bot1", ServerAddress: "irc.test.net", Channel: "#xdcc",
-		Filename: "file1.mkv", FileSize: 1000, PackMessage: "xdcc send #1",
-	})
-	m.EnqueueDownload(store.DownloadRecord{
-		Bot: "Bot2", ServerAddress: "irc.test.net", Channel: "#other",
-		Filename: "file2.mkv", FileSize: 2000, PackMessage: "xdcc send #1",
-	})
-	m.EnqueueDownload(store.DownloadRecord{
-		Bot: "Bot3", ServerAddress: "irc.test.net", Channel: "#xdcc",
-		Filename: "file3.mkv", FileSize: 3000, PackMessage: "xdcc send #2",
-	})
-}
-
 // Store interface methods needed by queue manager
 
 func (m *mockStore) Close() error                                 { return nil }
@@ -408,7 +393,7 @@ func TestEnqueue_ChannelNormalization(t *testing.T) {
 func TestEnqueue_DuplicateDetection(t *testing.T) {
 	qm, ms := newTestQM(t)
 
-	ms.EnqueueDownload(store.DownloadRecord{
+	_, _ = ms.EnqueueDownload(store.DownloadRecord{
 		Bot: "SameBot", ServerAddress: "irc.t.net", Channel: "#x",
 		Filename: "existing.mkv", FileSize: 100, PackMessage: "xdcc send #5",
 	})
@@ -499,7 +484,7 @@ func TestResumeDownload_Success(t *testing.T) {
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x",
 		Filename: "f.mkv", FileSize: 100,
 	})
-	ms.MarkDownloadPaused(id)
+	_ = ms.MarkDownloadPaused(id)
 
 	err := qm.ResumeDownload(id)
 	if err != nil {
@@ -574,7 +559,7 @@ func TestBulkAction_Resume(t *testing.T) {
 	id, _ := ms.EnqueueDownload(store.DownloadRecord{
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#a", Filename: "a.mkv", FileSize: 100,
 	})
-	ms.MarkDownloadPaused(id)
+	_ = ms.MarkDownloadPaused(id)
 
 	results, _ := qm.BulkAction([]int64{id}, "resume")
 	if results[id] != "success" {
@@ -675,11 +660,11 @@ func TestTryDispatch_WithQueuedItems(t *testing.T) {
 	qm, ms := newTestQM(t)
 
 	// Add queued downloads
-	ms.EnqueueDownload(store.DownloadRecord{
+	_, _ = ms.EnqueueDownload(store.DownloadRecord{
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#channel1",
 		Filename: "a.mkv", FileSize: 100, PackMessage: "xdcc send #1",
 	})
-	ms.EnqueueDownload(store.DownloadRecord{
+	_, _ = ms.EnqueueDownload(store.DownloadRecord{
 		Bot: "Bot2", ServerAddress: "irc.t.net", Channel: "#channel2",
 		Filename: "b.mkv", FileSize: 200, PackMessage: "xdcc send #1",
 	})
@@ -709,11 +694,11 @@ func TestTryDispatch_AtGlobalLimit(t *testing.T) {
 	t.Cleanup(func() { qm2.Stop() })
 
 	// Enqueue 2 downloads
-	ms.EnqueueDownload(store.DownloadRecord{
+	_, _ = ms.EnqueueDownload(store.DownloadRecord{
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#ch1",
 		Filename: "a.mkv", FileSize: 100, PackMessage: "xdcc send #1",
 	})
-	ms.EnqueueDownload(store.DownloadRecord{
+	_, _ = ms.EnqueueDownload(store.DownloadRecord{
 		Bot: "Bot2", ServerAddress: "irc.t.net", Channel: "#ch2",
 		Filename: "b.mkv", FileSize: 200, PackMessage: "xdcc send #1",
 	})
@@ -741,7 +726,7 @@ func TestHandleFallback_SuggestOnly(t *testing.T) {
 	// Note: we can't call qm.handleFallback directly since it accesses
 	// qm.cfg which requires the real QueueManager. With suggest_only mode,
 	// the status should remain unchanged after a failed download.
-	ms.MarkDownloadFailed(id, "test error")
+	_ = ms.MarkDownloadFailed(id, "test error")
 	d, _ := ms.GetDownload(id)
 	if d == nil {
 		t.Fatal("expected download to exist")

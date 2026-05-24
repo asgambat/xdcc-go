@@ -212,7 +212,7 @@ func (c *Client) ackSender() {
 			if conn == nil {
 				continue
 			}
-			conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+			_ = conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 			if _, err := conn.Write(ack); err != nil {
 				c.debugf("ACK write failed: %v", err)
 				return

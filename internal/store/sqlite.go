@@ -695,7 +695,7 @@ func (s *SQLiteStore) SetDefaultSearchPreset(id int64) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 
 	// Clear all defaults
 	if _, err := tx.Exec(`UPDATE search_presets SET is_default=0`); err != nil {

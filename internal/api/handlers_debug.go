@@ -44,7 +44,7 @@ func (a *API) handleDebugGoroutines(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	_ = json.NewEncoder(w).Encode(response)
 }
 
 // handleDebugGoroutinesDump returns a text dump of all goroutine stacks.
@@ -59,5 +59,5 @@ func (a *API) handleDebugGoroutinesDump(w http.ResponseWriter, r *http.Request) 
 	w.Header().Set("Content-Disposition", "attachment; filename=goroutines.txt")
 
 	// debug=2 gives full stack traces
-	profile.WriteTo(w, 2)
+	_ = profile.WriteTo(w, 2)
 }
