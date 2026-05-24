@@ -10,6 +10,8 @@ A Go implementation of an XDCC downloader for IRC. Provides three command-line t
 | `xdcc-search` | Search for packs and print ready-to-use download commands |
 | `xdcc-browse` | Interactive search → filter → select → download |
 
+Have a look to develop branch if you'd like a web-app version of those tools.
+
 ---
 
 ## Installation
