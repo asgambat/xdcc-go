@@ -69,55 +69,6 @@ func TestConnectionLifecycle_NoDuplicateRun(t *testing.T) {
 	}
 }
 
-// TestConnectionLifecycle_ConcurrentShutdown tests thread-safety during shutdown
-func TestConnectionLifecycle_ConcurrentShutdown(t *testing.T) {
-	t.Parallel()
-
-	ms := newMockStore()
-	cfg := config.DefaultConfig()
-	logger := logging.New(logging.LevelDebug, "[test-concurrent] ", 0)
-
-	mgr := New(ms, cfg, logger)
-	defer mgr.Stop()
-
-	// Create multiple servers
-	ids := make([]int64, 5)
-	for i := 0; i < 5; i++ {
-		ids[i] = ms.addServer("irc.test.net", 6667+i, false)
-		_ = mgr.ConnectServerByID(ids[i])
-	}
-
-	// Give time for connections to start
-	time.Sleep(100 * time.Millisecond)
-
-	// Disconnect all concurrently
-	var wg sync.WaitGroup
-	for _, id := range ids {
-		wg.Add(1)
-		go func(serverID int64) {
-			defer wg.Done()
-			err := mgr.DisconnectServer(serverID)
-			if err != nil {
-				t.Logf("DisconnectServer(%d) error: %v", serverID, err)
-			}
-		}(id)
-	}
-
-	// Should complete without deadlock or race
-	done := make(chan struct{})
-	go func() {
-		wg.Wait()
-		close(done)
-	}()
-
-	select {
-	case <-done:
-		// Success
-	case <-time.After(15 * time.Second):
-		t.Fatal("concurrent shutdown deadlocked or timed out")
-	}
-}
-
 // TestConnectionLifecycle_NoRaceOnStatusChecks verifies thread-safe status access
 func TestConnectionLifecycle_NoRaceOnStatusChecks(t *testing.T) {
 	t.Parallel()

@@ -211,12 +211,17 @@ func (qm *Manager) Stop() {
 	}
 	qm.mu.RUnlock()
 
+	// Use a timed context to prevent indefinite blocking if SQLite hangs
+	// during shutdown. qm.ctx is already cancelled at this point, so a
+	// bare context.Background() would let store operations block forever.
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer shutdownCancel()
 	for _, id := range ids {
 		// Save progress before cancellation
-		if d, err := qm.store.GetDownload(qm.ctx, id); err == nil && d != nil && d.ProgressBytes > 0 {
+		if d, err := qm.store.GetDownload(shutdownCtx, id); err == nil && d != nil && d.ProgressBytes > 0 {
 			qm.log.Infof("shutdown: saving progress for download %d: %d/%d bytes", id, d.ProgressBytes, d.FileSize)
 		}
-		_ = qm.CancelDownload(id, "server shutting down")
+		_ = qm.cancelDownloadWithCtx(shutdownCtx, id, "server shutting down")
 	}
 
 	// Wait for all download workers to complete with timeout
@@ -341,6 +346,13 @@ func (qm *Manager) Enqueue(d store.DownloadRecord) (int64, error) {
 // its context is cancelled. If it's queued, it's just removed from the queue.
 // The download record is updated in the store.
 func (qm *Manager) CancelDownload(id int64, reason string) error {
+	return qm.cancelDownloadWithCtx(qm.ctx, id, reason)
+}
+
+// cancelDownloadWithCtx is the internal version of CancelDownload that accepts
+// an explicit context. During shutdown (Stop), qm.ctx is already cancelled,
+// so callers must pass context.Background() to ensure store operations succeed.
+func (qm *Manager) cancelDownloadWithCtx(ctx context.Context, id int64, reason string) error {
 	qm.mu.Lock()
 	cancelFn, active := qm.activeJobs[id]
 	if active {
@@ -355,15 +367,15 @@ func (qm *Manager) CancelDownload(id int64, reason string) error {
 		qm.log.Infof("cancelled active download %d: %s", id, reason)
 	}
 
-	// Update store
-	d, err := qm.store.GetDownload(qm.ctx, id)
+	// Update store with the provided context
+	d, err := qm.store.GetDownload(ctx, id)
 	if err != nil || d == nil {
 		return err
 	}
 
 	// If it was active but not yet completed, mark it as queued for retry
 	if active && d.Status == store.DownloadStatusDownloading {
-		_ = qm.store.RequeueDownload(qm.ctx, id)
+		_ = qm.store.RequeueDownload(ctx, id)
 	}
 
 	return nil

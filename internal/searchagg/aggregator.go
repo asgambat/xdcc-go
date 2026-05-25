@@ -569,12 +569,16 @@ func (a *Aggregator) statsFlushLoop() {
 
 	var pending []store.ProviderStats
 
-	flush := func() {
+	// flush writes pending stats to the store using the given context.
+	// During normal operation ctx is a.ctx; during the final drain after
+	// a.ctx.Done() it must be context.Background() to avoid silently
+	// dropping stats when the context is already cancelled.
+	flush := func(ctx context.Context) {
 		if len(pending) == 0 {
 			return
 		}
 		for _, s := range pending {
-			_ = a.store.RecordProviderStats(a.ctx, s)
+			_ = a.store.RecordProviderStats(ctx, s)
 		}
 		pending = pending[:0]
 	}
@@ -582,24 +586,25 @@ func (a *Aggregator) statsFlushLoop() {
 	for {
 		select {
 		case <-a.ctx.Done():
-			// Drain all remaining stats before exiting
+			// Drain all remaining stats before exiting.
+			// Use context.Background() because a.ctx is already cancelled.
 			for s := range a.statsCh {
 				pending = append(pending, s)
 			}
-			flush()
+			flush(context.Background())
 			return
 
 		case <-ticker.C:
-			flush()
+			flush(a.ctx)
 
 		case s, ok := <-a.statsCh:
 			if !ok {
-				flush()
+				flush(a.ctx)
 				return
 			}
 			pending = append(pending, s)
 			if len(pending) >= statsBatchSize {
-				flush()
+				flush(a.ctx)
 			}
 		}
 	}

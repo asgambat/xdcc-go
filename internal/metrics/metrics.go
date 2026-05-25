@@ -20,9 +20,11 @@ type Collector struct {
 	mu sync.RWMutex
 
 	// endpointInFlight tracks the number of currently processing HTTP requests
-	// per route pattern. The key is the chi route pattern (e.g. "GET /api/servers/{serverID}").
+	// per route pattern, using a lock-free sync.Map to avoid mutex contention
+	// under high-throughput HTTP traffic. The key is the chi route pattern
+	// (e.g. "GET /api/servers/{serverID}").
 	// This is effectively the goroutine count serving each endpoint.
-	endpointInFlight map[string]*atomic.Int64
+	endpointInFlight sync.Map // map[string]*atomic.Int64
 
 	// providerTimeouts counts total timeout occurrences per provider name.
 	providerTimeouts sync.Map // map[string]*atomic.Int64
@@ -47,9 +49,8 @@ type Collector struct {
 // New creates a new metrics collector.
 func New() *Collector {
 	return &Collector{
-		endpointInFlight: make(map[string]*atomic.Int64),
-		shutdownTimings:  make(map[string]time.Duration),
-		startedAt:        time.Now(),
+		shutdownTimings: make(map[string]time.Duration),
+		startedAt:       time.Now(),
 	}
 }
 
@@ -60,34 +61,29 @@ func New() *Collector {
 // IncEndpoint increments the in-flight counter for the given route pattern.
 // It lazily creates the counter on first access.
 func (c *Collector) IncEndpoint(route string) {
-	c.mu.Lock()
-	cnt, ok := c.endpointInFlight[route]
-	if !ok {
-		cnt = new(atomic.Int64)
-		c.endpointInFlight[route] = cnt
-	}
-	cnt.Add(1)
-	c.mu.Unlock()
+	c.loadOrInitInt64(&c.endpointInFlight, route).Add(1)
 }
 
 // DecEndpoint decrements the in-flight counter for the given route pattern.
 func (c *Collector) DecEndpoint(route string) {
-	c.mu.Lock()
-	cnt, ok := c.endpointInFlight[route]
+	v, ok := c.endpointInFlight.Load(route)
 	if ok {
-		cnt.Add(-1)
+		if cnt, ok := v.(*atomic.Int64); ok {
+			cnt.Add(-1)
+		}
 	}
-	c.mu.Unlock()
 }
 
 // EndpointInFlight returns a snapshot of in-flight requests per route pattern.
 func (c *Collector) EndpointInFlight() map[string]int64 {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	out := make(map[string]int64, len(c.endpointInFlight))
-	for route, cnt := range c.endpointInFlight {
-		out[route] = cnt.Load()
-	}
+	out := make(map[string]int64)
+	c.endpointInFlight.Range(func(key, val interface{}) bool {
+		route, _ := key.(string)
+		if cnt, ok := val.(*atomic.Int64); ok {
+			out[route] = cnt.Load()
+		}
+		return true
+	})
 	return out
 }
 
@@ -225,7 +221,9 @@ func (c *Collector) Snapshot() map[string]interface{} {
 // helpers
 // ---------------------------------------------------------------------------
 
-func (c *Collector) loadOrInitInt64(m *sync.Map, key string) *atomic.Int64 {
+func (c *Collector) loadOrInitInt64(m interface {
+	LoadOrStore(interface{}, interface{}) (interface{}, bool)
+}, key string) *atomic.Int64 {
 	v, _ := m.LoadOrStore(key, new(atomic.Int64))
 	cnt, _ := v.(*atomic.Int64)
 	return cnt
