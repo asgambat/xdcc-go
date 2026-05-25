@@ -901,7 +901,7 @@ func TestGetSearchCacheByQuery_Empty(t *testing.T) {
 }
 
 // TestGetSearchCacheByQuery_NoDeadlock verifies that GetSearchCacheByQuery
-// does not deadlock even with MaxOpenConns(1). This is the regression test
+// does not deadlock even with limited connections. This is the regression test
 // for the critical bug where getFresh() used nested queries.
 func TestGetSearchCacheByQuery_NoDeadlock(t *testing.T) {
 	s := newTestStore(t)

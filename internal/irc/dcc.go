@@ -56,9 +56,9 @@ func (c *Client) handleDCCSend(parts []string, sourceHost string) {
 
 	pack := c.currentPack()
 	pack.SetFilename(filename, false)
-	c.filesize = filesize
 
 	c.mu.Lock()
+	c.filesize = filesize
 	c.peerAddr = peerAddr
 	c.mu.Unlock()
 
@@ -122,12 +122,15 @@ func (c *Client) startDownload(addr string, appendMode bool) {
 	c.downStartTime = time.Now()
 	c.dccTimestamp = time.Now()
 	c.downloading = true
+	size := c.filesize
 	c.mu.Unlock()
 
 	c.debugf("Starting download (append=%v) to %s", appendMode, path)
-	c.infof("Downloading %s → %s", entities.HumanReadableBytes(c.filesize), path)
+	c.infof("Downloading %s → %s", entities.HumanReadableBytes(size), path)
 
-	c.startOnce.Do(func() { close(c.downloadStarted) })
+	if c.downloadStartedClosed.CompareAndSwap(false, true) {
+		close(c.downloadStarted)
+	}
 	c.lastActivity.Store(time.Now().UnixNano())
 
 	go c.ackSender()
@@ -158,13 +161,15 @@ func (c *Client) receiveData() {
 		if c.dccFile != nil {
 			c.dccFile.Close()
 		}
+		size := c.filesize
 		c.mu.Unlock()
 
-		if c.progress >= c.filesize {
+		prog := atomic.LoadInt64(&c.progress)
+		if prog >= size {
 			c.logf("Download complete")
 			c.finishSuccess()
 		} else {
-			c.logf("Download incomplete: got %d of %d bytes", c.progress, c.filesize)
+			c.logf("Download incomplete: got %d of %d bytes", prog, size)
 			c.finishWithError(ErrDownloadFailed)
 		}
 	}()

@@ -62,11 +62,11 @@ type Client struct {
 	packSize      int64  // discovered from bot notice before DCC SEND
 	downStartTime time.Time
 
-	ackQueue        chan []byte
-	downloadDone    chan struct{} // closed when pack finishes (success or error)
-	downloadStarted chan struct{} // closed when DCC TCP connection is established
-	closeOnce       sync.Once
-	startOnce       sync.Once
+	ackQueue              chan []byte
+	downloadDone          chan struct{} // closed when pack finishes (success or error)
+	downloadStarted       chan struct{} // closed when DCC TCP connection is established
+	downloadDoneClosed    atomic.Bool
+	downloadStartedClosed atomic.Bool
 
 	// Handler CUIDs registered on the girc.Client. Tracked so handlers can be
 	// removed when the download completes, preventing accumulation of duplicate
@@ -427,15 +427,16 @@ func (c *Client) resetForPack() {
 	// Close the previous pack's channels before creating new ones.
 	// This unblocks any goroutines still reading from the old channels
 	// (e.g. ackSender, progressPrinter, stallWatcher).
-	// closeOnce guards against double-close (both here and from finish*).
 	if c.downloadDone != nil {
-		c.closeOnce.Do(func() { close(c.downloadDone) })
+		if c.downloadDoneClosed.CompareAndSwap(false, true) {
+			close(c.downloadDone)
+		}
 	}
 	c.downloadDone = make(chan struct{})
 	c.downloadStarted = make(chan struct{})
 	c.ackQueue = make(chan []byte, 256)
-	c.closeOnce = sync.Once{}
-	c.startOnce = sync.Once{}
+	c.downloadDoneClosed.Store(false)
+	c.downloadStartedClosed.Store(false)
 }
 
 func (c *Client) downloadPackAtIndex(idx int, retryCount int) PackResult {
@@ -518,8 +519,11 @@ func (c *Client) waitForCurrentPack() error {
 	case <-c.downloadStarted:
 		c.infof("DCC transfer started for bot %s", pack.Bot)
 	case <-c.downloadDone:
-		c.infof("Download finished with error for bot %s: %v", pack.Bot, c.downloadError)
-		return c.downloadError
+		c.mu.Lock()
+		downloadErr := c.downloadError
+		c.mu.Unlock()
+		c.infof("Download finished with error for bot %s: %v", pack.Bot, downloadErr)
+		return downloadErr
 	case <-c.ctx.Done():
 		c.infof("Download cancelled for bot %s", pack.Bot)
 		c.finishWithError(ErrCancelled)
@@ -528,13 +532,16 @@ func (c *Client) waitForCurrentPack() error {
 		// IRC connection died before transfer started; treat as timeout so
 		// downloadPackAtIndex will reconnect and retry.
 		c.infof("IRC connection lost while waiting for DCC from bot %s: %v", pack.Bot, err)
-		if err != nil && c.downloadError == nil {
+		c.mu.Lock()
+		downloadErr := c.downloadError
+		c.mu.Unlock()
+		if err != nil && downloadErr == nil {
 			if isConnectError(err) {
 				return fmt.Errorf("%w: %v", ErrServerUnreachable, err)
 			}
 			return ErrTimeout
 		}
-		return c.downloadError
+		return downloadErr
 	case <-time.After(connectTimeout):
 		c.infof("TIMEOUT after %v waiting for DCC transfer from bot %s (pack=%d) — no DCC SEND received, WHOIS/join/XDDC may have failed silently",
 			connectTimeout, pack.Bot, pack.PackNumber)
@@ -557,7 +564,10 @@ func (c *Client) waitForCurrentPack() error {
 		c.mu.Unlock()
 		c.finishWithError(ErrCancelled)
 	}
-	return c.downloadError
+	c.mu.Lock()
+	downloadErr := c.downloadError
+	c.mu.Unlock()
+	return downloadErr
 }
 
 // ---------------------------------------------------------------------------
@@ -573,11 +583,11 @@ func (c *Client) finishSuccess() {
 		c.currentPack().Filename,
 		formatDuration(elapsed),
 		speedStr)
-	c.closeOnce.Do(func() {
+	if c.downloadDoneClosed.CompareAndSwap(false, true) {
 		if c.downloadDone != nil {
 			close(c.downloadDone)
 		}
-	})
+	}
 }
 
 // finishWithNotice stores a bot notice and then calls finishWithError.
@@ -597,11 +607,11 @@ func (c *Client) finishWithError(err error) {
 		c.downloadError = err
 	}
 	c.mu.Unlock()
-	c.closeOnce.Do(func() {
+	if c.downloadDoneClosed.CompareAndSwap(false, true) {
 		if c.downloadDone != nil {
 			close(c.downloadDone)
 		}
-	})
+	}
 }
 
 // ---------------------------------------------------------------------------

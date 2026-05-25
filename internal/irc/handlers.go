@@ -238,6 +238,17 @@ func (c *Client) sendXDCCRequest(client *girc.Client) {
 	client.Cmd.Message(pack.Bot, msg)
 }
 
+// Pre-compiled regexes for pack info extraction — compiled once at init time
+// to avoid recompilation on every bot NOTICE.
+var (
+	packFileRe = regexp.MustCompile(`pack #\d+\s*\(\s*"([^"]+)"\s*\)`)
+	sizeRes    = []*regexp.Regexp{
+		regexp.MustCompile(`(?i)grandezza\s*([\d.]+)\s*(gb|mb|kb)`),
+		regexp.MustCompile(`(?i)size\s*:?\s*([\d.]+)\s*(gb|mb|kb)`),
+		regexp.MustCompile(`(?i)\(([\d.]+)\s*(gb|mb|kb)\)`),
+	}
+)
+
 // parsePackInfoFromNotice extracts the pack filename and size from a bot notice.
 // Returns the filename and size in bytes, or empty string and 0 if not found.
 // Examples:
@@ -246,27 +257,15 @@ func (c *Client) sendXDCCRequest(client *girc.Client) {
 //	"Sending pack #42 (file.mkv), size: 500MB"
 //	"Pack #99 - "another.file.avi" - 1.2GB"
 func parsePackInfoFromNotice(notice string) (filename string, sizeBytes int64) {
-	// Italian format: Ti sto inviando il pack #N ("filename"), che ha grandezza X.YGB/MB/KB
-	// e.g.: Ti sto inviando il pack #128 ("Don.Matteo.S15E01.ITA.DLMux.x264-WRM.mkv"), che ha grandezza 1.6GB
-	// Also handles: (ripresa download supportata) suffix
-
 	// Try to extract filename from quoted filename after "pack #N"
 	// Pattern: pack #<number> ("filename")
-	packFileRe := regexp.MustCompile(`pack #\d+\s*\(\s*"([^"]+)"\s*\)`)
 	if m := packFileRe.FindStringSubmatch(notice); len(m) >= 2 {
 		filename = m[1]
 	}
 
 	// Try to extract size from Italian "grandezza X.YGB/MB/KB" or English "size: X.YGB/MB/KB"
-	// Handle both formats, case-insensitive
-	sizePatterns := []string{
-		`(?i)grandezza\s*([\d.]+)\s*(gb|mb|kb)`,
-		`(?i)size\s*:?\s*([\d.]+)\s*(gb|mb|kb)`,
-		`(?i)\(([\d.]+)\s*(gb|mb|kb)\)`, // (1.6GB) format at end of message
-	}
-
-	for _, pattern := range sizePatterns {
-		re := regexp.MustCompile(pattern)
+	// Handle both formats, case-insensitive.
+	for _, re := range sizeRes {
 		if m := re.FindStringSubmatch(notice); len(m) >= 3 {
 			var size float64
 			if _, err := fmt.Sscanf(m[1], "%f", &size); err == nil {

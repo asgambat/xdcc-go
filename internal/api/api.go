@@ -233,15 +233,15 @@ func parsePageParams(r *http.Request) (page, pageSize int) {
 	return
 }
 
-// parsePositiveInt parses a positive integer from a string.
-func parsePositiveInt(s string) (int, error) {
+// parseInt parses an integer from a string.
+func parseInt(s string) (int, error) {
 	var n int
 	_, err := fmt.Sscanf(s, "%d", &n)
 	return n, err
 }
 
-// parsePositiveInt64 parses a positive int64 from a string.
-func parsePositiveInt64(s string) (int64, error) {
+// parseInt64 parses an int64 from a string.
+func parseInt64(s string) (int64, error) {
 	var n int64
 	_, err := fmt.Sscanf(s, "%d", &n)
 	return n, err

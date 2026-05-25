@@ -229,7 +229,7 @@ func (a *API) handleAdminExport(w http.ResponseWriter, r *http.Request) {
 func (a *API) handleLogs(w http.ResponseWriter, r *http.Request) {
 	count := 100
 	if n := r.URL.Query().Get("count"); n != "" {
-		if parsed, err := parsePositiveInt(n); err == nil && parsed > 0 {
+		if parsed, err := parseInt(n); err == nil && parsed > 0 {
 			count = parsed
 		}
 	}

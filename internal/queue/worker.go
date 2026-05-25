@@ -136,13 +136,19 @@ func runDownload(
 		switch conflictPolicy {
 		case "skip":
 			// Remove the temp file and report as skipped
-			os.Remove(srcPath)
+			if err := os.Remove(srcPath); err != nil {
+				logger.Printf("warning: failed to remove temp file %s: %v", srcPath, err)
+			}
 			result.FilePath = destPath
 			result.Skipped = true
 			completeFn(result)
 			return
 		case "overwrite":
-			// Remove destination file, then move
+			// Remove destination file, then move.
+			// NOTE: on Windows, os.Remove fails if the file is open by another
+			// process (on Unix, the inode is unlinked immediately and the file
+			// remains accessible to existing handles). If the destination file
+			// is locked, the error is propagated to the caller.
 			if err := os.Remove(destPath); err != nil {
 				result.Error = fmt.Errorf("cannot overwrite %s: %w", destPath, err)
 				completeFn(result)
@@ -171,7 +177,9 @@ func runDownload(
 			completeFn(result)
 			return
 		}
-		os.Remove(srcPath)
+		if err := os.Remove(srcPath); err != nil {
+			logger.Printf("warning: failed to remove temp file %s after copy: %v", srcPath, err)
+		}
 	}
 
 	result.FilePath = destPath

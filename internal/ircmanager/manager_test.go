@@ -355,9 +355,11 @@ func TestConnectServer_AlreadyConnected(t *testing.T) {
 func TestDisconnectServer_NonExistent(t *testing.T) {
 	mgr, _ := newTestManager(t)
 
+	// DisconnectServer is idempotent: calling it on a non-managed server
+	// returns nil because the desired state (disconnected) is already achieved.
 	err := mgr.DisconnectServer(999)
-	if err == nil {
-		t.Errorf("expected error for non-existent server")
+	if err != nil {
+		t.Errorf("expected nil for non-existent server (idempotent), got: %v", err)
 	}
 }
 

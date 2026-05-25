@@ -186,6 +186,11 @@ type levelWriter struct {
 	buf   []byte
 }
 
+// maxLineBuf is the maximum size of the line buffer in a levelWriter.
+// If a writer produces output without a newline, the buffer is flushed
+// as a complete line to prevent unbounded growth.
+const maxLineBuf = 64 * 1024
+
 func (w *levelWriter) Write(p []byte) (int, error) {
 	n := len(p)
 	w.buf = append(w.buf, p...)
@@ -199,6 +204,11 @@ func (w *levelWriter) Write(p []byte) (int, error) {
 		if len(line) > 0 {
 			w.l.log(w.level, line)
 		}
+	}
+	// Flush if buffer exceeds the limit to prevent unbounded growth
+	if len(w.buf) > maxLineBuf {
+		w.l.log(w.level, string(w.buf))
+		w.buf = w.buf[:0]
 	}
 	return n, nil
 }

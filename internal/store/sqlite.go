@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -26,9 +27,11 @@ func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
 		return nil, fmt.Errorf("opening SQLite database: %w", err)
 	}
 
-	// Configure connection pool
-	db.SetMaxOpenConns(1) // SQLite doesn't support concurrent writes well
-	db.SetMaxIdleConns(1)
+	// Configure connection pool — SQLite serializes writes but supports
+	// concurrent reads with WAL mode. 3 connections allow up to 2 reads
+	// to proceed while a write is in progress.
+	db.SetMaxOpenConns(3)
+	db.SetMaxIdleConns(3)
 
 	// Enable WAL mode for better concurrent read performance
 	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
@@ -347,11 +350,18 @@ func (s *SQLiteStore) GetPendingByChannel(channel string) ([]DownloadRecord, err
 }
 
 func (s *SQLiteStore) UpdateDownloadProgress(id int64, progressBytes int64, speedBPS int64) error {
+	// Note: status is NOT set here — MarkDownloadStarted already sets it before
+	// progress callbacks begin. This prevents a race where a concurrent
+	// PauseDownload/RemoveDownload changes the status, only to have this
+	// progress callback overwrite it back to 'downloading'.
 	_, err := s.db.Exec(
-		`UPDATE downloads SET progress_bytes=?, speed_bps=?, status='downloading' WHERE id=?`,
+		`UPDATE downloads SET progress_bytes=?, speed_bps=? WHERE id=?`,
 		progressBytes, speedBPS, id,
 	)
-	return err
+	if err != nil {
+		return fmt.Errorf("updating download progress for id %d: %w", id, err)
+	}
+	return nil
 }
 
 func (s *SQLiteStore) MarkDownloadStarted(id int64) error {
@@ -1041,7 +1051,7 @@ func scanDownloadFromRows(rows *sql.Rows) (*DownloadRecord, error) {
 		&d.ErrorMessage, &d.Priority, &createdAt, &startedAt, &completedAt); err != nil {
 		// Defensive: if progress_bytes contains a string (corrupted data from old bug),
 		// skip this row instead of failing the entire history query.
-		// We log a warning and return nil to skip the row gracefully.
+		log.Printf("WARNING: skipping corrupted download row (scan error: %v)", err)
 		return nil, nil // Returning nil, nil signals the caller to skip this row
 	}
 	if createdAt.Valid {
@@ -1117,12 +1127,6 @@ func scanWatchlist(row interface{ Scan(...any) error }) (*Watchlist, error) {
 	}
 	if updatedAtStr.Valid {
 		w.UpdatedAt, _ = time.Parse("2006-01-02 15:04:05", updatedAtStr.String)
-	}
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("scanning watchlist: %w", err)
 	}
 	if lastChecked.Valid {
 		t, err := time.Parse("2006-01-02 15:04:05", lastChecked.String)

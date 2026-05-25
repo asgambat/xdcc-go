@@ -286,6 +286,9 @@ func (m *Manager) ConnectServer(srv *store.ServerRecord) error {
 }
 
 // DisconnectServer disconnects from an IRC server by its ID.
+// This method is idempotent: if the server is not currently managed (e.g.,
+// already disconnected or removed by a concurrent call), it returns nil
+// because the desired state is already achieved.
 func (m *Manager) DisconnectServer(serverID int64) error {
 	m.mu.Lock()
 	conn, ok := m.conns[serverID]
@@ -295,7 +298,14 @@ func (m *Manager) DisconnectServer(serverID int64) error {
 	m.mu.Unlock()
 
 	if !ok {
-		return fmt.Errorf("server %d is not managed", serverID)
+		// Server is not currently managed — it may have been disconnected
+		// by a concurrent request, by Stop(), or never connected at all.
+		// The desired state (disconnected) is already achieved, so ensure
+		// the DB reflects reality and return nil.
+		if err := m.store.SetServerStatus(serverID, "disconnected"); err != nil {
+			m.logger.Printf("WARNING: updating server %d status to 'disconnected' in DB failed: %v", serverID, err)
+		}
+		return nil
 	}
 
 	// Signal disconnect and wait for run() to complete

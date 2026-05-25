@@ -149,10 +149,10 @@ func (a *API) handleDownloadHistory(w http.ResponseWriter, r *http.Request) {
 	filter.Filename = q.Get("filename")
 	filter.Bot = q.Get("bot")
 	if q.Get("min_bytes") != "" {
-		filter.MinBytes, _ = parsePositiveInt64(q.Get("min_bytes"))
+		filter.MinBytes, _ = parseInt64(q.Get("min_bytes"))
 	}
 	if q.Get("max_bytes") != "" {
-		filter.MaxBytes, _ = parsePositiveInt64(q.Get("max_bytes"))
+		filter.MaxBytes, _ = parseInt64(q.Get("max_bytes"))
 	}
 	filter.DateFrom = q.Get("date_from")
 	filter.DateTo = q.Get("date_to")

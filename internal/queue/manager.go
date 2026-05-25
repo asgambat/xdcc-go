@@ -656,9 +656,19 @@ func (qm *QueueManager) startDownload(d store.DownloadRecord) {
 	go func() {
 		defer qm.downloadWg.Done()
 
-		// Progress callback: update store and emit events
+		// Progress callback: update store and emit events.
+		// Guard: skip updates if the download context has been cancelled
+		// (e.g. by PauseDownload or RemoveDownload) to avoid racing with
+		// store status changes.
 		progressFn := func(bytesReceived, totalBytes int64, speedBPS float64) {
-			// Update store
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+
+			// Update store (status is NOT set here — MarkDownloadStarted
+			// already set it before this callback began).
 			_ = qm.store.UpdateDownloadProgress(d.ID, bytesReceived, int64(speedBPS))
 
 			// Emit progress event

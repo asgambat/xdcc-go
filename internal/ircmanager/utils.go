@@ -54,6 +54,7 @@ func ServerAddr(address string, port int) string {
 //	\x1F — Underline
 //
 // Invalid UTF-8 sequences are also cleaned up, replacing them with U+FFFD.
+// Iterates byte-by-byte to avoid allocating an intermediate []rune slice.
 func stripIRCFormatting(s string) string {
 	var b strings.Builder
 	b.Grow(len(s))
@@ -61,31 +62,40 @@ func stripIRCFormatting(s string) string {
 	// Ensure the output is valid UTF-8
 	s = strings.ToValidUTF8(s, string(utf8.RuneError))
 
-	i := 0
-	runes := []rune(s)
-	for i < len(runes) {
-		r := runes[i]
+	for i := 0; i < len(s); {
+		r, size := utf8.DecodeRuneInString(s[i:])
+		if r == utf8.RuneError && size == 0 {
+			break
+		}
 		switch r {
 		case 0x02: // Bold
-			i++
-		case 0x03: // Color
-			i++
-			// Skip up to 2 digits for foreground
-			for j := 0; j < 2 && i < len(runes) && isDigit(runes[i]); j++ {
-				i++
+			i += size
+		case 0x03: // Color — skip up to 2 digits for fg + optional "," + digits for bg
+			i += size
+			for j := 0; j < 2 && i < len(s); {
+				r2, s2 := utf8.DecodeRuneInString(s[i:])
+				if !isDigit(r2) {
+					break
+				}
+				i += s2
+				j++
 			}
-			// Skip optional "," + background digits
-			if i < len(runes) && runes[i] == ',' {
+			if i < len(s) && s[i] == ',' {
 				i++
-				for j := 0; j < 2 && i < len(runes) && isDigit(runes[i]); j++ {
-					i++
+				for j := 0; j < 2 && i < len(s); {
+					r2, s2 := utf8.DecodeRuneInString(s[i:])
+					if !isDigit(r2) {
+						break
+					}
+					i += s2
+					j++
 				}
 			}
 		case 0x0F, 0x16, 0x1D, 0x1F: // Reset, Reverse, Italic, Underline
-			i++
+			i += size
 		default:
 			b.WriteRune(r)
-			i++
+			i += size
 		}
 	}
 	return b.String()
