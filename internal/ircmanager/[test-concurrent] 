@@ -118,3 +118,25 @@
 2026-05-25T22:48:50+02:00 [INFO] server 4 disconnected cleanly 
 2026-05-25T22:48:50+02:00 [INFO] server 3 disconnected cleanly 
 2026-05-25T22:48:52+02:00 [INFO] server 5 disconnected cleanly 
+2026-05-25T22:52:43+02:00 [INFO] connecting to irc.test.net:6671 as 'xdcc-userGRM' 
+2026-05-25T22:52:43+02:00 [INFO] connecting to irc.test.net:6668 as 'xdcc-userswR' 
+2026-05-25T22:52:43+02:00 [INFO] connecting to irc.test.net:6669 as 'xdcc-userOQb' 
+2026-05-25T22:52:43+02:00 [INFO] connecting to irc.test.net:6667 as 'xdcc-userj3Z' 
+2026-05-25T22:52:43+02:00 [INFO] connecting to irc.test.net:6670 as 'xdcc-useruhx' 
+2026-05-25T22:52:43+02:00 [ERROR] connection to irc.test.net failed: dial tcp 85.13.137.190:6671: connect: connection refused 
+2026-05-25T22:52:43+02:00 [INFO] IRC connection to irc.test.net lost, reconnecting... 
+2026-05-25T22:52:43+02:00 [INFO] reconnecting to irc.test.net in 5s (attempt 1) 
+2026-05-25T22:52:43+02:00 [ERROR] connection to irc.test.net failed: dial tcp 85.13.137.190:6670: connect: connection refused 
+2026-05-25T22:52:43+02:00 [INFO] IRC connection to irc.test.net lost, reconnecting... 
+2026-05-25T22:52:43+02:00 [INFO] reconnecting to irc.test.net in 5s (attempt 1) 
+2026-05-25T22:52:43+02:00 [ERROR] connection to irc.test.net failed: dial tcp 85.13.137.190:6668: connect: connection refused 
+2026-05-25T22:52:43+02:00 [INFO] IRC connection to irc.test.net lost, reconnecting... 
+2026-05-25T22:52:43+02:00 [ERROR] connection to irc.test.net failed: dial tcp 85.13.137.190:6667: connect: connection refused 
+2026-05-25T22:52:43+02:00 [INFO] IRC connection to irc.test.net lost, reconnecting... 
+2026-05-25T22:52:43+02:00 [INFO] reconnecting to irc.test.net in 5s (attempt 1) 
+2026-05-25T22:52:43+02:00 [INFO] reconnecting to irc.test.net in 5s (attempt 1) 
+2026-05-25T22:52:43+02:00 [INFO] server 4 disconnected cleanly 
+2026-05-25T22:52:43+02:00 [INFO] server 5 disconnected cleanly 
+2026-05-25T22:52:43+02:00 [INFO] server 2 disconnected cleanly 
+2026-05-25T22:52:43+02:00 [INFO] server 1 disconnected cleanly 
+2026-05-25T22:52:45+02:00 [INFO] server 3 disconnected cleanly 
