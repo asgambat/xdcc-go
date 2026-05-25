@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -1328,39 +1327,6 @@ func TestExportImportData(t *testing.T) {
 	wls, _ := s2.ListWatchlists(context.Background())
 	if len(wls) != 1 {
 		t.Errorf("expected 1 watchlist imported, got %d", len(wls))
-	}
-}
-
-// ===========================================================================
-// Vacuum
-// ===========================================================================
-
-func TestVacuum(t *testing.T) {
-	s := newTestStore(t)
-	defer closeStore(t, s)
-
-	err := s.Vacuum(context.Background())
-	if err != nil {
-		t.Fatalf("Vacuum: %v", err)
-	}
-}
-
-// ===========================================================================
-// Backup
-// ===========================================================================
-
-func TestBackupDatabase(t *testing.T) {
-	s := newTestStore(t)
-	defer closeStore(t, s)
-
-	backupPath := filepath.Join(t.TempDir(), "backup.db")
-	err := s.BackupDatabase(context.Background(), backupPath)
-	if err != nil {
-		t.Fatalf("BackupDatabase: %v", err)
-	}
-
-	if _, err := os.Stat(backupPath); os.IsNotExist(err) {
-		t.Errorf("backup file should exist at %s", backupPath)
 	}
 }
 

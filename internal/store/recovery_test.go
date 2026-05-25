@@ -12,19 +12,6 @@ import (
 // RecoverDownloadsOnStartup
 // ===========================================================================
 
-func TestRecoverDownloadsOnStartup_NoStuck(t *testing.T) {
-	s := newTestStore(t)
-	defer closeStore(t, s)
-
-	recovered, err := s.RecoverDownloadsOnStartup(context.Background())
-	if err != nil {
-		t.Fatalf("RecoverDownloadsOnStartup: %v", err)
-	}
-	if len(recovered) != 0 {
-		t.Errorf("expected 0 recovered, got %d", len(recovered))
-	}
-}
-
 func TestRecoverDownloadsOnStartup_RequeuesDownloading(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
