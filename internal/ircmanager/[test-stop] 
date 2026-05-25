@@ -124,3 +124,9 @@
 2026-05-25T22:46:35+02:00 [INFO] server 2 disconnected cleanly 
 2026-05-25T22:46:36+02:00 [INFO] server 1 disconnected cleanly 
 2026-05-25T22:46:36+02:00 [INFO] connecting to irc.test.net:6667 as 'xdcc-usero2Y' 
+2026-05-25T22:48:50+02:00 [INFO] connecting to irc.test.net:6669 as 'xdcc-userNH0' 
+2026-05-25T22:48:50+02:00 [INFO] connecting to irc.test.net:6667 as 'xdcc-userSZc' 
+2026-05-25T22:48:50+02:00 [INFO] connecting to irc.test.net:6668 as 'xdcc-userFol' 
+2026-05-25T22:48:53+02:00 [INFO] server 1 disconnected cleanly 
+2026-05-25T22:48:54+02:00 [INFO] server 3 disconnected cleanly 
+2026-05-25T22:48:55+02:00 [INFO] server 2 disconnected cleanly 

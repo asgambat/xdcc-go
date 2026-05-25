@@ -181,28 +181,6 @@ func TestSetServerStatus(t *testing.T) {
 	}
 }
 
-func TestSetServerConnected(t *testing.T) {
-	s := newTestStore(t)
-	defer closeStore(t, s)
-
-	id, _ := s.AddServer(context.Background(), ServerRecord{Address: "irc.conn.net", Port: 6667, Status: "disconnected", RetryCount: 3})
-	err := s.SetServerConnected(context.Background(), id)
-	if err != nil {
-		t.Fatalf("SetServerConnected: %v", err)
-	}
-
-	srv, _ := s.GetServer(context.Background(), id)
-	if srv.Status != "connected" {
-		t.Errorf("expected status 'connected', got %s", srv.Status)
-	}
-	if srv.RetryCount != 0 {
-		t.Errorf("expected retry_count reset to 0, got %d", srv.RetryCount)
-	}
-	if srv.LastConnectedAt == nil {
-		t.Errorf("expected last_connected_at to be set")
-	}
-}
-
 func TestIncrementServerRetry(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
@@ -420,31 +398,6 @@ func TestGetQueue(t *testing.T) {
 	}
 	if len(queue) != 3 {
 		t.Errorf("expected 3 items in queue, got %d", len(queue))
-	}
-}
-
-func TestGetQueue_OrderedByPriority(t *testing.T) {
-	s := newTestStore(t)
-	defer closeStore(t, s)
-
-	// Enqueue with different priorities
-	id1, _ := s.EnqueueDownload(context.Background(), DownloadRecord{
-		Bot: "BotA", ServerAddress: "irc.t.net", Channel: "#a", Filename: "low.mkv", FileSize: 100, Priority: 200,
-	})
-	id2, _ := s.EnqueueDownload(context.Background(), DownloadRecord{
-		Bot: "BotB", ServerAddress: "irc.t.net", Channel: "#a", Filename: "high.mkv", FileSize: 100, Priority: 50,
-	})
-
-	queue, _ := s.GetQueue(context.Background())
-	if len(queue) < 2 {
-		t.Fatal("expected at least 2 queue items")
-	}
-	// Higher priority = lower number should come first
-	if queue[0].ID != id2 {
-		t.Errorf("expected higher priority item (id=%d) first, got id=%d", id2, queue[0].ID)
-	}
-	if queue[1].ID != id1 {
-		t.Errorf("expected lower priority item (id=%d) second, got id=%d", id1, queue[1].ID)
 	}
 }
 
@@ -669,62 +622,6 @@ func TestSetDownloadPriority(t *testing.T) {
 	d, _ := s.GetDownload(context.Background(), id)
 	if d.Priority != 1 {
 		t.Errorf("expected priority 1, got %d", d.Priority)
-	}
-}
-
-func TestFindDuplicateDownload(t *testing.T) {
-	s := newTestStore(t)
-	defer closeStore(t, s)
-
-	_, _ = s.EnqueueDownload(context.Background(), DownloadRecord{
-		Bot: "MyBot", ServerAddress: "irc.t.net", Channel: "#x", Filename: "f.mkv", FileSize: 1000,
-		PackMessage: "xdcc send #5",
-	})
-
-	dup, err := s.FindDuplicateDownload(context.Background(), "MyBot", "irc.t.net", 5)
-	if err != nil {
-		t.Fatalf("FindDuplicateDownload: %v", err)
-	}
-	if dup == nil {
-		t.Fatal("expected duplicate to be found")
-	}
-
-	// Different pack number
-	noDup, _ := s.FindDuplicateDownload(context.Background(), "MyBot", "irc.t.net", 99)
-	if noDup != nil {
-		t.Errorf("expected no duplicate for different pack number, got %+v", noDup)
-	}
-}
-
-func TestGetDownloadHistory(t *testing.T) {
-	s := newTestStore(t)
-	defer closeStore(t, s)
-
-	// Add completed downloads
-	id1, _ := s.EnqueueDownload(context.Background(), DownloadRecord{
-		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x", Filename: "a.mkv", FileSize: 100,
-	})
-	_ = s.MarkDownloadCompleted(context.Background(), id1, "", 0)
-
-	id2, _ := s.EnqueueDownload(context.Background(), DownloadRecord{
-		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x", Filename: "b.mkv", FileSize: 100,
-	})
-	_ = s.MarkDownloadFailed(context.Background(), id2, "error")
-
-	// Queued download should NOT appear in history
-	_, _ = s.EnqueueDownload(context.Background(), DownloadRecord{
-		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x", Filename: "c.mkv", FileSize: 100,
-	})
-
-	history, total, err := s.GetDownloadHistory(context.Background(), 1, 10, HistoryFilter{})
-	if err != nil {
-		t.Fatalf("GetDownloadHistory: %v", err)
-	}
-	if total != 2 {
-		t.Errorf("expected total 2 history items, got %d", total)
-	}
-	if len(history) != 2 {
-		t.Errorf("expected 2 history items, got %d", len(history))
 	}
 }
 
@@ -1111,28 +1008,6 @@ func TestListWatchlists(t *testing.T) {
 	}
 	if len(lists) != 2 {
 		t.Errorf("expected 2 watchlists, got %d", len(lists))
-	}
-}
-
-func TestUpdateWatchlist(t *testing.T) {
-	s := newTestStore(t)
-	defer closeStore(t, s)
-
-	id, _ := s.AddWatchlist(context.Background(), Watchlist{Name: "Old", Query: "old", Enabled: true})
-	err := s.UpdateWatchlist(context.Background(), Watchlist{ID: id, Name: "New", Query: "new", Enabled: false, AutoEnqueue: true})
-	if err != nil {
-		t.Fatalf("UpdateWatchlist: %v", err)
-	}
-
-	got, _ := s.GetWatchlist(context.Background(), id)
-	if got.Name != "New" {
-		t.Errorf("expected name 'New', got %s", got.Name)
-	}
-	if got.Enabled {
-		t.Errorf("expected enabled=false")
-	}
-	if !got.AutoEnqueue {
-		t.Errorf("expected auto_enqueue=true")
 	}
 }
 

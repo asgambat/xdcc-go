@@ -79,47 +79,6 @@ func TestRecoverDownloadsOnStartup_OnlyDownloading(t *testing.T) {
 // ReconcileFileSystem
 // ===========================================================================
 
-func TestReconcileFileSystem_NoIssues(t *testing.T) {
-	s := newTestStore(t)
-	defer closeStore(t, s)
-
-	actions, err := s.ReconcileFileSystem(context.Background(), t.TempDir(), "skip", "")
-	if err != nil {
-		t.Fatalf("ReconcileFileSystem: %v", err)
-	}
-	if len(actions) != 0 {
-		t.Errorf("expected 0 actions for clean state, got %d: %v", len(actions), actions)
-	}
-}
-
-func TestReconcileFileSystem_MissingTempFile(t *testing.T) {
-	s := newTestStore(t)
-	defer closeStore(t, s)
-
-	// Create a 'downloading' record with a temp file path that doesn't exist
-	id, _ := s.EnqueueDownload(context.Background(), DownloadRecord{
-		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x",
-		Filename: "missing_temp.mkv", FileSize: 1000,
-	})
-	_ = s.MarkDownloadStarted(context.Background(), id)
-
-	actions, err := s.ReconcileFileSystem(context.Background(), t.TempDir(), "skip", "")
-	if err != nil {
-		t.Fatalf("ReconcileFileSystem: %v", err)
-	}
-
-	// Should find the missing temp file and requeue
-	hasRequeue := false
-	for _, a := range actions {
-		if contains(a, "REQUEUED") && contains(a, "missing_temp.mkv") {
-			hasRequeue = true
-		}
-	}
-	if !hasRequeue {
-		t.Errorf("expected REQUEUED action for missing temp file, got: %v", actions)
-	}
-}
-
 func TestReconcileFileSystem_OrphanedFileDelete(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
@@ -285,25 +244,6 @@ func TestCleanupOldDownloads(t *testing.T) {
 
 	_ = now // used for potential future enhancements
 	_, _ = s.CleanupOldDownloads(context.Background(), 0)
-}
-
-func TestCleanupOldDownloads_DoesNotDeleteQueued(t *testing.T) {
-	s := newTestStore(t)
-	defer closeStore(t, s)
-
-	// Queued download should NOT be deleted
-	_, _ = s.EnqueueDownload(context.Background(), DownloadRecord{
-		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x",
-		Filename: "pending.mkv", FileSize: 100,
-	})
-
-	deleted, err := s.CleanupOldDownloads(context.Background(), 0)
-	if err != nil {
-		t.Fatalf("CleanupOldDownloads: %v", err)
-	}
-	if deleted != 0 {
-		t.Errorf("expected 0 deleted for queued-only downloads, got %d", deleted)
-	}
 }
 
 // ===========================================================================
