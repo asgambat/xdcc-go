@@ -1,6 +1,7 @@
 package search
 
 import (
+	"context"
 	"net/http"
 	"time"
 )
@@ -9,8 +10,8 @@ var httpClient = &http.Client{
 	Timeout: 30 * time.Second,
 }
 
-func httpGet(url string) (*http.Response, error) {
-	req, err := http.NewRequest("GET", url, nil)
+func httpGet(ctx context.Context, url string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, err
 	}

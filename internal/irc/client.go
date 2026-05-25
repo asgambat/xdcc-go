@@ -18,6 +18,12 @@ import (
 	"xdcc-go/internal/entities"
 )
 
+// Internal constants
+const (
+	ackQueueBufSize = 256             // capacity of the ACK send queue
+	packDelay       = 3 * time.Second // delay between pack downloads
+)
+
 // ---------------------------------------------------------------------------
 // Client struct
 // ---------------------------------------------------------------------------
@@ -62,11 +68,11 @@ type Client struct {
 	packSize      int64  // discovered from bot notice before DCC SEND
 	downStartTime time.Time
 
-	ackQueue              chan []byte
-	downloadDone          chan struct{} // closed when pack finishes (success or error)
-	downloadStarted       chan struct{} // closed when DCC TCP connection is established
-	downloadDoneClosed    atomic.Bool
-	downloadStartedClosed atomic.Bool
+	ackQueue            chan []byte
+	downloadDone        chan struct{} // closed when pack finishes (success or error)
+	downloadStarted     chan struct{} // closed when DCC TCP connection is established
+	downloadDoneOnce    *sync.Once
+	downloadStartedOnce *sync.Once
 
 	// Handler CUIDs registered on the girc.Client. Tracked so handlers can be
 	// removed when the download completes, preventing accumulation of duplicate
@@ -218,7 +224,7 @@ func (c *Client) DownloadAll() []PackResult {
 				}
 				closeConn()
 				return results
-			case <-time.After(3 * time.Second):
+			case <-time.After(packDelay):
 			}
 		}
 		results[i] = c.downloadPackAtIndex(i, 0)
@@ -409,7 +415,7 @@ func (c *Client) resetForPack() {
 		c.dccFile.Close()
 		c.dccFile = nil
 	}
-	c.progress = 0
+	atomic.StoreInt64(&c.progress, 0)
 	c.filesize = 0
 	c.downloading = false
 	c.downloadError = nil
@@ -427,16 +433,19 @@ func (c *Client) resetForPack() {
 	// Close the previous pack's channels before creating new ones.
 	// This unblocks any goroutines still reading from the old channels
 	// (e.g. ackSender, progressPrinter, stallWatcher).
-	if c.downloadDone != nil {
-		if c.downloadDoneClosed.CompareAndSwap(false, true) {
+	if c.downloadDone != nil && c.downloadDoneOnce != nil {
+		c.downloadDoneOnce.Do(func() {
 			close(c.downloadDone)
-		}
+		})
 	}
+	// Allocate fresh sync.Once instances per pack to avoid the unsafe
+	// zero-value reset pattern. Pointers are used so that each pack gets
+	// its own independent Once, preventing any risk of reuse across packs.
 	c.downloadDone = make(chan struct{})
+	c.downloadDoneOnce = &sync.Once{}
 	c.downloadStarted = make(chan struct{})
-	c.ackQueue = make(chan []byte, 256)
-	c.downloadDoneClosed.Store(false)
-	c.downloadStartedClosed.Store(false)
+	c.downloadStartedOnce = &sync.Once{}
+	c.ackQueue = make(chan []byte, ackQueueBufSize)
 }
 
 func (c *Client) downloadPackAtIndex(idx int, retryCount int) PackResult {
@@ -583,11 +592,9 @@ func (c *Client) finishSuccess() {
 		c.currentPack().Filename,
 		formatDuration(elapsed),
 		speedStr)
-	if c.downloadDoneClosed.CompareAndSwap(false, true) {
-		if c.downloadDone != nil {
-			close(c.downloadDone)
-		}
-	}
+	c.downloadDoneOnce.Do(func() {
+		close(c.downloadDone)
+	})
 }
 
 // finishWithNotice stores a bot notice and then calls finishWithError.
@@ -607,11 +614,9 @@ func (c *Client) finishWithError(err error) {
 		c.downloadError = err
 	}
 	c.mu.Unlock()
-	if c.downloadDoneClosed.CompareAndSwap(false, true) {
-		if c.downloadDone != nil {
-			close(c.downloadDone)
-		}
-	}
+	c.downloadDoneOnce.Do(func() {
+		close(c.downloadDone)
+	})
 }
 
 // ---------------------------------------------------------------------------

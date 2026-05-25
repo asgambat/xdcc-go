@@ -103,7 +103,7 @@ See config.yaml in the project root for all available settings.`,
 			dbPath := filepath.Join(dbDir, "xdcc-server.db")
 			logger.Infof("initializing database at %s", dbPath)
 
-			st, err := store.NewSQLiteStore(dbPath)
+			st, err := store.NewSQLiteStore(dbPath, logger)
 			if err != nil {
 				return fmt.Errorf("initializing database: %w", err)
 			}

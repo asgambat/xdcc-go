@@ -25,6 +25,7 @@ type Monitor struct {
 
 	// State
 	lowSpace    bool
+	available   int64 // cached available bytes, updated by Check()
 	lastChecked time.Time
 	interval    time.Duration
 
@@ -68,6 +69,7 @@ func (m *Monitor) Check() (available, total int64, low bool, err error) {
 
 	m.mu.Lock()
 	m.lowSpace = low
+	m.available = available
 	m.lastChecked = time.Now()
 	m.mu.Unlock()
 
@@ -81,12 +83,11 @@ func (m *Monitor) IsLowSpace() bool {
 	return m.lowSpace
 }
 
-// Available returns the cached available bytes.
+// Available returns the cached available bytes from the last Check() call.
 func (m *Monitor) Available() int64 {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	// Since we don't cache available, call Check() for fresh data
-	return 0
+	return m.available
 }
 
 // Threshold returns the configured minimum free bytes.

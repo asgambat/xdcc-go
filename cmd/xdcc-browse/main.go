@@ -86,7 +86,7 @@ If -q and -v are used together, -q takes precedence and -v is ignored.`,
 					engineName, strings.Join(search.AvailableEngines(), ", "))
 			}
 
-			results, err := engine.Search(term)
+			results, err := engine.Search(context.Background(), term)
 			if err != nil {
 				return fmt.Errorf("search failed: %w", err)
 			}

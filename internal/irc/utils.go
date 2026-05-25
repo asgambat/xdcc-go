@@ -100,6 +100,16 @@ func (c *Client) resolveAllHosts(host string) ([]string, error) {
 	return allIPs, nil
 }
 
+// NormalizeChannel lowercases and ensures a leading '#'.
+// Returns empty string if input is empty.
+func NormalizeChannel(ch string) string {
+	ch = strings.ToLower(strings.TrimSpace(ch))
+	if ch != "" && !strings.HasPrefix(ch, "#") {
+		ch = "#" + ch
+	}
+	return ch
+}
+
 func isConnectError(err error) bool {
 	if err == nil {
 		return false

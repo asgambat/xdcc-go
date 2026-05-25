@@ -1,6 +1,7 @@
 package search
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -63,7 +64,7 @@ func TestParseSubsPleaseResult_NumericValues(t *testing.T) {
 
 func TestSubsPleaseSearch_EmptyTerm(t *testing.T) {
 	e := &SubsPleaseEngine{}
-	packs, err := e.Search("")
+	packs, err := e.Search(context.Background(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +80,7 @@ func TestSubsPleaseSearch_CloudflareBlock(t *testing.T) {
 	defer srv.Close()
 
 	e := &SubsPleaseEngine{baseURL: srv.URL}
-	_, err := e.Search("test")
+	_, err := e.Search(context.Background(), "test")
 	if err == nil {
 		t.Error("expected error for non-2xx response (CloudFlare block)")
 	}
@@ -93,7 +94,7 @@ func TestSubsPleaseSearch_ValidResults(t *testing.T) {
 	defer srv.Close()
 
 	e := &SubsPleaseEngine{baseURL: srv.URL}
-	packs, err := e.Search("test")
+	packs, err := e.Search(context.Background(), "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -117,7 +118,7 @@ func TestSubsPleaseSearch_SkipsInvalidAndMissingBot(t *testing.T) {
 	defer srv.Close()
 
 	e := &SubsPleaseEngine{baseURL: srv.URL}
-	packs, err := e.Search("test")
+	packs, err := e.Search(context.Background(), "test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +129,7 @@ func TestSubsPleaseSearch_SkipsInvalidAndMissingBot(t *testing.T) {
 
 func TestSubsPleaseSearch_NetworkError(t *testing.T) {
 	e := &SubsPleaseEngine{baseURL: "http://127.0.0.1:1"}
-	_, err := e.Search("test")
+	_, err := e.Search(context.Background(), "test")
 	if err == nil {
 		t.Error("expected error for unreachable server, got nil")
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -13,6 +14,12 @@ import (
 	xdccirc "xdcc-go/internal/irc"
 	"xdcc-go/internal/pubsub"
 	"xdcc-go/internal/store"
+)
+
+// Internal constants
+const (
+	defaultConnectionTimeout  = 30 * time.Second       // timeout for connections to establish
+	waitConnectedPollInterval = 200 * time.Millisecond // polling interval when waiting for connection
 )
 
 // ---------------------------------------------------------------------------
@@ -266,10 +273,10 @@ func (m *Manager) ConnectServer(srv *store.ServerRecord) error {
 		}
 	}
 
-	// Insert the new connection and clear the connecting flag atomically.
+	// Insert the new connection. The connecting flag is cleaned up by the
+	// defer registered above, which runs atomically after this function returns.
 	m.mu.Lock()
 	m.conns[srv.ID] = conn
-	delete(m.connecting, srv.ID)
 	m.mu.Unlock()
 
 	// Update DB status to 'connecting' (not 'connected' yet)
@@ -566,7 +573,7 @@ func (m *Manager) ensureConnection(address string, port int) (int64, *managedCon
 			// using the connectedCh notification channel when available,
 			// with a short polling fallback.
 			m.logger.Printf("Waiting for connection to %s:%d to establish...", address, port)
-			if !conn.waitConnected(30 * time.Second) {
+			if !conn.waitConnected(defaultConnectionTimeout) {
 				return 0, nil, fmt.Errorf("connection to %s:%d did not establish in time", address, port)
 			}
 			return id, conn, nil
@@ -612,13 +619,20 @@ func (m *Manager) ensureConnection(address string, port int) (int64, *managedCon
 		return 0, nil, fmt.Errorf("connecting to server: %w", err)
 	}
 
-	// Wait for connection to establish using notification channel
+	// Wait for connection to establish using notification channel.
+	// Re-acquire lock to fetch the connection safely: ConnectServerByID
+	// inserted it into m.conns, but a concurrent DisconnectServer could
+	// have removed it before we acquire the lock.
 	m.logger.Printf("Waiting for connection to %s:%d to establish...", address, port)
 	m.mu.RLock()
-	conn := m.conns[serverID]
+	conn, ok := m.conns[serverID]
 	m.mu.RUnlock()
 
-	if !conn.waitConnected(30 * time.Second) {
+	if !ok || conn == nil {
+		return 0, nil, fmt.Errorf("connection to %s:%d was removed before it established", address, port)
+	}
+
+	if !conn.waitConnected(defaultConnectionTimeout) {
 		return 0, nil, fmt.Errorf("connection to %s:%d did not establish in time", address, port)
 	}
 
@@ -715,7 +729,7 @@ func (mc *managedConnection) run() {
 
 		// Panic recovery to prevent goroutine crash
 		if r := recover(); r != nil {
-			mc.manager.logger.Printf("PANIC in run() for server %d: %v", mc.id, r)
+			mc.manager.logger.Printf("PANIC in run() for server %d: %v\n%s", mc.id, r, debug.Stack())
 			mc.setStatus("error")
 			_ = mc.manager.store.SetServerStatus(mc.id, "error")
 
@@ -853,7 +867,7 @@ func (mc *managedConnection) connect() connectResult {
 		if e.Source == nil || !isOwnNick(e.Source.Name, cl.GetNick()) {
 			return
 		}
-		ch := normalizeChannel(e.Params[0])
+		ch := xdccirc.NormalizeChannel(e.Params[0])
 		mc.manager.logger.Printf("joined channel %s on %s", ch, mc.address)
 		mc.mu.Lock()
 		mc.joinedChs[ch] = "" // topic will be updated by TOPIC event
@@ -893,7 +907,7 @@ func (mc *managedConnection) connect() connectResult {
 		if !isOwnNick(e.Params[1], cl.GetNick()) {
 			return
 		}
-		ch := normalizeChannel(e.Params[0])
+		ch := xdccirc.NormalizeChannel(e.Params[0])
 		mc.manager.logger.Printf("kicked from channel %s on %s", ch, mc.address)
 		mc.mu.Lock()
 		delete(mc.joinedChs, ch)
@@ -916,7 +930,7 @@ func (mc *managedConnection) connect() connectResult {
 		if e.Source == nil || !isOwnNick(e.Source.Name, cl.GetNick()) {
 			return
 		}
-		ch := normalizeChannel(e.Params[0])
+		ch := xdccirc.NormalizeChannel(e.Params[0])
 		mc.manager.logger.Printf("left channel %s on %s", ch, mc.address)
 		mc.mu.Lock()
 		delete(mc.joinedChs, ch)
@@ -939,7 +953,7 @@ func (mc *managedConnection) connect() connectResult {
 		if len(e.Params) < 1 {
 			return
 		}
-		ch := normalizeChannel(e.Params[0])
+		ch := xdccirc.NormalizeChannel(e.Params[0])
 		topic := stripIRCFormatting(e.Last())
 		mc.mu.Lock()
 		mc.joinedChs[ch] = topic
@@ -963,7 +977,7 @@ func (mc *managedConnection) connect() connectResult {
 		if len(e.Params) < 3 {
 			return
 		}
-		ch := normalizeChannel(e.Params[1])
+		ch := xdccirc.NormalizeChannel(e.Params[1])
 		topic := stripIRCFormatting(e.Params[len(e.Params)-1])
 		mc.mu.Lock()
 		mc.joinedChs[ch] = topic
@@ -976,7 +990,10 @@ func (mc *managedConnection) connect() connectResult {
 
 	// Start connection in a goroutine; when irc.Connect() returns,
 	// the connection has been lost (either due to error or explicit Close).
+	// Tracked by mc.wg so DisconnectServer can detect leaked goroutines.
+	mc.wg.Add(1)
 	go func() {
+		defer mc.wg.Done()
 		err := client.Connect()
 		disconnected <- err
 		close(disconnected)
@@ -1095,7 +1112,7 @@ func (mc *managedConnection) waitConnected(timeout time.Duration) bool {
 		if mc.Status() == "connected" {
 			return true
 		}
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(waitConnectedPollInterval)
 	}
 	return false
 }
@@ -1111,7 +1128,7 @@ func (mc *managedConnection) joinChannel(channel string) error {
 	}
 
 	// Normalize channel name
-	channel = normalizeChannel(channel)
+	channel = xdccirc.NormalizeChannel(channel)
 
 	// Persist to DB: create or update channel record
 	existingCh, err := mc.manager.store.GetChannelsByServerAndName(mc.id, channel)
@@ -1166,7 +1183,7 @@ func (mc *managedConnection) leaveChannel(channel string) error {
 	}
 
 	// Normalize channel name
-	channel = normalizeChannel(channel)
+	channel = xdccirc.NormalizeChannel(channel)
 
 	// Remove from in-memory joined state immediately so GetChannels()
 	// reflects the change even before the server responds.

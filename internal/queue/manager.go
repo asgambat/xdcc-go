@@ -16,16 +16,6 @@ import (
 	"xdcc-go/internal/store"
 )
 
-// normalizeChannel lowercases and ensures a leading '#'.
-// Returns empty string if input is empty (channel will be discovered via WHOIS).
-func normalizeChannel(ch string) string {
-	ch = strings.ToLower(strings.TrimSpace(ch))
-	if ch != "" && !strings.HasPrefix(ch, "#") {
-		ch = "#" + ch
-	}
-	return ch
-}
-
 // slotKey builds the compound key used in channelSlots to enforce
 // one-active-download-per-(server,channel) pair.
 //
@@ -33,7 +23,7 @@ func normalizeChannel(ch string) string {
 // used as a discriminator so that different bots on the same server can
 // download in parallel even before their channels are known.
 func slotKey(serverAddr, channel, bot string) string {
-	normCh := normalizeChannel(channel)
+	normCh := xdccirc.NormalizeChannel(channel)
 	if normCh == "" {
 		// Channel unknown — use bot name as discriminator so different bots
 		// on the same server don't all serialize on "serverAddr|".
@@ -62,6 +52,10 @@ type QueueManager struct {
 	ircMgr IRCManagerInterface
 
 	mu sync.RWMutex
+	// dispatchMu serialises calls to tryDispatch, preventing concurrent
+	// dispatches from racing on activeCount/channelSlots checks and
+	// starting more downloads than allowed by the configured limits.
+	dispatchMu sync.Mutex
 	// activeJobs tracks currently running downloads: download ID → cancel function
 	activeJobs map[int64]context.CancelFunc
 	// channelSlots tracks which (server, channel) pairs currently have an active download.
@@ -193,6 +187,11 @@ func (qm *QueueManager) Stop() {
 	qm.cancel()
 	<-qm.done
 
+	// Close the subscriber hub to unblock any SSE handlers still
+	// waiting on events. This prevents goroutine leaks in SSE clients
+	// that outlive the queue manager.
+	qm.subscriber.Close()
+
 	// Save progress of all active downloads before cancelling
 	qm.mu.RLock()
 	ids := make([]int64, 0, len(qm.activeJobs))
@@ -278,7 +277,7 @@ func (qm *QueueManager) emitEvent(evt Event) {
 func (qm *QueueManager) Enqueue(d store.DownloadRecord) (int64, error) {
 	// Normalize channel (if provided)
 	// Channel is optional - if empty, WHOIS will discover it during download
-	d.Channel = normalizeChannel(d.Channel)
+	d.Channel = xdccirc.NormalizeChannel(d.Channel)
 
 	// Check for duplicate by bot + pack message
 	dupByMsg, err := qm.store.GetDownloadByBotMessage(d.Bot, d.PackMessage)
@@ -503,6 +502,12 @@ func (qm *QueueManager) GetActiveIDs() []int64 {
 // tryDispatch checks the queue and starts as many downloads as possible
 // up to the per-channel and global limits.
 func (qm *QueueManager) tryDispatch() {
+	// Serialise dispatch to prevent concurrent callers (Enqueue,
+	// monitorLoop, completeFn, disk-check callback, etc.) from racing
+	// on channelSlots/globalCount and starting duplicate downloads.
+	qm.dispatchMu.Lock()
+	defer qm.dispatchMu.Unlock()
+
 	// Check if we're shutting down
 	select {
 	case <-qm.ctx.Done():

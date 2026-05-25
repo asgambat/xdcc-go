@@ -321,7 +321,7 @@ func (a *Aggregator) searchLive(ctx context.Context, query string, providers []s
 			var err error
 
 			go func() {
-				packs, err = engine.Search(query)
+				packs, err = engine.Search(searchCtx, query)
 				close(done)
 			}()
 
@@ -462,7 +462,7 @@ func (a *Aggregator) buildResultFromCache(
 
 	// Apply filters
 	filtered := filterPacks(allPacks, opts)
-	sortPacks(filtered, "")
+	sortPacks(filtered, opts.Query)
 	paged, total := paginatePacks(filtered, opts.Page, opts.PageSize)
 
 	totalPages := (total + opts.PageSize - 1) / opts.PageSize

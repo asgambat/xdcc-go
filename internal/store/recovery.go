@@ -27,7 +27,7 @@ func (s *SQLiteStore) RecoverDownloadsOnStartup() ([]DownloadRecord, error) {
 	}
 	defer rows.Close()
 
-	stuck, err := scanDownloads(rows)
+	stuck, err := s.scanDownloads(rows)
 	if err != nil {
 		return nil, err
 	}

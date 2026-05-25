@@ -4,7 +4,6 @@
 package sse
 
 import (
-	"log"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -85,14 +84,7 @@ func (h *Hub) Subscribe() chan Event {
 		return ch
 	}
 	h.clients[ch] = struct{}{}
-	clientCount := len(h.clients)
 	h.mu.Unlock()
-
-	// Log subscription for diagnostics
-	// Note: This package doesn't have a logger, so we can't log here
-	// The API handler will log the connection
-	_ = clientCount
-
 	return ch
 }
 
@@ -150,10 +142,16 @@ func (h *Hub) Close() {
 // client's channel buffer is full, the client is evicted (channel closed)
 // to force reconnection via Last-Event-ID, preventing silent state drift
 // in the frontend.
+//
+// The entire broadcast executes under h.mu so that a concurrent Unsubscribe
+// cannot close a channel while we are sending to it. Since every send is a
+// non-blocking select, holding the lock for the duration of the broadcast
+// is safe and eliminates the need for fragile recover() guards.
 func (h *Hub) Publish(eventType string, payload map[string]interface{}) {
 	h.mu.Lock()
+	defer h.mu.Unlock()
+
 	if h.closed {
-		h.mu.Unlock()
 		return
 	}
 
@@ -173,55 +171,25 @@ func (h *Hub) Publish(eventType string, payload map[string]interface{}) {
 		h.bufferCount++
 	}
 
-	// Snapshot clients while holding the lock, then release before
-	// broadcasting. This allows concurrent Subscribe/Unsubscribe calls
-	// to proceed while we iterate.
-	clients := make([]chan Event, 0, len(h.clients))
-	for ch := range h.clients {
-		clients = append(clients, ch)
-	}
-	h.mu.Unlock()
-
-	// Broadcast to the snapshot without holding the hub lock.
-	// A recover guards against the edge case where a client's channel was
-	// closed by a concurrent Unsubscribe between our snapshot and the send.
+	// Broadcast to all clients while holding the lock — this prevents
+	// a concurrent Unsubscribe from closing a channel mid-send.
 	var dead []chan Event
-	for _, ch := range clients {
-		func() {
-			defer func() {
-				if r := recover(); r != nil {
-					// Only expected when Unsubscribe closed the channel
-					// between our snapshot and the send. Log at debug
-					// level since it's a normal race resolution.
-					log.Printf("sse.Hub.Publish: recovered from send panic (channel likely closed by Unsubscribe): %v", r)
-				}
-			}()
-			select {
-			case ch <- evt:
-			default:
-				// Buffer full — client is too slow. Evict it to force
-				// reconnection via Last-Event-ID instead of silently
-				// dropping events, which would leave the frontend with
-				// inconsistent state.
-				dead = append(dead, ch)
-			}
-		}()
+	for ch := range h.clients {
+		select {
+		case ch <- evt:
+		default:
+			// Buffer full — client is too slow. Evict it to force
+			// reconnection via Last-Event-ID.
+			dead = append(dead, ch)
+		}
 	}
 
-	// Evict slow clients under lock to avoid races with Subscribe/Unsubscribe.
-	if len(dead) > 0 {
-		h.mu.Lock()
-		if !h.closed {
-			for _, ch := range dead {
-				// Check the channel is still registered — a concurrent
-				// Unsubscribe may have already removed and closed it.
-				if _, ok := h.clients[ch]; ok {
-					delete(h.clients, ch)
-					close(ch)
-				}
-			}
+	// Evict slow clients.
+	for _, ch := range dead {
+		if _, ok := h.clients[ch]; ok {
+			delete(h.clients, ch)
+			close(ch)
 		}
-		h.mu.Unlock()
 	}
 }
 
@@ -248,14 +216,22 @@ func (h *Hub) EventsSince(lastEventID int64) []Event {
 		return nil
 	}
 
-	// Collect events newer than lastEventID
-	var result []Event
-	for i := 0; i < h.bufferCount; i++ {
-		idx := (h.bufferHead - h.bufferCount + i + h.bufferSize) % h.bufferSize
-		evt := h.eventBuffer[idx]
-		if evt.ID > lastEventID {
-			result = append(result, evt)
-		}
+	// Compute how many events are newer than lastEventID. Event IDs are
+	// sequential, so we can calculate the count and starting offset directly
+	// instead of iterating the entire buffer.
+	// nextID is the next ID to assign, so the newest event has ID nextID-1.
+	count := int(h.nextID - lastEventID - 1)
+	if count <= 0 {
+		return nil
+	}
+	if count > h.bufferCount {
+		count = h.bufferCount
+	}
+
+	result := make([]Event, count)
+	for i := 0; i < count; i++ {
+		idx := (h.bufferHead - count + i + h.bufferSize) % h.bufferSize
+		result[i] = h.eventBuffer[idx]
 	}
 	return result
 }

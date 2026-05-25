@@ -76,7 +76,7 @@ func (c *Client) handleDCCSend(parts []string, sourceHost string) {
 			c.finishWithError(ErrAlreadyDownloaded)
 			return
 		}
-		c.progress = pos
+		atomic.StoreInt64(&c.progress, pos)
 		resumeParam := fmt.Sprintf("\"%s\" %s %d", filename, port, pos)
 		c.debugf("Resuming download from %s / %s",
 			entities.HumanReadableBytes(pos), entities.HumanReadableBytes(filesize))
@@ -128,9 +128,9 @@ func (c *Client) startDownload(addr string, appendMode bool) {
 	c.debugf("Starting download (append=%v) to %s", appendMode, path)
 	c.infof("Downloading %s → %s", entities.HumanReadableBytes(size), path)
 
-	if c.downloadStartedClosed.CompareAndSwap(false, true) {
+	c.downloadStartedOnce.Do(func() {
 		close(c.downloadStarted)
-	}
+	})
 	c.lastActivity.Store(time.Now().UnixNano())
 
 	go c.ackSender()
@@ -155,11 +155,27 @@ func (c *Client) startDownloadAppend() {
 // When the connection closes (EOF) the defer block decides success/failure by
 // comparing progress to the expected file size.
 func (c *Client) receiveData() {
+	// Pre-create throttle timer to avoid per-chunk allocations on long downloads.
+	var throttleTimer *time.Timer
+	if c.opts.ThrottleBytes > 0 {
+		throttleTimer = time.NewTimer(0)
+		if !throttleTimer.Stop() {
+			<-throttleTimer.C
+		}
+	}
+
 	defer func() {
+		if throttleTimer != nil {
+			throttleTimer.Stop()
+		}
 		c.mu.Lock()
 		c.downloading = false
 		if c.dccFile != nil {
 			c.dccFile.Close()
+		}
+		if c.dccConn != nil {
+			c.dccConn.Close()
+			c.dccConn = nil
 		}
 		size := c.filesize
 		c.mu.Unlock()
@@ -174,9 +190,18 @@ func (c *Client) receiveData() {
 		}
 	}()
 
+	// Take a local reference to dccConn under lock to avoid a data race:
+	// stallWatcher may concurrently set c.dccConn = nil under c.mu.
+	c.mu.Lock()
+	conn := c.dccConn
+	c.mu.Unlock()
+	if conn == nil {
+		return
+	}
+
 	buf := make([]byte, 4096)
 	for {
-		n, err := c.dccConn.Read(buf)
+		n, err := conn.Read(buf)
 		if n > 0 {
 			c.mu.Lock()
 			_, werr := c.dccFile.Write(buf[:n])
@@ -196,8 +221,9 @@ func (c *Client) receiveData() {
 				c.dccTimestamp = time.Now()
 				c.mu.Unlock()
 				if sleepTime > 0 {
+					throttleTimer.Reset(time.Duration(sleepTime * float64(time.Second)))
 					select {
-					case <-time.After(time.Duration(sleepTime * float64(time.Second))):
+					case <-throttleTimer.C:
 					case <-c.downloadDone:
 						return
 					}
@@ -253,13 +279,22 @@ func (c *Client) enqueueACK() {
 }
 
 func (c *Client) progressPrinter() {
-	c.mu.Lock()
-	for !c.downloading {
-		c.mu.Unlock()
-		time.Sleep(50 * time.Millisecond)
-		c.mu.Lock()
+	// Wait for the DCC transfer to start instead of busy-polling
+	// c.downloading with lock/unlock every 50ms.
+	select {
+	case <-c.downloadStarted:
+	case <-c.downloadDone:
+		return
 	}
+
+	// Guard against future misuse: verify c.downloading is actually true
+	// before entering the progress loop.
+	c.mu.Lock()
+	dl := c.downloading
 	c.mu.Unlock()
+	if !dl {
+		return
+	}
 
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
@@ -348,6 +383,7 @@ func (c *Client) stallWatcher() {
 				c.mu.Lock()
 				if c.dccConn != nil {
 					c.dccConn.Close()
+					c.dccConn = nil
 				}
 				c.mu.Unlock()
 				c.finishWithError(ErrTimeout)

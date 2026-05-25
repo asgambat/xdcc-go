@@ -1,6 +1,7 @@
 package search
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -21,7 +22,7 @@ func TestNiblSearch_ValidResults(t *testing.T) {
 	defer srv.Close()
 
 	e := &NiblEngine{baseURL: srv.URL}
-	packs, err := e.Search("test query")
+	packs, err := e.Search(context.Background(), "test query")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -46,7 +47,7 @@ func TestNiblSearch_SkipsHeaderAndZeroPack(t *testing.T) {
 	defer srv.Close()
 
 	e := &NiblEngine{baseURL: srv.URL}
-	packs, err := e.Search("test")
+	packs, err := e.Search(context.Background(), "test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +65,7 @@ func TestNiblSearch_SkipsRowsWithTooFewColumns(t *testing.T) {
 	defer srv.Close()
 
 	e := &NiblEngine{baseURL: srv.URL}
-	packs, err := e.Search("test")
+	packs, err := e.Search(context.Background(), "test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +76,7 @@ func TestNiblSearch_SkipsRowsWithTooFewColumns(t *testing.T) {
 
 func TestNiblSearch_NetworkError(t *testing.T) {
 	e := &NiblEngine{baseURL: "http://127.0.0.1:1"}
-	_, err := e.Search("test")
+	_, err := e.Search(context.Background(), "test")
 	if err == nil {
 		t.Error("expected error for unreachable server, got nil")
 	}
@@ -89,7 +90,7 @@ func TestNiblSearch_EmptyTerm(t *testing.T) {
 	defer srv.Close()
 
 	e := &NiblEngine{baseURL: srv.URL}
-	packs, err := e.Search("")
+	packs, err := e.Search(context.Background(), "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -107,7 +108,7 @@ func TestNiblSearch_EmptyTable(t *testing.T) {
 	defer srv.Close()
 
 	e := &NiblEngine{baseURL: srv.URL}
-	packs, err := e.Search("test")
+	packs, err := e.Search(context.Background(), "test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +124,7 @@ func TestNiblSearch_HTTP400(t *testing.T) {
 	defer srv.Close()
 
 	e := &NiblEngine{baseURL: srv.URL}
-	_, err := e.Search("test")
+	_, err := e.Search(context.Background(), "test")
 	if err == nil {
 		t.Error("expected error for HTTP 400")
 	}

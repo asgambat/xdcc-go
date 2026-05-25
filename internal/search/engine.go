@@ -2,6 +2,7 @@
 package search
 
 import (
+	"context"
 	"strings"
 
 	"xdcc-go/internal/entities"
@@ -10,7 +11,7 @@ import (
 // Engine is an XDCC pack search engine.
 type Engine interface {
 	Name() string
-	Search(term string) ([]*entities.XDCCPack, error)
+	Search(ctx context.Context, term string) ([]*entities.XDCCPack, error)
 }
 
 // EngineByName returns the search engine for the given name (case-insensitive).

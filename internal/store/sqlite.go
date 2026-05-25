@@ -3,12 +3,40 @@ package store
 import (
 	"database/sql"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
+
+	"xdcc-go/internal/logging"
 )
+
+// nullTime implements sql.Scanner for SQLite datetime strings.
+// Unlike sql.NullString, it stores the parsed time.Time directly,
+// avoiding per-row allocations of string intermediates on history queries.
+type nullTime struct {
+	Time  time.Time
+	Valid bool
+}
+
+func (nt *nullTime) Scan(value any) error {
+	if value == nil {
+		nt.Time = time.Time{}
+		nt.Valid = false
+		return nil
+	}
+	s, ok := value.(string)
+	if !ok {
+		return fmt.Errorf("nullTime: expected string, got %T", value)
+	}
+	t, err := time.Parse("2006-01-02 15:04:05", s)
+	if err != nil {
+		return err
+	}
+	nt.Time = t
+	nt.Valid = true
+	return nil
+}
 
 // ---------------------------------------------------------------------------
 // SQLiteStore
@@ -18,10 +46,13 @@ import (
 type SQLiteStore struct {
 	db     *sql.DB
 	dbPath string
+	log    *logging.Logger
 }
 
 // NewSQLiteStore creates a new SQLiteStore and runs migrations.
-func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
+// The log parameter is used for warning messages (e.g. corrupted rows).
+// A nil logger is tolerated and falls back to a silent discard.
+func NewSQLiteStore(dbPath string, log *logging.Logger) (*SQLiteStore, error) {
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("opening SQLite database: %w", err)
@@ -47,6 +78,7 @@ func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
 	s := &SQLiteStore{
 		db:     db,
 		dbPath: dbPath,
+		log:    log,
 	}
 
 	return s, nil
@@ -301,7 +333,7 @@ func (s *SQLiteStore) GetQueue() ([]DownloadRecord, error) {
 		return nil, fmt.Errorf("getting queue: %w", err)
 	}
 	defer rows.Close()
-	return scanDownloads(rows)
+	return s.scanDownloads(rows)
 }
 
 func (s *SQLiteStore) GetQueueByChannel(channel string) ([]DownloadRecord, error) {
@@ -316,7 +348,7 @@ func (s *SQLiteStore) GetQueueByChannel(channel string) ([]DownloadRecord, error
 		return nil, fmt.Errorf("getting queue for channel %s: %w", channel, err)
 	}
 	defer rows.Close()
-	return scanDownloads(rows)
+	return s.scanDownloads(rows)
 }
 
 func (s *SQLiteStore) GetActiveDownloads() ([]DownloadRecord, error) {
@@ -331,7 +363,7 @@ func (s *SQLiteStore) GetActiveDownloads() ([]DownloadRecord, error) {
 		return nil, fmt.Errorf("getting active downloads: %w", err)
 	}
 	defer rows.Close()
-	return scanDownloads(rows)
+	return s.scanDownloads(rows)
 }
 
 func (s *SQLiteStore) GetPendingByChannel(channel string) ([]DownloadRecord, error) {
@@ -346,7 +378,7 @@ func (s *SQLiteStore) GetPendingByChannel(channel string) ([]DownloadRecord, err
 		return nil, fmt.Errorf("getting pending downloads for channel %s: %w", channel, err)
 	}
 	defer rows.Close()
-	return scanDownloads(rows)
+	return s.scanDownloads(rows)
 }
 
 func (s *SQLiteStore) UpdateDownloadProgress(id int64, progressBytes int64, speedBPS int64) error {
@@ -535,7 +567,7 @@ func (s *SQLiteStore) GetDownloadHistory(page, pageSize int, filter HistoryFilte
 	}
 	defer rows.Close()
 
-	downloads, err := scanDownloads(rows)
+	downloads, err := s.scanDownloads(rows)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -995,7 +1027,7 @@ func scanServer(row interface{ Scan(...any) error }) (*ServerRecord, error) {
 
 func scanDownload(row interface{ Scan(...any) error }) (*DownloadRecord, error) {
 	var d DownloadRecord
-	var startedAt, completedAt, createdAt sql.NullString
+	var startedAt, completedAt, createdAt nullTime
 	err := row.Scan(&d.ID, &d.PackMessage, &d.Bot, &d.ServerAddress, &d.Channel,
 		&d.Filename, &d.FileSize, &d.Status, &d.ProgressBytes, &d.SpeedBPS,
 		&d.ErrorMessage, &d.Priority, &createdAt, &startedAt, &completedAt)
@@ -1006,27 +1038,21 @@ func scanDownload(row interface{ Scan(...any) error }) (*DownloadRecord, error) 
 		return nil, fmt.Errorf("scanning download: %w", err)
 	}
 	if createdAt.Valid {
-		d.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt.String)
+		d.CreatedAt = createdAt.Time
 	}
 	if startedAt.Valid {
-		t, err := time.Parse("2006-01-02 15:04:05", startedAt.String)
-		if err == nil {
-			d.StartedAt = &t
-		}
+		d.StartedAt = &startedAt.Time
 	}
 	if completedAt.Valid {
-		t, err := time.Parse("2006-01-02 15:04:05", completedAt.String)
-		if err == nil {
-			d.CompletedAt = &t
-		}
+		d.CompletedAt = &completedAt.Time
 	}
 	return &d, nil
 }
 
-func scanDownloads(rows *sql.Rows) ([]DownloadRecord, error) {
+func (s *SQLiteStore) scanDownloads(rows *sql.Rows) ([]DownloadRecord, error) {
 	var downloads []DownloadRecord
 	for rows.Next() {
-		d, err := scanDownloadFromRows(rows)
+		d, err := s.scanDownloadFromRows(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -1043,31 +1069,27 @@ func scanDownloads(rows *sql.Rows) ([]DownloadRecord, error) {
 	return downloads, nil
 }
 
-func scanDownloadFromRows(rows *sql.Rows) (*DownloadRecord, error) {
+func (s *SQLiteStore) scanDownloadFromRows(rows *sql.Rows) (*DownloadRecord, error) {
 	var d DownloadRecord
-	var startedAt, completedAt, createdAt sql.NullString
+	var startedAt, completedAt, createdAt nullTime
 	if err := rows.Scan(&d.ID, &d.PackMessage, &d.Bot, &d.ServerAddress, &d.Channel,
 		&d.Filename, &d.FileSize, &d.Status, &d.ProgressBytes, &d.SpeedBPS,
 		&d.ErrorMessage, &d.Priority, &createdAt, &startedAt, &completedAt); err != nil {
 		// Defensive: if progress_bytes contains a string (corrupted data from old bug),
 		// skip this row instead of failing the entire history query.
-		log.Printf("WARNING: skipping corrupted download row (scan error: %v)", err)
+		if s.log != nil {
+			s.log.Warnf("skipping corrupted download row (scan error: %v)", err)
+		}
 		return nil, nil // Returning nil, nil signals the caller to skip this row
 	}
 	if createdAt.Valid {
-		d.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt.String)
+		d.CreatedAt = createdAt.Time
 	}
 	if startedAt.Valid {
-		t, err := time.Parse("2006-01-02 15:04:05", startedAt.String)
-		if err == nil {
-			d.StartedAt = &t
-		}
+		d.StartedAt = &startedAt.Time
 	}
 	if completedAt.Valid {
-		t, err := time.Parse("2006-01-02 15:04:05", completedAt.String)
-		if err == nil {
-			d.CompletedAt = &t
-		}
+		d.CompletedAt = &completedAt.Time
 	}
 	return &d, nil
 }

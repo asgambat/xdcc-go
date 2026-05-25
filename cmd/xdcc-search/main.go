@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -50,7 +51,7 @@ Verbosity levels:
 					engineName, strings.Join(search.AvailableEngines(), ", "))
 			}
 
-			results, err := engine.Search(term)
+			results, err := engine.Search(context.Background(), term)
 			if err != nil {
 				return fmt.Errorf("search failed: %w", err)
 			}

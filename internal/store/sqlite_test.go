@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"xdcc-go/internal/logging"
 )
 
 // newTestStore creates a SQLiteStore backed by a temporary in-memory file.
@@ -13,7 +15,8 @@ func newTestStore(tb testing.TB) *SQLiteStore {
 	tb.Helper()
 	dir := tb.TempDir()
 	dbPath := filepath.Join(dir, "test.db")
-	s, err := NewSQLiteStore(dbPath)
+	testLog := logging.New(logging.LevelDebug, "", 0)
+	s, err := NewSQLiteStore(dbPath, testLog)
 	if err != nil {
 		tb.Fatalf("NewSQLiteStore: %v", err)
 	}

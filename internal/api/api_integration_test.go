@@ -32,9 +32,12 @@ type testAPI struct {
 func newTestAPI(t *testing.T) *testAPI {
 	t.Helper()
 
+	// Create a leveled logger for the API (debug level so all logs are visible in tests)
+	apiLogger := logging.New(logging.LevelDebug, "", 0)
+
 	// Create in-memory SQLite store
 	dbPath := filepath.Join(t.TempDir(), "test.db")
-	st, err := store.NewSQLiteStore(dbPath)
+	st, err := store.NewSQLiteStore(dbPath, apiLogger)
 	if err != nil {
 		t.Fatalf("NewSQLiteStore: %v", err)
 	}
@@ -45,9 +48,6 @@ func newTestAPI(t *testing.T) *testAPI {
 	cfg := config.DefaultConfig()
 
 	hub := sse.NewHub(50)
-
-	// Create a leveled logger for the API (debug level so all logs are visible in tests)
-	apiLogger := logging.New(logging.LevelDebug, "", 0)
 
 	// For legacy components that still expect *log.Logger, create a stdlib adapter
 	stdLogger := log.New(apiLogger.Writer(logging.LevelInfo), "", 0)

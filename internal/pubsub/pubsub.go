@@ -3,7 +3,10 @@
 // implementations previously scattered across ircmanager and queue.
 package pubsub
 
-import "sync"
+import (
+	"sync"
+	"sync/atomic"
+)
 
 // Hub manages a set of subscribers, fanning out published events to all of them.
 // T is the event type.  bufSize controls the capacity of each subscriber's
@@ -13,6 +16,7 @@ type Hub[T any] struct {
 	mu          sync.RWMutex
 	subscribers []chan T
 	bufSize     int
+	closed      atomic.Bool
 }
 
 // New creates a Hub with the given per-subscriber buffer size.
@@ -44,16 +48,45 @@ func (h *Hub[T]) Unsubscribe(ch chan T) {
 	}
 }
 
+// Close shuts down the hub and closes all subscriber channels.
+// After Close, no new events will be published.
+func (h *Hub[T]) Close() {
+	h.closed.Store(true)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, ch := range h.subscribers {
+		close(ch)
+	}
+	h.subscribers = nil
+}
+
 // Publish fans out an event to all subscribers. If a subscriber's buffer is
 // full, the event is silently dropped to prevent blocking the publisher.
+//
+// The subscriber slice is snapshotted under RLock to avoid writer starvation:
+// Unsubscribe (which takes a write lock) is never blocked by the send loop.
+//
+// A recover guard catches the edge case where Close() concurrently closes
+// a subscriber channel between our snapshot and the send (TOCTOU race).
+// This is safe because the panic from sending on a closed channel is
+// deterministic and recoverable; the event is simply dropped.
 func (h *Hub[T]) Publish(evt T) {
+	// Fast-path check: if already closed, skip entirely.
+	if h.closed.Load() {
+		return
+	}
 	h.mu.RLock()
-	defer h.mu.RUnlock()
-	for _, ch := range h.subscribers {
-		select {
-		case ch <- evt:
-		default:
-			// Drop event if subscriber is not consuming fast enough
-		}
+	subscribers := make([]chan T, len(h.subscribers))
+	copy(subscribers, h.subscribers)
+	h.mu.RUnlock()
+	for _, ch := range subscribers {
+		func() {
+			defer func() { _ = recover() }()
+			select {
+			case ch <- evt:
+			default:
+				// Drop event if subscriber is not consuming fast enough
+			}
+		}()
 	}
 }

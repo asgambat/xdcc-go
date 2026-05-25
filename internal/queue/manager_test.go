@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"xdcc-go/internal/config"
+	xdccirc "xdcc-go/internal/irc"
 	"xdcc-go/internal/store"
 )
 
@@ -654,7 +655,7 @@ func TestNormalizeChannel(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		got := normalizeChannel(tt.input)
+		got := xdccirc.NormalizeChannel(tt.input)
 		if got != tt.expected {
 			t.Errorf("normalizeChannel(%q) = %q, want %q", tt.input, got, tt.expected)
 		}

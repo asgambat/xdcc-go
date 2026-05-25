@@ -1,6 +1,7 @@
 package search
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 	"os"
@@ -18,11 +19,11 @@ type XdccEuEngine struct {
 
 func (e *XdccEuEngine) Name() string { return "xdcc-eu" }
 
-func (e *XdccEuEngine) Search(term string) ([]*entities.XDCCPack, error) {
+func (e *XdccEuEngine) Search(ctx context.Context, term string) ([]*entities.XDCCPack, error) {
 	base := resolveBaseURL(e.baseURL, "https://www.xdcc.eu")
 	searchURL := fmt.Sprintf("%s/search.php?searchkey=%s", base, url.QueryEscape(term))
 
-	doc, err := e.fetchDocument(searchURL)
+	doc, err := e.fetchDocument(ctx, searchURL)
 	if err != nil {
 		return nil, err
 	}
@@ -31,12 +32,12 @@ func (e *XdccEuEngine) Search(term string) ([]*entities.XDCCPack, error) {
 }
 
 // fetchDocument performs the HTTP GET and parses the response body as an HTML document.
-func (e *XdccEuEngine) fetchDocument(rawURL string) (*goquery.Document, error) {
+func (e *XdccEuEngine) fetchDocument(ctx context.Context, rawURL string) (*goquery.Document, error) {
 	if e.Verbose {
 		fmt.Fprintf(os.Stderr, "[DEBUG] GET %s\n", rawURL)
 	}
 
-	resp, err := httpGet(rawURL)
+	resp, err := httpGet(ctx, rawURL)
 	if err != nil {
 		return nil, fmt.Errorf("xdcc.eu request failed: %w", err)
 	}

@@ -1,6 +1,7 @@
 package search
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 	"strings"
@@ -16,12 +17,12 @@ type NiblEngine struct {
 
 func (e *NiblEngine) Name() string { return "nibl" }
 
-func (e *NiblEngine) Search(term string) ([]*entities.XDCCPack, error) {
+func (e *NiblEngine) Search(ctx context.Context, term string) ([]*entities.XDCCPack, error) {
 	base := resolveBaseURL(e.baseURL, "https://nibl.co.uk")
 	query := url.QueryEscape(term)
 	searchURL := fmt.Sprintf("%s/search?query=%s", base, query)
 
-	resp, err := httpGet(searchURL)
+	resp, err := httpGet(ctx, searchURL)
 	if err != nil {
 		return nil, fmt.Errorf("nibl search request failed: %w", err)
 	}

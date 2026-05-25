@@ -1,6 +1,7 @@
 package search
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -116,7 +117,7 @@ func TestHttpGet_UserAgent(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	resp, err := httpGet(srv.URL)
+	resp, err := httpGet(context.Background(), srv.URL)
 	if err != nil {
 		t.Fatal(err)
 	}

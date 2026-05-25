@@ -1,6 +1,7 @@
 package search
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -235,7 +236,7 @@ func TestFetchDocument_Success(t *testing.T) {
 	defer srv.Close()
 
 	e := &XdccEuEngine{}
-	doc, err := e.fetchDocument(srv.URL)
+	doc, err := e.fetchDocument(context.Background(), srv.URL)
 	if err != nil {
 		t.Fatalf("fetchDocument returned error: %v", err)
 	}
@@ -247,7 +248,7 @@ func TestFetchDocument_Success(t *testing.T) {
 func TestFetchDocument_NetworkError(t *testing.T) {
 	e := &XdccEuEngine{}
 	// Nothing is listening on port 1.
-	_, err := e.fetchDocument("http://127.0.0.1:1")
+	_, err := e.fetchDocument(context.Background(), "http://127.0.0.1:1")
 	if err == nil {
 		t.Error("expected error for unreachable server, got nil")
 	}
@@ -269,7 +270,7 @@ func TestSearch_ReturnsPacks(t *testing.T) {
 
 	// Patch the engine to call the test server instead of xdcc.eu.
 	e := &XdccEuEngine{}
-	doc, err := e.fetchDocument(srv.URL + "?searchkey=one+piece")
+	doc, err := e.fetchDocument(context.Background(), srv.URL+"?searchkey=one+piece")
 	if err != nil {
 		t.Fatalf("fetchDocument error: %v", err)
 	}

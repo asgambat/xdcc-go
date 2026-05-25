@@ -29,15 +29,6 @@ func isOwnNick(source, ownNick string) bool {
 	return source == ownNick
 }
 
-// normalizeChannel lowercases and ensures a leading '#'.
-func normalizeChannel(ch string) string {
-	ch = strings.ToLower(strings.TrimSpace(ch))
-	if ch != "" && !strings.HasPrefix(ch, "#") {
-		ch = "#" + ch
-	}
-	return ch
-}
-
 // ServerAddr formats address:port as a string.
 func ServerAddr(address string, port int) string {
 	return fmt.Sprintf("%s:%d", address, port)

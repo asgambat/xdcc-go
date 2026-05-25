@@ -1,6 +1,7 @@
 package search
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/url"
@@ -16,7 +17,7 @@ type SubsPleaseEngine struct {
 
 func (e *SubsPleaseEngine) Name() string { return "subsplease" }
 
-func (e *SubsPleaseEngine) Search(term string) ([]*entities.XDCCPack, error) {
+func (e *SubsPleaseEngine) Search(ctx context.Context, term string) ([]*entities.XDCCPack, error) {
 	if term == "" {
 		return nil, nil
 	}
@@ -24,7 +25,7 @@ func (e *SubsPleaseEngine) Search(term string) ([]*entities.XDCCPack, error) {
 	base := resolveBaseURL(e.baseURL, "https://subsplease.org")
 	searchURL := base + "/xdcc/search.php?t=" + url.PathEscape(term)
 
-	resp, err := httpGet(searchURL)
+	resp, err := httpGet(ctx, searchURL)
 	if err != nil {
 		return nil, fmt.Errorf("subsplease request failed: %w", err)
 	}
