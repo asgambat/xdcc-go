@@ -6,13 +6,26 @@ import (
 	"net"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
 	"xdcc-go/internal/entities"
 )
 
-func (c *Client) handleDCC(text string, sourceHost string) {
+// bufPool reduces GC pressure for the 4 KB read buffer allocated on each
+// receiveData() call. Multiple concurrent downloads share the pool.
+// bufPool reduces GC pressure by reusing 4 KB read buffers.
+// A pointer wrapper is used so Put() avoids allocation (SA6002).
+type dccBuffer struct {
+	data []byte
+}
+
+var bufPool = sync.Pool{
+	New: func() any { return &dccBuffer{data: make([]byte, 4096)} },
+}
+
+func (c *Client) handleDCC(text, sourceHost string) {
 	parts := splitDCC(text)
 	if len(parts) == 0 {
 		return
@@ -77,7 +90,7 @@ func (c *Client) handleDCCSend(parts []string, sourceHost string) {
 			return
 		}
 		atomic.StoreInt64(&c.progress, pos)
-		resumeParam := fmt.Sprintf("\"%s\" %s %d", filename, port, pos)
+		resumeParam := fmt.Sprintf("%q %s %d", filename, port, pos)
 		c.debugf("Resuming download from %s / %s",
 			entities.HumanReadableBytes(pos), entities.HumanReadableBytes(filesize))
 		c.logf("Sending DCC RESUME: %s", resumeParam)
@@ -103,7 +116,7 @@ func (c *Client) startDownload(addr string, appendMode bool) {
 	}
 
 	path := c.currentPack().GetFilepath()
-	f, err := os.OpenFile(path, flag, 0644)
+	f, err := os.OpenFile(path, flag, 0o644)
 	if err != nil {
 		c.finishWithError(fmt.Errorf("cannot open file: %w", err))
 		return
@@ -199,7 +212,10 @@ func (c *Client) receiveData() {
 		return
 	}
 
-	buf := make([]byte, 4096)
+	bufPtr := bufPool.Get().(*dccBuffer) //nolint:errcheck // pool.New always returns *dccBuffer
+
+	buf := bufPtr.data
+	defer bufPool.Put(bufPtr)
 	for {
 		n, err := conn.Read(buf)
 		if n > 0 {
@@ -265,9 +281,9 @@ func (c *Client) ackSender() {
 func (c *Client) enqueueACK() {
 	prog := atomic.LoadInt64(&c.progress)
 	var ack []byte
-	if prog <= 0xFFFFFFFF {
+	if prog >= 0 && prog <= 0xFFFFFFFF {
 		ack = make([]byte, 4)
-		binary.BigEndian.PutUint32(ack, uint32(prog))
+		binary.BigEndian.PutUint32(ack, uint32(prog)) //nolint:gosec // prog is always >=0 when ≤0xFFFFFFFF
 	} else {
 		ack = make([]byte, 8)
 		binary.BigEndian.PutUint64(ack, uint64(prog))

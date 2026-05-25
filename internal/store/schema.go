@@ -13,7 +13,7 @@ import (
 // Schema version management
 // ---------------------------------------------------------------------------
 
-const currentSchemaVersion = 2
+const currentSchemaVersion = 3
 
 // migration represents a single schema migration step.
 type migration struct {
@@ -33,6 +33,11 @@ var migrations = []migration{
 		version:     2,
 		description: "Repair corrupted progress_bytes (filename string stored as integer)",
 		up:          `UPDATE downloads SET progress_bytes=0 WHERE typeof(progress_bytes) != 'integer';`,
+	},
+	{
+		version:     3,
+		description: "Add composite indexes: downloads(status,channel), provider_stats(provider,window_start)",
+		up:          migrationV3Indexes,
 	},
 }
 
@@ -135,6 +140,12 @@ CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER PRIMARY KEY,
     applied_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+`
+
+// migrationV3Indexes adds composite indexes for common query patterns.
+const migrationV3Indexes = `
+CREATE INDEX IF NOT EXISTS idx_downloads_status_channel ON downloads(status, channel);
+CREATE INDEX IF NOT EXISTS idx_provider_stats_provider_window ON provider_stats(provider, window_start);
 `
 
 // ---------------------------------------------------------------------------

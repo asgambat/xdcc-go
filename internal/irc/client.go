@@ -22,6 +22,12 @@ import (
 const (
 	ackQueueBufSize = 256             // capacity of the ACK send queue
 	packDelay       = 3 * time.Second // delay between pack downloads
+
+	// connectGracePeriod is extra time added to ConnectTimeout to account for
+	// IRC handshake, WHOIS response, and channel JOIN after the TCP connection
+	// is established. Without this buffer, fast connections would time out
+	// while waiting for post-CONNECT server responses.
+	connectGracePeriod = 30 * time.Second
 )
 
 // ---------------------------------------------------------------------------
@@ -282,7 +288,7 @@ func (c *Client) connect() error {
 	if nick == "" {
 		nick = randomUsername()
 	} else {
-		nick = nick + randomSuffix(3)
+		nick += randomSuffix(3)
 	}
 
 	var lastErr error
@@ -311,7 +317,7 @@ func (c *Client) connect() error {
 		c.handlersRegisteredOn = c.irc
 		go func() { c.ircErrCh <- c.irc.Connect() }()
 
-		timeout := time.Duration(c.opts.ConnectTimeout+30) * time.Second
+		timeout := time.Duration(c.opts.ConnectTimeout)*time.Second + connectGracePeriod
 		select {
 		case <-c.connectedCh:
 			return nil
@@ -448,13 +454,17 @@ func (c *Client) resetForPack() {
 	c.ackQueue = make(chan []byte, ackQueueBufSize)
 }
 
-func (c *Client) downloadPackAtIndex(idx int, retryCount int) PackResult {
+func (c *Client) downloadPackAtIndex(idx, retryCount int) PackResult {
 	if retryCount > 3 {
 		return PackResult{Error: fmt.Errorf("giving up on pack %d after 3 retries",
 			c.packs[idx].PackNumber)}
 	}
 
-	c.packIdxVal.Store(int32(idx))
+	if idx < 0 {
+		idx = 0
+	}
+	c.packIdxVal.Store(int32(idx)) //nolint:gosec // idx is always a small pack index (0..len(packs))
+
 	c.resetForPack()
 	pack := c.currentPack()
 
@@ -521,7 +531,7 @@ func (c *Client) waitForCurrentPack() error {
 	// Phase 1: wait for DCC transfer to start.
 	// Covers: WHOIS response + channel join + bot response + WaitTime.
 	pack := c.currentPack()
-	connectTimeout := time.Duration(c.opts.ConnectTimeout+c.opts.WaitTime+30) * time.Second
+	connectTimeout := time.Duration(c.opts.ConnectTimeout+c.opts.WaitTime)*time.Second + connectGracePeriod
 	c.infof("Waiting up to %v for DCC transfer to start (bot=%s, pack=%d)", connectTimeout, pack.Bot, pack.PackNumber)
 
 	select {

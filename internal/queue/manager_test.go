@@ -312,7 +312,7 @@ func (m *mockStore) BackupDatabase(string) error            { return nil }
 // Test helpers
 // ===========================================================================
 
-func newTestQM(t *testing.T) (*QueueManager, *mockStore) {
+func newTestQM(t *testing.T) (*Manager, *mockStore) {
 	t.Helper()
 	ms := newMockStore()
 	cfg := config.DefaultConfig()

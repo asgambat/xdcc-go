@@ -16,6 +16,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"xdcc-go/internal/api"
+	"xdcc-go/internal/bridge"
 	"xdcc-go/internal/config"
 	"xdcc-go/internal/ircmanager"
 	"xdcc-go/internal/logging"
@@ -87,7 +88,7 @@ See config.yaml in the project root for all available settings.`,
 
 			// Ensure download directories exist
 			for _, dir := range []string{cfg.Download.TempDir, cfg.Download.DestDir} {
-				if err := os.MkdirAll(dir, 0755); err != nil {
+				if err := os.MkdirAll(dir, 0o755); err != nil {
 					return fmt.Errorf("creating directory %s: %w", dir, err)
 				}
 			}
@@ -200,103 +201,20 @@ See config.yaml in the project root for all available settings.`,
 			eventCtx, cancelEvents := context.WithCancel(context.Background())
 			defer cancelEvents()
 
-			// Wire IRC manager events into SSE hub (Fase 7.2)
+			// Create event bridge for forwarding events to SSE hub
+			eventBridge := bridge.New(sseHub, logger)
+
+			// Wire IRC manager events into SSE hub via bridge
 			ircEventCh := ircMgr.Subscribe()
 			defer ircMgr.Unsubscribe(ircEventCh)
 			eventWg.Add(1)
-			go func() {
-				defer eventWg.Done()
-				for {
-					select {
-					case <-eventCtx.Done():
-						// Shutdown signal - drain remaining events with timeout
-						timeout := time.After(100 * time.Millisecond)
-						for {
-							select {
-							case evt, ok := <-ircEventCh:
-								if !ok {
-									return
-								}
-								// Try to publish remaining events (best effort)
-								sseHub.Publish(string(evt.Type), map[string]interface{}{
-									"server_id":   evt.ServerID,
-									"server_addr": evt.ServerAddr,
-									"channel":     evt.Channel,
-									"topic":       evt.Topic,
-									"timestamp":   evt.Timestamp,
-								})
-							case <-timeout:
-								return
-							}
-						}
-					case evt, ok := <-ircEventCh:
-						if !ok {
-							return
-						}
-						sseHub.Publish(string(evt.Type), map[string]interface{}{
-							"server_id":   evt.ServerID,
-							"server_addr": evt.ServerAddr,
-							"channel":     evt.Channel,
-							"topic":       evt.Topic,
-							"timestamp":   evt.Timestamp,
-						})
-					}
-				}
-			}()
+			go eventBridge.ForwardIRCEvents(eventCtx, ircEventCh, &eventWg)
 
-			// Wire queue manager events into SSE hub (Fase 7.3)
+			// Wire queue manager events into SSE hub via bridge
 			queueEventCh := queueMgr.Subscribe()
 			defer queueMgr.Unsubscribe(queueEventCh)
 			eventWg.Add(1)
-			go func() {
-				defer eventWg.Done()
-				for {
-					select {
-					case <-eventCtx.Done():
-						// Shutdown signal - drain remaining events with timeout
-						timeout := time.After(100 * time.Millisecond)
-						for {
-							select {
-							case evt, ok := <-queueEventCh:
-								if !ok {
-									return
-								}
-								// Try to publish remaining events (best effort)
-								sseHub.Publish(string(evt.Type), map[string]interface{}{
-									"download_id":    evt.DownloadID,
-									"bot":            evt.Bot,
-									"server_address": evt.ServerAddress,
-									"channel":        evt.Channel,
-									"filename":       evt.Filename,
-									"progress_bytes": evt.ProgressBytes,
-									"file_size":      evt.FileSize,
-									"speed_bps":      evt.SpeedBPS,
-									"error_message":  evt.ErrorMessage,
-									"timestamp":      evt.Timestamp,
-								})
-							case <-timeout:
-								return
-							}
-						}
-					case evt, ok := <-queueEventCh:
-						if !ok {
-							return
-						}
-						sseHub.Publish(string(evt.Type), map[string]interface{}{
-							"download_id":    evt.DownloadID,
-							"bot":            evt.Bot,
-							"server_address": evt.ServerAddress,
-							"channel":        evt.Channel,
-							"filename":       evt.Filename,
-							"progress_bytes": evt.ProgressBytes,
-							"file_size":      evt.FileSize,
-							"speed_bps":      evt.SpeedBPS,
-							"error_message":  evt.ErrorMessage,
-							"timestamp":      evt.Timestamp,
-						})
-					}
-				}
-			}()
+			go eventBridge.ForwardQueueEvents(eventCtx, queueEventCh, &eventWg)
 
 			// Build REST API and wire it into the HTTP server
 			apiHandler := api.New(st, ircMgr, queueMgr, searchAgg, sseHub, logBroadcaster, cfg, logger)
@@ -308,8 +226,9 @@ See config.yaml in the project root for all available settings.`,
 			defer globalShutdownCancel()
 
 			srv := &http.Server{
-				Addr:    fmt.Sprintf(":%d", cfg.HTTP.Port),
-				Handler: mux,
+				Addr:              fmt.Sprintf(":%d", cfg.HTTP.Port),
+				Handler:           mux,
+				ReadHeaderTimeout: 30 * time.Second,
 				// BaseContext provides the base context for all incoming requests (Phase 1.2)
 				// When we cancel globalShutdownCtx, all active request contexts are cancelled
 				BaseContext: func(net.Listener) context.Context {
@@ -358,7 +277,7 @@ See config.yaml in the project root for all available settings.`,
 			sseHub.Close()
 
 			// 2. Cancel all active HTTP request contexts (Phase 1.3)
-			logger.Infof("shutdown: cancelling all active requests...")
+			logger.Infof("shutdown: canceling all active requests...")
 			globalShutdownCancel()
 			time.Sleep(100 * time.Millisecond) // Give handlers time to see cancellation
 

@@ -3,16 +3,12 @@ package store
 
 import "time"
 
-// Store defines the interface for all persistence operations.
-type Store interface {
-	// ---- Lifecycle ----
-	Close() error
+// ---------------------------------------------------------------------------
+// Focused interfaces — each consumer should depend only on the methods it needs.
+// ---------------------------------------------------------------------------
 
-	// ---- Schema Migrations ----
-	Migrate() error
-	CurrentSchemaVersion() (int, error)
-
-	// ---- IRC Servers ----
+// ServerStore covers IRC server and channel persistence.
+type ServerStore interface {
 	AddServer(s ServerRecord) (int64, error)
 	GetServer(id int64) (*ServerRecord, error)
 	ListServers() ([]ServerRecord, error)
@@ -22,7 +18,6 @@ type Store interface {
 	SetServerConnected(id int64) error
 	IncrementServerRetry(id int64) error
 
-	// ---- IRC Channels ----
 	AddChannel(c ChannelRecord) (int64, error)
 	GetChannelsByServer(serverID int64) ([]ChannelRecord, error)
 	GetChannelsByServerAndName(serverID int64, name string) (*ChannelRecord, error)
@@ -31,8 +26,10 @@ type Store interface {
 	SetChannelJoined(id int64, joined bool) error
 	UpdateChannelTopic(id int64, topic string) error
 	GetAutoJoinChannels() ([]ChannelRecord, error)
+}
 
-	// ---- Downloads ----
+// DownloadStore covers download queue and history persistence.
+type DownloadStore interface {
 	EnqueueDownload(d DownloadRecord) (int64, error)
 	GetDownload(id int64) (*DownloadRecord, error)
 	GetQueue() ([]DownloadRecord, error)
@@ -53,29 +50,32 @@ type Store interface {
 	RecoverDownloadsOnStartup() ([]DownloadRecord, error)
 	RequeueDownload(id int64) error
 	SetDownloadPriority(id int64, priority int) error
-
-	// UpdateDownloadMetadata updates the filename and/or file_size for a download.
-	// This is called when the bot notice reveals the actual filename/size mid-download.
 	UpdateDownloadMetadata(id int64, filename string, fileSize int64) error
 	BulkActionDownloads(ids []int64, action string) (map[int64]string, error)
 	FindDuplicateDownload(bot, serverAddress string, packNumber int) (*DownloadRecord, error)
 	GetDownloadByBotMessage(bot, packMessage string) (*DownloadRecord, error)
+}
 
-	// ---- Search Cache ----
+// SearchCacheStore covers search result caching in SQLite.
+type SearchCacheStore interface {
 	SetSearchCache(entry SearchCacheEntry) error
 	GetSearchCache(queryKey, provider string) (*SearchCacheEntry, error)
 	GetSearchCacheByQuery(queryKey string) ([]SearchCacheEntry, error)
 	DeleteExpiredSearchCache(staleBefore time.Time) error
+}
 
-	// ---- Search Presets ----
+// SearchPresetStore covers saved search presets.
+type SearchPresetStore interface {
 	AddSearchPreset(p SearchPreset) (int64, error)
 	GetSearchPreset(id int64) (*SearchPreset, error)
 	ListSearchPresets() ([]SearchPreset, error)
 	UpdateSearchPreset(p SearchPreset) error
 	DeleteSearchPreset(id int64) error
 	SetDefaultSearchPreset(id int64) error
+}
 
-	// ---- Watchlists ----
+// WatchlistStore covers saved watchlists for periodic search and notification.
+type WatchlistStore interface {
 	AddWatchlist(w Watchlist) (int64, error)
 	GetWatchlist(id int64) (*Watchlist, error)
 	ListWatchlists() ([]Watchlist, error)
@@ -84,14 +84,36 @@ type Store interface {
 	SetWatchlistChecked(id int64, fingerprint string) error
 	SetWatchlistNotified(id int64) error
 	GetEnabledWatchlists() ([]Watchlist, error)
+}
 
-	// ---- Provider Stats ----
+// ProviderStatsStore covers search provider metrics.
+type ProviderStatsStore interface {
 	RecordProviderStats(s ProviderStats) error
 	GetProviderStats(provider string, since time.Time) ([]ProviderStats, error)
 	GetAllProviderStats(since time.Time) (map[string][]ProviderStats, error)
+}
+
+// ---------------------------------------------------------------------------
+// Composite Store — embeds all focused interfaces for convenience and
+// backward compatibility. New code should prefer one of the focused interfaces.
+// ---------------------------------------------------------------------------
+
+// Store defines the full interface for all persistence operations.
+type Store interface {
+	ServerStore
+	DownloadStore
+	SearchCacheStore
+	SearchPresetStore
+	WatchlistStore
+	ProviderStatsStore
+
+	// ---- Lifecycle ----
+	Close() error
+	Migrate() error
+	CurrentSchemaVersion() (int, error)
 
 	// ---- Cleanup ----
-	CleanupOldDownloads(retentionDays int) (int, error) // returns number of deleted records
+	CleanupOldDownloads(retentionDays int) (int, error)
 	RunCleanup(retentionDays int, cleanupInterval time.Duration) (stopCh chan struct{}, doneCh chan struct{}, err error)
 	Vacuum() error
 

@@ -113,7 +113,7 @@ func TestHttpGet_UserAgent(t *testing.T) {
 		if ua != "xdcc-go/1.0" {
 			t.Errorf("User-Agent = %q, want xdcc-go/1.0", ua)
 		}
-		w.WriteHeader(200)
+		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
 

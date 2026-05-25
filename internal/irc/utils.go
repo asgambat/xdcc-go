@@ -192,7 +192,7 @@ func randN(n int) int {
 func splitDCC(s string) []string {
 	var parts []string
 	s = strings.TrimSpace(s)
-	for len(s) > 0 {
+	for s != "" {
 		if s[0] == '"' {
 			end := strings.Index(s[1:], "\"")
 			if end < 0 {

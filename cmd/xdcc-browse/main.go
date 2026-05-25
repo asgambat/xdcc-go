@@ -383,7 +383,7 @@ func selectPacks(results []*entities.XDCCPack) ([]*entities.XDCCPack, error) {
 		}
 		input = strings.TrimSpace(input)
 
-		if strings.ToLower(input) == "all" {
+		if strings.EqualFold(input, "all") {
 			return results, nil
 		}
 

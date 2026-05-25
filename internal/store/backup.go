@@ -79,7 +79,7 @@ func (s *SQLiteStore) ExportToFile(path string) error {
 		return fmt.Errorf("marshaling export data: %w", err)
 	}
 
-	if err := os.WriteFile(path, payload, 0644); err != nil {
+	if err := os.WriteFile(path, payload, 0o600); err != nil {
 		return fmt.Errorf("writing export file %s: %w", path, err)
 	}
 

@@ -80,12 +80,12 @@ Verbosity levels:
 
 			for _, pack := range results {
 				msg := pack.GetRequestMessage(true)
-				line := fmt.Sprintf("%s [%s] (xdcc-dl \"%s\")",
+				line := fmt.Sprintf("%s [%s] (xdcc-dl %q)",
 					pack.Filename,
 					entities.HumanReadableBytes(pack.Size),
 					msg)
 				if pack.Server.Address != "irc.rizon.net" {
-					line = fmt.Sprintf("%s [%s] (xdcc-dl \"%s\" --server %s)",
+					line = fmt.Sprintf("%s [%s] (xdcc-dl %q --server %s)",
 						pack.Filename,
 						entities.HumanReadableBytes(pack.Size),
 						msg,

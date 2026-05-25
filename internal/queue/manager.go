@@ -33,18 +33,18 @@ func slotKey(serverAddr, channel, bot string) string {
 }
 
 // ---------------------------------------------------------------------------
-// QueueManager
+// Manager
 // ---------------------------------------------------------------------------
 
-// QueueManager manages the download queue. It enforces:
+// Manager manages the download queue. It enforces:
 //   - Max 1 active download per IRC channel
 //   - A global parallel download limit (default 5)
 //   - FIFO priority per-channel queue
 //   - Persistence via SQLite store
 //   - Real-time events for SSE propagation
 //   - Persistent IRC connections via IRCManager (when available)
-type QueueManager struct {
-	store store.Store
+type Manager struct {
+	store store.DownloadStore
 	cfg   *config.Config
 	log   *logging.Logger
 
@@ -52,7 +52,7 @@ type QueueManager struct {
 	ircMgr IRCManagerInterface
 
 	mu sync.RWMutex
-	// dispatchMu serialises calls to tryDispatch, preventing concurrent
+	//	dispatchMu serializes calls to tryDispatch, preventing concurrent
 	// dispatches from racing on activeCount/channelSlots checks and
 	// starting more downloads than allowed by the configured limits.
 	dispatchMu sync.Mutex
@@ -95,11 +95,11 @@ type IRCManagerInterface interface {
 	DownloadPack(ctx context.Context, pack *entities.XDCCPack, channel string, progressFn func(bytesReceived, totalBytes int64, speedBPS float64)) (string, error)
 }
 
-// New creates a new QueueManager.
+// New creates a new Manager.
 // ircMgr is optional - if nil, downloads will use temporary IRC connections.
-func New(st store.Store, cfg *config.Config, logger *logging.Logger) *QueueManager {
+func New(st store.DownloadStore, cfg *config.Config, logger *logging.Logger) *Manager {
 	ctx, cancel := context.WithCancel(context.Background())
-	qm := &QueueManager{
+	qm := &Manager{
 		store:        st,
 		cfg:          cfg,
 		log:          logger,
@@ -140,7 +140,7 @@ func New(st store.Store, cfg *config.Config, logger *logging.Logger) *QueueManag
 
 // SetIRCManager sets the IRC manager for persistent connections.
 // This should be called before starting the queue manager.
-func (qm *QueueManager) SetIRCManager(ircMgr IRCManagerInterface) {
+func (qm *Manager) SetIRCManager(ircMgr IRCManagerInterface) {
 	qm.mu.Lock()
 	defer qm.mu.Unlock()
 	qm.ircMgr = ircMgr
@@ -156,7 +156,7 @@ func (qm *QueueManager) SetIRCManager(ircMgr IRCManagerInterface) {
 //
 // On startup, it waits for the configured startup delay before allowing
 // dispatch. This gives IRC servers time to connect and join channels.
-func (qm *QueueManager) Start() error {
+func (qm *Manager) Start() error {
 	// Start the periodic monitor goroutine immediately so Stop() can
 	// cleanly shut it down even during the startup delay.
 	go qm.monitorLoop()
@@ -177,7 +177,7 @@ func (qm *QueueManager) Start() error {
 }
 
 // Stop cancels all active downloads and stops the monitor.
-func (qm *QueueManager) Stop() {
+func (qm *Manager) Stop() {
 	// Stop disk monitor first and wait for goroutine to exit
 	if qm.stopDiskCheck != nil {
 		qm.stopDiskCheck()
@@ -192,7 +192,7 @@ func (qm *QueueManager) Stop() {
 	// that outlive the queue manager.
 	qm.subscriber.Close()
 
-	// Save progress of all active downloads before cancelling
+	// Save progress of all active downloads before canceling
 	qm.mu.RLock()
 	ids := make([]int64, 0, len(qm.activeJobs))
 	for id := range qm.activeJobs {
@@ -225,7 +225,7 @@ func (qm *QueueManager) Stop() {
 
 // monitorLoop periodically checks for queued downloads that can be started.
 // It runs every 10 seconds by default.
-func (qm *QueueManager) monitorLoop() {
+func (qm *Manager) monitorLoop() {
 	defer close(qm.done)
 
 	// Dispatch interval: 10 seconds by default
@@ -250,17 +250,17 @@ func (qm *QueueManager) monitorLoop() {
 // ---------------------------------------------------------------------------
 
 // Subscribe returns a channel that receives queue events.
-func (qm *QueueManager) Subscribe() chan Event {
+func (qm *Manager) Subscribe() chan Event {
 	return qm.subscriber.Subscribe()
 }
 
 // Unsubscribe removes a previously subscribed channel.
-func (qm *QueueManager) Unsubscribe(ch chan Event) {
+func (qm *Manager) Unsubscribe(ch chan Event) {
 	qm.subscriber.Unsubscribe(ch)
 }
 
 // emitEvent sends an event to all subscribers.
-func (qm *QueueManager) emitEvent(evt Event) {
+func (qm *Manager) emitEvent(evt Event) {
 	evt.Timestamp = time.Now()
 	qm.subscriber.Publish(evt)
 }
@@ -274,7 +274,7 @@ func (qm *QueueManager) emitEvent(evt Event) {
 //
 // packMessage is the raw XDCC message (e.g. "xdcc send #123").
 // The caller should already have validated it.
-func (qm *QueueManager) Enqueue(d store.DownloadRecord) (int64, error) {
+func (qm *Manager) Enqueue(d store.DownloadRecord) (int64, error) {
 	// Normalize channel (if provided)
 	// Channel is optional - if empty, WHOIS will discover it during download
 	d.Channel = xdccirc.NormalizeChannel(d.Channel)
@@ -329,7 +329,7 @@ func (qm *QueueManager) Enqueue(d store.DownloadRecord) (int64, error) {
 // CancelDownload cancels a download by its ID. If the download is active,
 // its context is cancelled. If it's queued, it's just removed from the queue.
 // The download record is updated in the store.
-func (qm *QueueManager) CancelDownload(id int64, reason string) error {
+func (qm *Manager) CancelDownload(id int64, reason string) error {
 	qm.mu.Lock()
 	cancelFn, active := qm.activeJobs[id]
 	if active {
@@ -360,7 +360,7 @@ func (qm *QueueManager) CancelDownload(id int64, reason string) error {
 
 // PauseDownload pauses a download. If it's currently downloading, the
 // context is cancelled (the partial file remains for potential resume).
-func (qm *QueueManager) PauseDownload(id int64) error {
+func (qm *Manager) PauseDownload(id int64) error {
 	qm.mu.Lock()
 	cancelFn, active := qm.activeJobs[id]
 	if active {
@@ -396,7 +396,7 @@ func (qm *QueueManager) PauseDownload(id int64) error {
 }
 
 // ResumeDownload resumes a paused or failed download by re-queueing it.
-func (qm *QueueManager) ResumeDownload(id int64) error {
+func (qm *Manager) ResumeDownload(id int64) error {
 	err := qm.store.RetryDownload(id)
 	if err != nil {
 		return err
@@ -408,7 +408,7 @@ func (qm *QueueManager) ResumeDownload(id int64) error {
 }
 
 // RemoveDownload removes a download from the queue entirely.
-func (qm *QueueManager) RemoveDownload(id int64) error {
+func (qm *Manager) RemoveDownload(id int64) error {
 	qm.mu.Lock()
 	cancelFn, active := qm.activeJobs[id]
 	if active {
@@ -447,7 +447,7 @@ func (qm *QueueManager) RemoveDownload(id int64) error {
 // BulkAction performs an action on multiple downloads.
 // actions: "pause", "resume", "remove"
 // Returns per-ID results.
-func (qm *QueueManager) BulkAction(ids []int64, action string) (map[int64]string, error) {
+func (qm *Manager) BulkAction(ids []int64, action string) (map[int64]string, error) {
 	results := make(map[int64]string)
 
 	for _, id := range ids {
@@ -478,14 +478,14 @@ func (qm *QueueManager) BulkAction(ids []int64, action string) (map[int64]string
 }
 
 // GetActiveCount returns the number of currently active downloads.
-func (qm *QueueManager) GetActiveCount() int {
+func (qm *Manager) GetActiveCount() int {
 	qm.mu.RLock()
 	defer qm.mu.RUnlock()
 	return qm.globalCount
 }
 
 // GetActiveIDs returns the IDs of all currently active downloads.
-func (qm *QueueManager) GetActiveIDs() []int64 {
+func (qm *Manager) GetActiveIDs() []int64 {
 	qm.mu.RLock()
 	defer qm.mu.RUnlock()
 	ids := make([]int64, 0, len(qm.activeJobs))
@@ -501,8 +501,8 @@ func (qm *QueueManager) GetActiveIDs() []int64 {
 
 // tryDispatch checks the queue and starts as many downloads as possible
 // up to the per-channel and global limits.
-func (qm *QueueManager) tryDispatch() {
-	// Serialise dispatch to prevent concurrent callers (Enqueue,
+func (qm *Manager) tryDispatch() {
+	// Serialize dispatch to prevent concurrent callers (Enqueue,
 	// monitorLoop, completeFn, disk-check callback, etc.) from racing
 	// on channelSlots/globalCount and starting duplicate downloads.
 	qm.dispatchMu.Lock()
@@ -598,7 +598,7 @@ func (qm *QueueManager) tryDispatch() {
 }
 
 // startDownload begins a download in a new goroutine.
-func (qm *QueueManager) startDownload(d store.DownloadRecord) {
+func (qm *Manager) startDownload(d store.DownloadRecord) {
 	// Mark as downloading in store
 	if err := qm.store.MarkDownloadStarted(d.ID); err != nil {
 		qm.log.Warnf("marking download %d as started: %v", d.ID, err)
@@ -813,7 +813,7 @@ func (qm *QueueManager) startDownload(d store.DownloadRecord) {
 
 // releaseChannelSlot removes a (server, channel) pair from the active slots
 // map if the download ID matches.
-func (qm *QueueManager) releaseChannelSlot(downloadID int64) {
+func (qm *Manager) releaseChannelSlot(downloadID int64) {
 	qm.mu.Lock()
 	defer qm.mu.Unlock()
 
@@ -838,7 +838,7 @@ func (qm *QueueManager) releaseChannelSlot(downloadID int64) {
 //   - Max retry attempts per download (configurable, default 3)
 //   - No auto-retry if mode is "suggest_only"
 //   - Clear tracking of fallback reason in log
-func (qm *QueueManager) handleFallback(original store.DownloadRecord, result workerResult) {
+func (qm *Manager) handleFallback(original store.DownloadRecord, result workerResult) {
 	mode := qm.cfg.Download.FailFallback
 	if mode != "auto_retry_best" {
 		// In "suggest_only" mode, log a suggestion but don't auto-start
@@ -906,6 +906,6 @@ func (qm *QueueManager) handleFallback(original store.DownloadRecord, result wor
 // GetEffectiveMaxRate returns the effective max rate for the current time slot.
 // This respects time-based bandwidth profiles (quiet hours).
 // For now, it returns the configured max_rate_bps directly.
-func (qm *QueueManager) GetEffectiveMaxRate() int64 {
+func (qm *Manager) GetEffectiveMaxRate() int64 {
 	return qm.cfg.Download.MaxRateBPS
 }

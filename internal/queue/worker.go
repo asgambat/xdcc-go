@@ -163,7 +163,7 @@ func runDownload(
 	}
 
 	// Ensure destination directory exists
-	if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
 		result.Error = fmt.Errorf("creating destination directory: %w", err)
 		completeFn(result)
 		return

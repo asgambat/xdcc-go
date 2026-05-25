@@ -23,6 +23,19 @@ func newTestStore(tb testing.TB) *SQLiteStore {
 	if err := s.Migrate(); err != nil {
 		tb.Fatalf("Migrate: %v", err)
 	}
+
+	// Speed up tests by disabling durability guarantees (not needed in tests).
+	// synchronous=OFF avoids fsync on every write; journal_mode=MEMORY avoids
+	// flushing the WAL/journal file to disk. Without these, 55+ isolated test
+	// databases create heavy cumulative i/o that inflates test time from ~0.2s
+	// to 5-10s per test.
+	if _, err := s.db.Exec("PRAGMA synchronous=OFF"); err != nil {
+		tb.Fatalf("PRAGMA synchronous: %v", err)
+	}
+	if _, err := s.db.Exec("PRAGMA journal_mode=MEMORY"); err != nil {
+		tb.Fatalf("PRAGMA journal_mode: %v", err)
+	}
+
 	return s
 }
 

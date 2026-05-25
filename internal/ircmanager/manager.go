@@ -32,7 +32,7 @@ const (
 // on Start(). Events are emitted via Subscribe() for SSE propagation.
 type Manager struct {
 	mu     sync.RWMutex
-	store  store.Store
+	store  store.ServerStore
 	cfg    *config.Config
 	logger *logging.Logger
 
@@ -45,7 +45,7 @@ type Manager struct {
 }
 
 // New creates a new IRC connection manager.
-func New(st store.Store, cfg *config.Config, logger *logging.Logger) *Manager {
+func New(st store.ServerStore, cfg *config.Config, logger *logging.Logger) *Manager {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Manager{
 		store:      st,
@@ -561,22 +561,21 @@ func (m *Manager) ensureConnection(address string, port int) (int64, *managedCon
 	// Check if we already have a connection to this server
 	m.mu.RLock()
 	for id, conn := range m.conns {
-		if conn.address == address && conn.port == port {
-			m.mu.RUnlock()
-			// Connection exists
-			if conn.Status() == "connected" {
-				m.logger.Infof("Reusing existing connection to %s:%d", address, port)
-				return id, conn, nil
-			}
-			// Connection exists but not connected yet — wait efficiently
-			// using the connectedCh notification channel when available,
-			// with a short polling fallback.
-			m.logger.Infof("Waiting for connection to %s:%d to establish...", address, port)
-			if !conn.waitConnected(defaultConnectionTimeout) {
-				return 0, nil, fmt.Errorf("connection to %s:%d did not establish in time", address, port)
-			}
+		if conn.address != address || conn.port != port {
+			continue
+		}
+		m.mu.RUnlock()
+		// Connection exists
+		if conn.Status() == "connected" {
+			m.logger.Infof("Reusing existing connection to %s:%d", address, port)
 			return id, conn, nil
 		}
+		// Connection exists but not connected yet — wait efficiently
+		m.logger.Infof("Waiting for connection to %s:%d to establish...", address, port)
+		if !conn.waitConnected(defaultConnectionTimeout) {
+			return 0, nil, fmt.Errorf("connection to %s:%d did not establish in time", address, port)
+		}
+		return id, conn, nil
 	}
 	m.mu.RUnlock()
 

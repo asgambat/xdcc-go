@@ -52,7 +52,7 @@ type IRCManager interface {
 	Unsubscribe(ch chan ircmanager.Event)
 }
 
-// QueueManager defines the subset of queue.QueueManager methods used by handlers.
+// QueueManager defines the subset of queue.Manager methods used by handlers.
 type QueueManager interface {
 	Enqueue(d store.DownloadRecord) (int64, error)
 	CancelDownload(id int64, reason string) error

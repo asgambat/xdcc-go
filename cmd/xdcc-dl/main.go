@@ -284,7 +284,7 @@ func formatSpeed(bps int64) string {
 }
 
 // formatETA returns a human-readable ETA string.
-func formatETA(remaining int64, speedBPS int64) string {
+func formatETA(remaining, speedBPS int64) string {
 	if speedBPS <= 0 || remaining <= 0 {
 		return "—"
 	}

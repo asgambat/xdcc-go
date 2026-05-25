@@ -334,7 +334,7 @@ func (a *API) handleSetupBootstrap(w http.ResponseWriter, r *http.Request) {
 	cfg.UI.SetupCompleted = true
 
 	for _, dir := range []string{cfg.Download.TempDir, cfg.Download.DestDir} {
-		if err := os.MkdirAll(dir, 0755); err != nil {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
 			a.logAndError(w, http.StatusInternalServerError, "MKDIR_ERROR",
 				fmt.Sprintf("creating directory %s: %v", dir, err))
 			return

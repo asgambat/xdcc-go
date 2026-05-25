@@ -53,7 +53,7 @@ type SearchResult struct {
 // ProviderStatus
 // ---------------------------------------------------------------------------
 
-// ProviderStatus summarises the result of querying a single provider.
+// ProviderStatus summarizes the result of querying a single provider.
 type ProviderStatus struct {
 	Name        string `json:"name"`
 	Status      string `json:"status"` // ok | timeout | failed | disabled | skipped_cache_hit

@@ -9,7 +9,7 @@ import "time"
 // Event types for state changes (Fase 3.6)
 // ---------------------------------------------------------------------------
 
-// EventType categorises a state change event emitted by the Manager.
+// EventType categorizes a state change event emitted by the Manager.
 type EventType string
 
 const (

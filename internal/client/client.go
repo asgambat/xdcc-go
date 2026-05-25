@@ -4,6 +4,7 @@
 package client
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -262,7 +263,7 @@ func (c *Client) PollDownload(id int64, interval, timeout time.Duration, cb Prog
 // HTTP helpers
 // ---------------------------------------------------------------------------
 
-func (c *Client) doJSON(method, path string, body interface{}, out interface{}) error {
+func (c *Client) doJSON(method, path string, body, out interface{}) error {
 	var reqBody io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
@@ -272,7 +273,7 @@ func (c *Client) doJSON(method, path string, body interface{}, out interface{}) 
 		reqBody = strings.NewReader(string(b))
 	}
 
-	req, err := http.NewRequest(method, c.baseURL+path, reqBody)
+	req, err := http.NewRequestWithContext(context.Background(), method, c.baseURL+path, reqBody)
 	if err != nil {
 		return fmt.Errorf("creating request: %w", err)
 	}

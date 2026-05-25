@@ -24,3 +24,157 @@
 2026-05-25T16:08:20+02:00 [INFO] server 3 disconnected cleanly 
 2026-05-25T16:08:21+02:00 [INFO] server 5 disconnected cleanly 
 2026-05-25T16:08:23+02:00 [INFO] server 4 disconnected cleanly 
+2026-05-25T16:09:40+02:00 [INFO] connecting to irc.test.net:6671 as 'xdcc-user8pF' 
+2026-05-25T16:09:40+02:00 [INFO] connecting to irc.test.net:6668 as 'xdcc-userpFz' 
+2026-05-25T16:09:40+02:00 [INFO] connecting to irc.test.net:6667 as 'xdcc-usery2R' 
+2026-05-25T16:09:40+02:00 [INFO] connecting to irc.test.net:6669 as 'xdcc-userXFi' 
+2026-05-25T16:09:40+02:00 [INFO] connecting to irc.test.net:6670 as 'xdcc-userUny' 
+2026-05-25T16:09:40+02:00 [ERROR] connection to irc.test.net failed: dial tcp 85.13.137.190:6669: connect: connection refused 
+2026-05-25T16:09:40+02:00 [INFO] IRC connection to irc.test.net lost, reconnecting... 
+2026-05-25T16:09:40+02:00 [INFO] reconnecting to irc.test.net in 5s (attempt 1) 
+2026-05-25T16:09:40+02:00 [ERROR] connection to irc.test.net failed: dial tcp 85.13.137.190:6670: connect: connection refused 
+2026-05-25T16:09:40+02:00 [INFO] IRC connection to irc.test.net lost, reconnecting... 
+2026-05-25T16:09:40+02:00 [INFO] reconnecting to irc.test.net in 5s (attempt 1) 
+2026-05-25T16:09:40+02:00 [INFO] server 3 disconnected cleanly 
+2026-05-25T16:09:40+02:00 [INFO] server 4 disconnected cleanly 
+2026-05-25T16:09:41+02:00 [INFO] server 1 disconnected cleanly 
+2026-05-25T16:09:42+02:00 [INFO] server 2 disconnected cleanly 
+2026-05-25T16:09:43+02:00 [INFO] server 5 disconnected cleanly 
+2026-05-25T16:40:40+02:00 [INFO] connecting to irc.test.net:6671 as 'xdcc-user7iO' 
+2026-05-25T16:40:40+02:00 [INFO] connecting to irc.test.net:6668 as 'xdcc-userxlv' 
+2026-05-25T16:40:40+02:00 [INFO] connecting to irc.test.net:6667 as 'xdcc-userwAR' 
+2026-05-25T16:40:40+02:00 [INFO] connecting to irc.test.net:6669 as 'xdcc-userAOS' 
+2026-05-25T16:40:40+02:00 [INFO] connecting to irc.test.net:6670 as 'xdcc-userw1f' 
+2026-05-25T16:40:41+02:00 [ERROR] connection to irc.test.net failed: dial tcp 85.13.137.190:6670: connect: connection refused 
+2026-05-25T16:40:41+02:00 [INFO] IRC connection to irc.test.net lost, reconnecting... 
+2026-05-25T16:40:41+02:00 [INFO] reconnecting to irc.test.net in 5s (attempt 1) 
+2026-05-25T16:40:41+02:00 [ERROR] connection to irc.test.net failed: dial tcp 85.13.137.190:6667: connect: connection refused 
+2026-05-25T16:40:41+02:00 [INFO] IRC connection to irc.test.net lost, reconnecting... 
+2026-05-25T16:40:41+02:00 [INFO] reconnecting to irc.test.net in 5s (attempt 1) 
+2026-05-25T16:40:41+02:00 [INFO] server 1 disconnected cleanly 
+2026-05-25T16:40:41+02:00 [INFO] server 4 disconnected cleanly 
+2026-05-25T16:40:43+02:00 [INFO] server 2 disconnected cleanly 
+2026-05-25T16:40:44+02:00 [INFO] server 5 disconnected cleanly 
+2026-05-25T16:40:45+02:00 [INFO] server 3 disconnected cleanly 
+2026-05-25T19:17:12+02:00 [INFO] connecting to irc.test.net:6671 as 'xdcc-userP8K' 
+2026-05-25T19:17:12+02:00 [INFO] connecting to irc.test.net:6668 as 'xdcc-userJFX' 
+2026-05-25T19:17:12+02:00 [INFO] connecting to irc.test.net:6667 as 'xdcc-userFzR' 
+2026-05-25T19:17:12+02:00 [INFO] connecting to irc.test.net:6669 as 'xdcc-userTJh' 
+2026-05-25T19:17:12+02:00 [INFO] connecting to irc.test.net:6670 as 'xdcc-userR24' 
+2026-05-25T19:17:12+02:00 [ERROR] connection to irc.test.net failed: dial tcp 85.13.137.190:6670: connect: connection refused 
+2026-05-25T19:17:12+02:00 [INFO] IRC connection to irc.test.net lost, reconnecting... 
+2026-05-25T19:17:12+02:00 [INFO] reconnecting to irc.test.net in 5s (attempt 1) 
+2026-05-25T19:17:12+02:00 [ERROR] connection to irc.test.net failed: dial tcp 85.13.137.190:6671: connect: connection refused 
+2026-05-25T19:17:12+02:00 [INFO] IRC connection to irc.test.net lost, reconnecting... 
+2026-05-25T19:17:12+02:00 [INFO] reconnecting to irc.test.net in 5s (attempt 1) 
+2026-05-25T19:17:12+02:00 [ERROR] connection to irc.test.net failed: dial tcp 85.13.137.190:6668: connect: connection refused 
+2026-05-25T19:17:12+02:00 [ERROR] connection to irc.test.net failed: dial tcp 85.13.137.190:6667: connect: connection refused 
+2026-05-25T19:17:12+02:00 [INFO] IRC connection to irc.test.net lost, reconnecting... 
+2026-05-25T19:17:12+02:00 [INFO] reconnecting to irc.test.net in 5s (attempt 1) 
+2026-05-25T19:17:12+02:00 [INFO] IRC connection to irc.test.net lost, reconnecting... 
+2026-05-25T19:17:12+02:00 [INFO] reconnecting to irc.test.net in 5s (attempt 1) 
+2026-05-25T19:17:12+02:00 [INFO] server 2 disconnected cleanly 
+2026-05-25T19:17:12+02:00 [INFO] server 1 disconnected cleanly 
+2026-05-25T19:17:12+02:00 [INFO] server 4 disconnected cleanly 
+2026-05-25T19:17:12+02:00 [INFO] server 5 disconnected cleanly 
+2026-05-25T19:17:13+02:00 [INFO] server 3 disconnected cleanly 
+2026-05-25T19:17:29+02:00 [INFO] connecting to irc.test.net:6671 as 'xdcc-userfvc' 
+2026-05-25T19:17:29+02:00 [INFO] connecting to irc.test.net:6667 as 'xdcc-userU9v' 
+2026-05-25T19:17:29+02:00 [INFO] connecting to irc.test.net:6668 as 'xdcc-userqRE' 
+2026-05-25T19:17:29+02:00 [INFO] connecting to irc.test.net:6669 as 'xdcc-userWqD' 
+2026-05-25T19:17:29+02:00 [INFO] connecting to irc.test.net:6670 as 'xdcc-usergaz' 
+2026-05-25T19:17:29+02:00 [ERROR] connection to irc.test.net failed: dial tcp 85.13.137.190:6670: connect: connection refused 
+2026-05-25T19:17:29+02:00 [INFO] IRC connection to irc.test.net lost, reconnecting... 
+2026-05-25T19:17:29+02:00 [INFO] reconnecting to irc.test.net in 5s (attempt 1) 
+2026-05-25T19:17:29+02:00 [INFO] server 4 disconnected cleanly 
+2026-05-25T19:17:30+02:00 [INFO] server 1 disconnected cleanly 
+2026-05-25T19:17:31+02:00 [INFO] server 5 disconnected cleanly 
+2026-05-25T19:17:32+02:00 [INFO] server 2 disconnected cleanly 
+2026-05-25T19:17:33+02:00 [INFO] server 3 disconnected cleanly 
+2026-05-25T19:21:02+02:00 [INFO] connecting to irc.test.net:6667 as 'xdcc-userJlb' 
+2026-05-25T19:21:02+02:00 [INFO] connecting to irc.test.net:6671 as 'xdcc-user3o7' 
+2026-05-25T19:21:02+02:00 [INFO] connecting to irc.test.net:6668 as 'xdcc-uservCk' 
+2026-05-25T19:21:02+02:00 [INFO] connecting to irc.test.net:6670 as 'xdcc-usereWW' 
+2026-05-25T19:21:02+02:00 [INFO] connecting to irc.test.net:6669 as 'xdcc-userzfv' 
+2026-05-25T19:21:02+02:00 [ERROR] connection to irc.test.net failed: dial tcp 85.13.137.190:6669: connect: connection refused 
+2026-05-25T19:21:02+02:00 [INFO] IRC connection to irc.test.net lost, reconnecting... 
+2026-05-25T19:21:02+02:00 [INFO] reconnecting to irc.test.net in 5s (attempt 1) 
+2026-05-25T19:21:02+02:00 [INFO] server 3 disconnected cleanly 
+2026-05-25T19:21:03+02:00 [INFO] server 5 disconnected cleanly 
+2026-05-25T19:21:04+02:00 [INFO] server 2 disconnected cleanly 
+2026-05-25T19:21:05+02:00 [INFO] server 4 disconnected cleanly 
+2026-05-25T19:21:06+02:00 [INFO] server 1 disconnected cleanly 
+2026-05-25T19:21:30+02:00 [INFO] connecting to irc.test.net:6671 as 'xdcc-userN4H' 
+2026-05-25T19:21:30+02:00 [INFO] connecting to irc.test.net:6669 as 'xdcc-userbmv' 
+2026-05-25T19:21:30+02:00 [INFO] connecting to irc.test.net:6667 as 'xdcc-userQy6' 
+2026-05-25T19:21:30+02:00 [INFO] connecting to irc.test.net:6668 as 'xdcc-userfpH' 
+2026-05-25T19:21:30+02:00 [INFO] connecting to irc.test.net:6670 as 'xdcc-userMMN' 
+2026-05-25T19:21:31+02:00 [INFO] server 5 disconnected cleanly 
+2026-05-25T19:21:32+02:00 [INFO] server 4 disconnected cleanly 
+2026-05-25T19:21:33+02:00 [INFO] server 2 disconnected cleanly 
+2026-05-25T19:21:34+02:00 [INFO] server 1 disconnected cleanly 
+2026-05-25T19:21:35+02:00 [INFO] server 3 disconnected cleanly 
+2026-05-25T19:23:54+02:00 [INFO] connecting to irc.test.net:6668 as 'xdcc-uservE0' 
+2026-05-25T19:23:54+02:00 [INFO] connecting to irc.test.net:6671 as 'xdcc-userAYa' 
+2026-05-25T19:23:54+02:00 [INFO] connecting to irc.test.net:6669 as 'xdcc-usermzA' 
+2026-05-25T19:23:54+02:00 [INFO] connecting to irc.test.net:6670 as 'xdcc-useryNV' 
+2026-05-25T19:23:54+02:00 [INFO] connecting to irc.test.net:6667 as 'xdcc-userlLw' 
+2026-05-25T19:23:54+02:00 [ERROR] connection to irc.test.net failed: dial tcp 85.13.137.190:6667: connect: connection refused 
+2026-05-25T19:23:54+02:00 [INFO] IRC connection to irc.test.net lost, reconnecting... 
+2026-05-25T19:23:54+02:00 [INFO] reconnecting to irc.test.net in 5s (attempt 1) 
+2026-05-25T19:23:54+02:00 [INFO] server 1 disconnected cleanly 
+2026-05-25T19:23:55+02:00 [INFO] server 4 disconnected cleanly 
+2026-05-25T19:23:56+02:00 [INFO] server 5 disconnected cleanly 
+2026-05-25T19:23:57+02:00 [INFO] server 2 disconnected cleanly 
+2026-05-25T19:23:58+02:00 [INFO] server 3 disconnected cleanly 
+2026-05-25T19:24:33+02:00 [INFO] connecting to irc.test.net:6671 as 'xdcc-userVns' 
+2026-05-25T19:24:33+02:00 [INFO] connecting to irc.test.net:6667 as 'xdcc-user1MN' 
+2026-05-25T19:24:33+02:00 [INFO] connecting to irc.test.net:6668 as 'xdcc-userEbd' 
+2026-05-25T19:24:33+02:00 [INFO] connecting to irc.test.net:6669 as 'xdcc-userhX4' 
+2026-05-25T19:24:33+02:00 [INFO] connecting to irc.test.net:6670 as 'xdcc-user3Xf' 
+2026-05-25T19:24:33+02:00 [ERROR] connection to irc.test.net failed: dial tcp 85.13.137.190:6668: connect: connection refused 
+2026-05-25T19:24:33+02:00 [INFO] IRC connection to irc.test.net lost, reconnecting... 
+2026-05-25T19:24:33+02:00 [INFO] reconnecting to irc.test.net in 5s (attempt 1) 
+2026-05-25T19:24:33+02:00 [ERROR] connection to irc.test.net failed: dial tcp 85.13.137.190:6671: connect: connection refused 
+2026-05-25T19:24:33+02:00 [INFO] IRC connection to irc.test.net lost, reconnecting... 
+2026-05-25T19:24:33+02:00 [INFO] reconnecting to irc.test.net in 5s (attempt 1) 
+2026-05-25T19:24:33+02:00 [ERROR] connection to irc.test.net failed: dial tcp 85.13.137.190:6669: connect: connection refused 
+2026-05-25T19:24:33+02:00 [INFO] IRC connection to irc.test.net lost, reconnecting... 
+2026-05-25T19:24:33+02:00 [INFO] reconnecting to irc.test.net in 5s (attempt 1) 
+2026-05-25T19:24:33+02:00 [ERROR] connection to irc.test.net failed: dial tcp 85.13.137.190:6670: connect: connection refused 
+2026-05-25T19:24:33+02:00 [INFO] IRC connection to irc.test.net lost, reconnecting... 
+2026-05-25T19:24:33+02:00 [INFO] reconnecting to irc.test.net in 5s (attempt 1) 
+2026-05-25T19:24:33+02:00 [ERROR] connection to irc.test.net failed: dial tcp 85.13.137.190:6667: connect: connection refused 
+2026-05-25T19:24:33+02:00 [INFO] IRC connection to irc.test.net lost, reconnecting... 
+2026-05-25T19:24:33+02:00 [INFO] reconnecting to irc.test.net in 5s (attempt 1) 
+2026-05-25T19:24:33+02:00 [INFO] server 1 disconnected cleanly 
+2026-05-25T19:24:33+02:00 [INFO] server 2 disconnected cleanly 
+2026-05-25T19:24:33+02:00 [INFO] server 3 disconnected cleanly 
+2026-05-25T19:24:33+02:00 [INFO] server 4 disconnected cleanly 
+2026-05-25T19:24:33+02:00 [INFO] server 5 disconnected cleanly 
+2026-05-25T19:26:54+02:00 [INFO] connecting to irc.test.net:6671 as 'xdcc-useryc0' 
+2026-05-25T19:26:54+02:00 [INFO] connecting to irc.test.net:6667 as 'xdcc-userb4h' 
+2026-05-25T19:26:54+02:00 [INFO] connecting to irc.test.net:6669 as 'xdcc-userVSH' 
+2026-05-25T19:26:54+02:00 [INFO] connecting to irc.test.net:6668 as 'xdcc-userlb7' 
+2026-05-25T19:26:54+02:00 [INFO] connecting to irc.test.net:6670 as 'xdcc-usereVZ' 
+2026-05-25T19:26:54+02:00 [ERROR] connection to irc.test.net failed: dial tcp 85.13.137.190:6668: connect: connection refused 
+2026-05-25T19:26:54+02:00 [INFO] IRC connection to irc.test.net lost, reconnecting... 
+2026-05-25T19:26:54+02:00 [INFO] reconnecting to irc.test.net in 5s (attempt 1) 
+2026-05-25T19:26:54+02:00 [INFO] server 2 disconnected cleanly 
+2026-05-25T19:26:55+02:00 [INFO] server 3 disconnected cleanly 
+2026-05-25T19:26:56+02:00 [INFO] server 4 disconnected cleanly 
+2026-05-25T19:26:57+02:00 [INFO] server 1 disconnected cleanly 
+2026-05-25T19:26:58+02:00 [INFO] server 5 disconnected cleanly 
+2026-05-25T19:27:22+02:00 [INFO] connecting to irc.test.net:6671 as 'xdcc-usern27' 
+2026-05-25T19:27:22+02:00 [INFO] connecting to irc.test.net:6667 as 'xdcc-usereur' 
+2026-05-25T19:27:22+02:00 [INFO] connecting to irc.test.net:6668 as 'xdcc-userkzZ' 
+2026-05-25T19:27:22+02:00 [INFO] connecting to irc.test.net:6670 as 'xdcc-userUmb' 
+2026-05-25T19:27:22+02:00 [INFO] connecting to irc.test.net:6669 as 'xdcc-userrQO' 
+2026-05-25T19:27:22+02:00 [ERROR] connection to irc.test.net failed: dial tcp 85.13.137.190:6671: connect: connection refused 
+2026-05-25T19:27:22+02:00 [INFO] IRC connection to irc.test.net lost, reconnecting... 
+2026-05-25T19:27:22+02:00 [INFO] reconnecting to irc.test.net in 5s (attempt 1) 
+2026-05-25T19:27:22+02:00 [INFO] server 5 disconnected cleanly 
+2026-05-25T19:27:23+02:00 [INFO] server 1 disconnected cleanly 
+2026-05-25T19:27:24+02:00 [INFO] server 4 disconnected cleanly 
+2026-05-25T19:27:25+02:00 [INFO] server 3 disconnected cleanly 
+2026-05-25T19:27:26+02:00 [INFO] server 2 disconnected cleanly 

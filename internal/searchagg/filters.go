@@ -139,8 +139,8 @@ func sortPacks(packs []*entities.XDCCPack, query string) {
 
 // paginatePacks returns a slice of packs for the given page.
 // page is 1-based. Returns the slice and total count.
-func paginatePacks(packs []*entities.XDCCPack, page, pageSize int) ([]*entities.XDCCPack, int) {
-	total := len(packs)
+func paginatePacks(packs []*entities.XDCCPack, page, pageSize int) (filtered []*entities.XDCCPack, total int) {
+	total = len(packs)
 	if page < 1 {
 		page = 1
 	}

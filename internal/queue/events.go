@@ -11,7 +11,7 @@ import (
 // Queue event types
 // ---------------------------------------------------------------------------
 
-// EventType categorises a queue state change event.
+// EventType categorizes a queue state change event.
 type EventType string
 
 const (

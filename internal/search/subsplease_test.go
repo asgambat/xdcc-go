@@ -75,7 +75,7 @@ func TestSubsPleaseSearch_EmptyTerm(t *testing.T) {
 
 func TestSubsPleaseSearch_CloudflareBlock(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(403)
+		w.WriteHeader(http.StatusForbidden)
 	}))
 	defer srv.Close()
 

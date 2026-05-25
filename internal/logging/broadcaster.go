@@ -126,7 +126,7 @@ func (b *LogBroadcaster) parseLine(line string) LogEntry {
 		if end := strings.IndexByte(line, ']'); end > 0 && end < 10 {
 			entry.Level = line[1:end]
 			line = line[end+1:]
-			if len(line) > 0 && line[0] == ' ' {
+			if line != "" && line[0] == ' ' {
 				line = line[1:]
 			}
 		}

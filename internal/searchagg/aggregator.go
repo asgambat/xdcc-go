@@ -274,6 +274,9 @@ func (a *Aggregator) searchLive(ctx context.Context, query string, providers []s
 		latency time.Duration
 	}
 
+	const maxConcurrentSearches = 3
+	sem := make(chan struct{}, maxConcurrentSearches)
+
 	results := make(chan engineResult, len(engines))
 	var wg sync.WaitGroup
 
@@ -286,9 +289,11 @@ func (a *Aggregator) searchLive(ctx context.Context, query string, providers []s
 			continue
 		}
 
+		sem <- struct{}{} // acquire semaphore slot (blocks if maxConcurrentSearches are running)
 		wg.Add(1)
 		go func(name string) {
 			defer wg.Done()
+			defer func() { <-sem }() // release semaphore slot
 
 			engine := srch.EngineByName(name, false)
 			if engine == nil {
@@ -451,11 +456,6 @@ func (a *Aggregator) buildResultFromCache(
 			Name:        provider,
 			Status:      ProviderStatusSkippedCache,
 			ResultCount: len(entry.Packs),
-		}
-		if entry.isFresh() {
-			ps.Status = ProviderStatusSkippedCache
-		} else {
-			ps.Status = ProviderStatusSkippedCache
 		}
 		providerStatuses = append(providerStatuses, ps)
 	}

@@ -55,7 +55,7 @@ func (s *SQLiteStore) batchRequeue(ids []int64) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback() //nolint:errcheck
+	defer tx.Rollback() //nolint:errcheck // read-only in practice; rollback failure is harmless
 
 	stmt, err := tx.Prepare(
 		`UPDATE downloads SET status='queued', progress_bytes=0, error_message='', speed_bps=0 WHERE id=?`,
@@ -141,7 +141,7 @@ func (s *SQLiteStore) ReconcileFileSystem(tempDir, orphanedPolicy, orphanedDir s
 				if orphanedDir == "" {
 					orphanedDir = filepath.Join(tempDir, "orphaned")
 				}
-				if err := os.MkdirAll(orphanedDir, 0755); err != nil {
+				if err := os.MkdirAll(orphanedDir, 0o755); err != nil {
 					actions = append(actions, fmt.Sprintf("ERROR creating orphaned dir %s: %v", orphanedDir, err))
 					continue
 				}
@@ -203,7 +203,7 @@ func (s *SQLiteStore) CleanupOldDownloads(retentionDays int) (int, error) {
 // Returns two channels:
 // - stopCh: close this to signal the goroutine to stop
 // - doneCh: closed when the goroutine has completely stopped
-func (s *SQLiteStore) RunCleanup(retentionDays int, cleanupInterval time.Duration) (stopCh chan struct{}, doneCh chan struct{}, err error) {
+func (s *SQLiteStore) RunCleanup(retentionDays int, cleanupInterval time.Duration) (stopCh, doneCh chan struct{}, err error) {
 	stopCh = make(chan struct{})
 	doneCh = make(chan struct{})
 

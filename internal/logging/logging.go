@@ -88,8 +88,8 @@ func New(level Level, filePath string, maxSizeMB int) *Logger {
 	// Create multi-writer
 	if filePath != "" {
 		dir := filepath.Dir(filePath)
-		if err := os.MkdirAll(dir, 0755); err == nil {
-			f, err := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+		if err := os.MkdirAll(dir, 0o755); err == nil {
+			f, err := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 			if err == nil {
 				l.file = f
 				l.filePath = filePath
@@ -209,7 +209,7 @@ func (w *levelWriter) Write(p []byte) (int, error) {
 		}
 		line := string(w.buf[:i])
 		w.buf = w.buf[i+1:]
-		if len(line) > 0 {
+		if line != "" {
 			w.l.log(w.level, line)
 		}
 	}
@@ -290,7 +290,7 @@ func (l *Logger) rotateIfNeeded() {
 	}
 
 	// Open new file
-	f, err := os.OpenFile(l.filePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	f, err := os.OpenFile(l.filePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ERROR: failed to open new log file %s: %v — logging to stderr only\n", l.filePath, err)
 		l.rebuildMultiWriter()

@@ -108,11 +108,9 @@ func parseSubsPleaseResult(result string) (map[string]string, error) {
 					data[currentKey] = val
 				}
 			}
-		} else {
+		} else if currentKey != "" {
 			// String content
-			if currentKey != "" {
-				data[currentKey] = part
-			}
+			data[currentKey] = part
 		}
 	}
 

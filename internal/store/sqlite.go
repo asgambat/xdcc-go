@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	_ "modernc.org/sqlite"
+	_ "modernc.org/sqlite" // sqlite driver registration via blank import
 
 	"xdcc-go/internal/logging"
 )
@@ -381,7 +381,7 @@ func (s *SQLiteStore) GetPendingByChannel(channel string) ([]DownloadRecord, err
 	return s.scanDownloads(rows)
 }
 
-func (s *SQLiteStore) UpdateDownloadProgress(id int64, progressBytes int64, speedBPS int64) error {
+func (s *SQLiteStore) UpdateDownloadProgress(id, progressBytes, speedBPS int64) error {
 	// Note: status is NOT set here — MarkDownloadStarted already sets it before
 	// progress callbacks begin. This prevents a race where a concurrent
 	// PauseDownload/RemoveDownload changes the status, only to have this
@@ -552,12 +552,13 @@ func (s *SQLiteStore) GetDownloadHistory(page, pageSize int, filter HistoryFilte
 	}
 
 	offset := (page - 1) * pageSize
+	//nolint:gosec // whereSQL is built from trusted internal constants only (not user input), safe
 	querySQL := `SELECT id, pack_message, bot, server_address, channel, filename, file_size,
-		        status, progress_bytes, speed_bps, error_message, priority,
-		        created_at, started_at, completed_at
-		 FROM downloads WHERE ` + whereSQL + `
-		 ORDER BY completed_at DESC, created_at DESC
-		 LIMIT ? OFFSET ?`
+	        status, progress_bytes, speed_bps, error_message, priority,
+	        created_at, started_at, completed_at
+	 FROM downloads WHERE ` + whereSQL + `
+	 ORDER BY completed_at DESC, created_at DESC
+	 LIMIT ? OFFSET ?`
 	queryArgs := append([]any{}, args...)
 	queryArgs = append(queryArgs, pageSize, offset)
 
@@ -800,7 +801,7 @@ func (s *SQLiteStore) SetDefaultSearchPreset(id int64) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback() //nolint:errcheck
+	defer tx.Rollback() //nolint:errcheck // Rollback error on read-only setup is harmless
 
 	// Clear all defaults
 	if _, err := tx.Exec(`UPDATE search_presets SET is_default=0`); err != nil {

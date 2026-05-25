@@ -44,6 +44,16 @@ func newTestAPI(t *testing.T) *testAPI {
 		t.Fatalf("Migrate: %v", err)
 	}
 
+	// Speed up tests: disable fsync and WAL flushing (no durability needed).
+	// Without these, the cumulative i/o of 35+ isolated test databases inflates
+	// test time from ~0.3s to multiple seconds per test.
+	if _, err := st.DB().Exec("PRAGMA synchronous=OFF"); err != nil {
+		t.Fatalf("PRAGMA synchronous: %v", err)
+	}
+	if _, err := st.DB().Exec("PRAGMA journal_mode=MEMORY"); err != nil {
+		t.Fatalf("PRAGMA journal_mode: %v", err)
+	}
+
 	cfg := config.DefaultConfig()
 
 	hub := sse.NewHub(50)
@@ -915,7 +925,7 @@ func TestSSEEndpoint(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	req := httptest.NewRequest("GET", "/api/events", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/events", nil)
 	req.Header.Set("Accept", "text/event-stream")
 	req = req.WithContext(ctx)
 	w := httptest.NewRecorder()
@@ -953,7 +963,7 @@ func TestSSEEndpoint(t *testing.T) {
 func TestCORSPreflight(t *testing.T) {
 	ta := newTestAPI(t)
 
-	req := httptest.NewRequest("OPTIONS", "/healthz", nil)
+	req := httptest.NewRequest(http.MethodOptions, "/healthz", nil)
 	w := httptest.NewRecorder()
 	ta.router.ServeHTTP(w, req)
 

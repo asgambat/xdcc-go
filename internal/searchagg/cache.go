@@ -40,14 +40,14 @@ func (e *cacheEntry) isStale() bool {
 type searchCache struct {
 	mu       sync.RWMutex
 	entries  map[string]map[string]*cacheEntry // queryKey → provider → entry
-	st       store.Store                       // optional SQLite persistence
+	st       store.SearchCacheStore            // optional SQLite persistence
 	enabled  bool
 	freshTTL time.Duration
 	staleTTL time.Duration
 }
 
 // newSearchCache creates a new search cache.
-func newSearchCache(st store.Store, enabled bool, freshTTL, staleTTL time.Duration) *searchCache {
+func newSearchCache(st store.SearchCacheStore, enabled bool, freshTTL, staleTTL time.Duration) *searchCache {
 	return &searchCache{
 		entries:  make(map[string]map[string]*cacheEntry),
 		st:       st,
