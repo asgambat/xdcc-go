@@ -80,3 +80,8 @@
 2026-05-25T22:55:00+02:00 [ERROR] connection to irc.test.net failed: dial tcp 85.13.137.190:6667: connect: connection refused 
 2026-05-25T22:55:00+02:00 [INFO] IRC connection to irc.test.net lost, reconnecting... 
 2026-05-25T22:55:00+02:00 [INFO] reconnecting to irc.test.net in 5s (attempt 1) 
+2026-05-25T22:56:13+02:00 [INFO] connecting to irc.test.net:6667 as 'xdcc-userV8B' 
+2026-05-25T22:56:13+02:00 [WARN] run() already active for server 1, skipping duplicate call 
+2026-05-25T22:56:13+02:00 [ERROR] connection to irc.test.net failed: dial tcp 85.13.137.190:6667: connect: connection refused 
+2026-05-25T22:56:13+02:00 [INFO] IRC connection to irc.test.net lost, reconnecting... 
+2026-05-25T22:56:13+02:00 [INFO] reconnecting to irc.test.net in 5s (attempt 1) 
