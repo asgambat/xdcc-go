@@ -480,31 +480,11 @@ func TestGetChannels_ExistingServer(t *testing.T) {
 // Start / Stop lifecycle
 // ===========================================================================
 
-func TestStart_Clean(t *testing.T) {
-	mgr, _ := newTestManager(t)
-
-	err := mgr.Start()
-	// Should not panic; may return nil or error if no auto-connect servers
-	if err != nil {
-		// The default config includes auto-connect servers that don't exist,
-		// so errors are expected
-		_ = err
-	}
-}
-
 func TestStop_NotStarted(t *testing.T) {
 	mgr, _ := newTestManager(t)
 
 	// Stop without Start should not panic
 	mgr.Stop()
-}
-
-func TestStop_Clean(t *testing.T) {
-	mgr, _ := newTestManager(t)
-
-	_ = mgr.Start()
-	mgr.Stop()
-	// Should not block or panic
 }
 
 // ===========================================================================

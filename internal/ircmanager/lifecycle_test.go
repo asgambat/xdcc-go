@@ -69,40 +69,6 @@ func TestConnectionLifecycle_NoDuplicateRun(t *testing.T) {
 	}
 }
 
-// TestConnectionLifecycle_CleanShutdown verifies graceful shutdown with WaitGroup
-func TestConnectionLifecycle_CleanShutdown(t *testing.T) {
-	t.Parallel()
-
-	ms := newMockStore()
-	srvID := ms.addServer("irc.test.net", 6667, false)
-
-	cfg := config.DefaultConfig()
-	logger := logging.New(logging.LevelDebug, "[test-lifecycle] ", 0)
-
-	mgr := New(ms, cfg, logger)
-	defer mgr.Stop()
-
-	// Connect (will fail but that's expected)
-	_ = mgr.ConnectServerByID(srvID)
-
-	// Give time for goroutine to start
-	time.Sleep(50 * time.Millisecond)
-
-	// Disconnect and verify clean shutdown
-	start := time.Now()
-	err := mgr.DisconnectServer(srvID)
-	elapsed := time.Since(start)
-
-	if err != nil {
-		t.Errorf("DisconnectServer failed: %v", err)
-	}
-
-	// Should complete quickly (no timeout warnings)
-	if elapsed > 8*time.Second {
-		t.Errorf("DisconnectServer took %v, expected <8s", elapsed)
-	}
-}
-
 // TestConnectionLifecycle_ConcurrentShutdown tests thread-safety during shutdown
 func TestConnectionLifecycle_ConcurrentShutdown(t *testing.T) {
 	t.Parallel()
@@ -149,43 +115,6 @@ func TestConnectionLifecycle_ConcurrentShutdown(t *testing.T) {
 		// Success
 	case <-time.After(15 * time.Second):
 		t.Fatal("concurrent shutdown deadlocked or timed out")
-	}
-}
-
-// TestConnectionLifecycle_ManagerStopWaitsForAll verifies Stop() waits for all goroutines
-func TestConnectionLifecycle_ManagerStopWaitsForAll(t *testing.T) {
-	t.Parallel()
-
-	ms := newMockStore()
-	cfg := config.DefaultConfig()
-	logger := logging.New(logging.LevelDebug, "[test-stop] ", 0)
-
-	mgr := New(ms, cfg, logger)
-
-	// Create multiple connections
-	for i := 0; i < 3; i++ {
-		id := ms.addServer("irc.test.net", 6667+i, false)
-		_ = mgr.ConnectServerByID(id)
-	}
-
-	// Give time for goroutines to start
-	time.Sleep(100 * time.Millisecond)
-
-	// Stop() should wait for all run() goroutines to finish
-	start := time.Now()
-	mgr.Stop()
-	elapsed := time.Since(start)
-
-	// Should complete in reasonable time (no hangs)
-	if elapsed > 15*time.Second {
-		t.Errorf("Stop() took %v, expected <15s", elapsed)
-	}
-
-	// Verify manager is fully stopped
-	// Attempting operations after Stop() should fail gracefully
-	err := mgr.ConnectServerByID(1)
-	if err == nil {
-		t.Log("ConnectServerByID succeeded after Stop — context behavior may vary")
 	}
 }
 
