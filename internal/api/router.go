@@ -105,6 +105,7 @@ func (a *API) Router() http.Handler {
 	// =====================================================================
 	// System / Admin
 	// =====================================================================
+	r.Get("/api/logs", a.handleLogs)                 // GET  /api/logs
 	r.Get("/api/stats", a.handleStats)               // GET  /api/stats
 	r.Get("/api/status", a.handleStatus)             // GET  /api/status
 	r.Post("/api/admin/export", a.handleAdminExport) // POST /api/admin/export

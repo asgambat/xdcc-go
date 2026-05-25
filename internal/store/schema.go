@@ -13,7 +13,7 @@ import (
 // Schema version management
 // ---------------------------------------------------------------------------
 
-const currentSchemaVersion = 1
+const currentSchemaVersion = 2
 
 // migration represents a single schema migration step.
 type migration struct {
@@ -28,6 +28,11 @@ var migrations = []migration{
 		version:     1,
 		description: "Initial schema: servers, channels, downloads, search_cache, presets, watchlists, provider_stats",
 		up:          initialSchema,
+	},
+	{
+		version:     2,
+		description: "Repair corrupted progress_bytes (filename string stored as integer)",
+		up:          `UPDATE downloads SET progress_bytes=0 WHERE typeof(progress_bytes) != 'integer';`,
 	},
 }
 

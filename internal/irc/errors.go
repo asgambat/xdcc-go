@@ -69,6 +69,8 @@ type DownloadOptions struct {
 // PackResult holds the outcome of a single pack download.
 type PackResult struct {
 	FilePath      string // non-empty on success
+	Filename      string // discovered filename (may be empty until DCC SEND)
+	FileSize      int64  // discovered file size in bytes (0 until known)
 	Error         error
 	LastBotNotice string // last NOTICE from bot (useful when Error != nil)
 }

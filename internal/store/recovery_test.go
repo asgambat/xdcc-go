@@ -63,7 +63,7 @@ func TestRecoverDownloadsOnStartup_OnlyDownloading(t *testing.T) {
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x",
 		Filename: "done.mkv", FileSize: 100,
 	})
-	_ = s.MarkDownloadCompleted(idCompleted)
+	_ = s.MarkDownloadCompleted(idCompleted, "", 0)
 
 	// Queued download should NOT be recovered
 	_, _ = s.EnqueueDownload(DownloadRecord{
@@ -275,7 +275,7 @@ func TestCleanupOldDownloads(t *testing.T) {
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x",
 		Filename: "old.mkv", FileSize: 100,
 	})
-	_ = s.MarkDownloadCompleted(id1)
+	_ = s.MarkDownloadCompleted(id1, "", 0)
 
 	// We can't easily set completed_at to a past date via the API,
 	// so let's just verify the SQL filters work by checking that cleanup

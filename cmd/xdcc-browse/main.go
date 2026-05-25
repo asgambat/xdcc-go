@@ -191,7 +191,7 @@ If -q and -v are used together, -q takes precedence and -v is ignored.`,
 	cmd.Flags().StringVarP(&username, "username", "u", "",
 		"IRC nickname to use (a random suffix is always appended; default: random)")
 	cmd.Flags().IntVarP(&channelJoinDelay, "channel-join-delay", "D", -1,
-		"Seconds to wait after connecting before sending WHOIS (-1 = random 5-10s)")
+		"Seconds to wait after connecting before sending WHOIS (0 = no delay, -1 = random 5-10s, default: -1)")
 	cmd.Flags().CountVarP(&verbosity, "verbose", "v", "Increase verbosity: -v shows bot notices, -vv shows full debug info")
 	cmd.Flags().CountVarP(&quietLevel, "quiet", "q", "Reduce output: -q hides connection info (keeps errors/notices/progress), -qq suppresses all output")
 	cmd.Flags().StringVarP(&extFilter, "ext", "x", "",

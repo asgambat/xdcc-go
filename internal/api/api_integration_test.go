@@ -358,7 +358,7 @@ func TestListDownloads_IncludesRecentCompleted(t *testing.T) {
 	id := createData["id"]
 
 	_ = ta.store.MarkDownloadStarted(id)
-	_ = ta.store.MarkDownloadCompleted(id)
+	_ = ta.store.MarkDownloadCompleted(id, "", 0)
 
 	// The completed download should still appear in the list
 	w := ta.request(t, "GET", "/api/downloads", nil)
@@ -486,7 +486,7 @@ func TestRetryDownload_Completed(t *testing.T) {
 
 	// Mark as completed
 	_ = ta.store.MarkDownloadStarted(id)
-	_ = ta.store.MarkDownloadCompleted(id)
+	_ = ta.store.MarkDownloadCompleted(id, "", 0)
 
 	// Retry via API — should succeed now that RetryDownload accepts 'completed'
 	w := ta.request(t, "POST", "/api/downloads/"+itoa(id)+"/retry", nil)
@@ -625,7 +625,7 @@ func TestDownloadHistory_WithItems(t *testing.T) {
 	id := createData["id"]
 
 	_ = ta.store.MarkDownloadStarted(id)
-	_ = ta.store.MarkDownloadCompleted(id)
+	_ = ta.store.MarkDownloadCompleted(id, "", 0)
 
 	w := ta.request(t, "GET", "/api/downloads/history", nil)
 	if w.Code != http.StatusOK {

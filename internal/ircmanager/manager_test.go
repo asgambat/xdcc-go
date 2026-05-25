@@ -227,14 +227,15 @@ func (m *mockStore) GetActiveDownloads() ([]store.DownloadRecord, error)        
 func (m *mockStore) GetPendingByChannel(string) ([]store.DownloadRecord, error) { return nil, nil }
 func (m *mockStore) UpdateDownloadProgress(int64, int64, int64) error           { return nil }
 func (m *mockStore) MarkDownloadStarted(int64) error                            { return nil }
-func (m *mockStore) MarkDownloadCompleted(int64) error                          { return nil }
+func (m *mockStore) MarkDownloadCompleted(int64, string, int64) error           { return nil }
+func (m *mockStore) UpdateDownloadMetadata(int64, string, int64) error          { return nil }
 func (m *mockStore) MarkDownloadFailed(int64, string) error                     { return nil }
 func (m *mockStore) MarkDownloadSkipped(int64) error                            { return nil }
 func (m *mockStore) MarkDownloadPaused(int64) error                             { return nil }
 func (m *mockStore) MarkDownloadRetry(int64, string) error                      { return nil }
 func (m *mockStore) DeleteDownload(int64) error                                 { return nil }
 func (m *mockStore) RetryDownload(int64) error                                  { return nil }
-func (m *mockStore) GetDownloadHistory(int, int) ([]store.DownloadRecord, int, error) {
+func (m *mockStore) GetDownloadHistory(int, int, store.HistoryFilter) ([]store.DownloadRecord, int, error) {
 	return nil, 0, nil
 }
 func (m *mockStore) RecoverDownloadsOnStartup() ([]store.DownloadRecord, error) { return nil, nil }

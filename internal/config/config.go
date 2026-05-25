@@ -53,15 +53,16 @@ type HTTPConfig struct {
 }
 
 type DownloadConfig struct {
-	TempDir             string `yaml:"temp_dir"           env:"XDCC_DOWNLOAD_TEMP_DIR"`
-	DestDir             string `yaml:"dest_dir"           env:"XDCC_DOWNLOAD_DEST_DIR"`
-	ConflictPolicy      string `yaml:"conflict_policy"    env:"XDCC_DOWNLOAD_CONFLICT_POLICY"`
-	FailFallback        string `yaml:"fail_fallback"      env:"XDCC_DOWNLOAD_FAIL_FALLBACK"`
-	MaxParallelTotal    int    `yaml:"max_parallel_total"  env:"XDCC_DOWNLOAD_MAX_PARALLEL"`
-	MaxRateBPS          int64  `yaml:"max_rate_bps"       env:"XDCC_DOWNLOAD_MAX_RATE_BPS"`
-	MinDiskSpace        int64  `yaml:"min_disk_space_bytes" env:"XDCC_DOWNLOAD_MIN_DISK_SPACE"`
-	MaxRetryAttempts    int    `yaml:"max_retry_attempts"      env:"XDCC_DOWNLOAD_MAX_RETRY"`
-	StartupDelayMinutes int    `yaml:"startup_delay_minutes"   env:"XDCC_DOWNLOAD_STARTUP_DELAY_MINUTES"`
+	TempDir             string `yaml:"temp_dir"               env:"XDCC_DOWNLOAD_TEMP_DIR"`
+	DestDir             string `yaml:"dest_dir"               env:"XDCC_DOWNLOAD_DEST_DIR"`
+	ConflictPolicy      string `yaml:"conflict_policy"        env:"XDCC_DOWNLOAD_CONFLICT_POLICY"`
+	FailFallback        string `yaml:"fail_fallback"          env:"XDCC_DOWNLOAD_FAIL_FALLBACK"`
+	MaxParallelTotal    int    `yaml:"max_parallel_total"     env:"XDCC_DOWNLOAD_MAX_PARALLEL"`
+	MaxRateBPS          int64  `yaml:"max_rate_bps"           env:"XDCC_DOWNLOAD_MAX_RATE_BPS"`
+	MinDiskSpace        int64  `yaml:"min_disk_space_bytes"   env:"XDCC_DOWNLOAD_MIN_DISK_SPACE"`
+	MaxRetryAttempts    int    `yaml:"max_retry_attempts"     env:"XDCC_DOWNLOAD_MAX_RETRY"`
+	StartupDelayMinutes int    `yaml:"startup_delay_minutes"  env:"XDCC_DOWNLOAD_STARTUP_DELAY_MINUTES"`
+	ChannelJoinDelay    int    `yaml:"channel_join_delay"     env:"XDCC_DOWNLOAD_CHANNEL_JOIN_DELAY"`
 }
 
 type SearchConfig struct {
@@ -131,6 +132,7 @@ func DefaultConfig() *Config {
 			MinDiskSpace:        1 * 1024 * 1024 * 1024, // 1 GB default
 			MaxRetryAttempts:    3,
 			StartupDelayMinutes: 0,
+			ChannelJoinDelay:    -1, // -1 = random 5-10s, 0 = no delay, >0 = fixed seconds
 		},
 		Search: SearchConfig{
 			ProviderTimeout:  5,
@@ -289,6 +291,11 @@ func (c *Config) applyEnvOverrides() {
 			c.Download.StartupDelayMinutes = n
 		}
 	}
+	if v := os.Getenv("XDCC_DOWNLOAD_CHANNEL_JOIN_DELAY"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			c.Download.ChannelJoinDelay = n
+		}
+	}
 	if v := os.Getenv("XDCC_SEARCH_PROVIDER_TIMEOUT"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			c.Search.ProviderTimeout = n
@@ -422,6 +429,11 @@ func (c *Config) validate() error {
 	// Startup delay
 	if c.Download.StartupDelayMinutes < 0 {
 		return fmt.Errorf("download.startup_delay_minutes must be >= 0, got %d", c.Download.StartupDelayMinutes)
+	}
+
+	// Channel join delay: -1 = random, 0 = no delay, >0 = fixed
+	if c.Download.ChannelJoinDelay < -1 {
+		return fmt.Errorf("download.channel_join_delay must be >= -1 (random), got %d", c.Download.ChannelJoinDelay)
 	}
 
 	// Search

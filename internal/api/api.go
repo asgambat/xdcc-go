@@ -9,8 +9,11 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/lrstanley/girc"
 	"xdcc-go/internal/config"
+	"xdcc-go/internal/ircmanager"
 	"xdcc-go/internal/logging"
+	"xdcc-go/internal/queue"
 	"xdcc-go/internal/searchagg"
 	"xdcc-go/internal/sse"
 	"xdcc-go/internal/store"
@@ -36,12 +39,17 @@ type API struct {
 // IRCManager defines the subset of ircmanager.Manager methods used by handlers.
 type IRCManager interface {
 	GetServers() []store.ServerRecord
+	GetClient(serverID int64) *girc.Client
 	ConnectServerByID(id int64) error
 	DisconnectServer(id int64) error
 	JoinChannel(serverID int64, channel string) error
 	LeaveChannel(serverID int64, channel string) error
 	GetChannels(serverID int64) []store.ChannelRecord
 	GetChannelTopic(serverID int64, channel string) (string, error)
+	// Subscribe returns a channel that receives IRC state change events.
+	Subscribe() chan ircmanager.Event
+	// Unsubscribe removes a previously subscribed channel.
+	Unsubscribe(ch chan ircmanager.Event)
 }
 
 // QueueManager defines the subset of queue.QueueManager methods used by handlers.
@@ -54,6 +62,10 @@ type QueueManager interface {
 	BulkAction(ids []int64, action string) (map[int64]string, error)
 	GetActiveCount() int
 	GetActiveIDs() []int64
+	// Subscribe returns a channel that receives queue state change events.
+	Subscribe() chan queue.Event
+	// Unsubscribe removes a previously subscribed channel.
+	Unsubscribe(ch chan queue.Event)
 }
 
 // New creates a new API handler container.
@@ -219,6 +231,20 @@ func parsePageParams(r *http.Request) (page, pageSize int) {
 		pageSize = 50
 	}
 	return
+}
+
+// parsePositiveInt parses a positive integer from a string.
+func parsePositiveInt(s string) (int, error) {
+	var n int
+	_, err := fmt.Sscanf(s, "%d", &n)
+	return n, err
+}
+
+// parsePositiveInt64 parses a positive int64 from a string.
+func parsePositiveInt64(s string) (int64, error) {
+	var n int64
+	_, err := fmt.Sscanf(s, "%d", &n)
+	return n, err
 }
 
 // logAndError is a helper to log and write an error response.

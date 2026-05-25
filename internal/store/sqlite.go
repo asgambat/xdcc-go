@@ -361,9 +361,17 @@ func (s *SQLiteStore) MarkDownloadStarted(id int64) error {
 	return err
 }
 
-func (s *SQLiteStore) MarkDownloadCompleted(id int64) error {
+// MarkDownloadCompleted marks a download as completed and updates filename/file_size
+// with values discovered during download (e.g. from bot notice). Pass empty string
+// and 0 if no metadata was discovered.
+func (s *SQLiteStore) MarkDownloadCompleted(id int64, filename string, fileSize int64) error {
 	_, err := s.db.Exec(
-		`UPDATE downloads SET status='completed', completed_at=datetime('now'), progress_bytes=file_size WHERE id=?`, id,
+		`UPDATE downloads SET status='completed', completed_at=datetime('now'),
+		 filename=COALESCE(NULLIF(?, ''), filename),
+		 progress_bytes=COALESCE(NULLIF(?, ''), progress_bytes),
+		 file_size=CASE WHEN ? > 0 THEN ? ELSE file_size END
+		 WHERE id=?`,
+		filename, fileSize, fileSize, fileSize, id,
 	)
 	return err
 }
@@ -424,6 +432,18 @@ func (s *SQLiteStore) SetDownloadPriority(id int64, priority int) error {
 	return err
 }
 
+// UpdateDownloadMetadata updates the filename and/or file_size for a download.
+// This is called when the bot notice reveals the actual filename/size mid-download.
+func (s *SQLiteStore) UpdateDownloadMetadata(id int64, filename string, fileSize int64) error {
+	_, err := s.db.Exec(
+		`UPDATE downloads SET filename=COALESCE(NULLIF(?, ''), filename),
+		 file_size=CASE WHEN ? > 0 THEN ? ELSE file_size END
+		 WHERE id=?`,
+		filename, fileSize, fileSize, id,
+	)
+	return err
+}
+
 func (s *SQLiteStore) GetTotalDownloadedBytes() (int64, error) {
 	var total sql.NullInt64
 	err := s.db.QueryRow(
@@ -438,25 +458,68 @@ func (s *SQLiteStore) GetTotalDownloadedBytes() (int64, error) {
 	return 0, nil
 }
 
-func (s *SQLiteStore) GetDownloadHistory(page, pageSize int) ([]DownloadRecord, int, error) {
+func (s *SQLiteStore) GetDownloadHistory(page, pageSize int, filter HistoryFilter) ([]DownloadRecord, int, error) {
+	whereClauses := []string{}
+	args := []any{}
+
+	// Default status filter if none provided
+	if len(filter.StatusList) > 0 {
+		placeholders := make([]string, len(filter.StatusList))
+		for i, st := range filter.StatusList {
+			placeholders[i] = "?"
+			args = append(args, st)
+		}
+		whereClauses = append(whereClauses, fmt.Sprintf("status IN (%s)", strings.Join(placeholders, ",")))
+	} else {
+		whereClauses = append(whereClauses, "status IN ('completed', 'failed', 'skipped_existing')")
+	}
+
+	if filter.Filename != "" {
+		whereClauses = append(whereClauses, "filename LIKE ?")
+		args = append(args, "%"+filter.Filename+"%")
+	}
+	if filter.Bot != "" {
+		whereClauses = append(whereClauses, "bot LIKE ?")
+		args = append(args, "%"+filter.Bot+"%")
+	}
+	if filter.MinBytes > 0 {
+		whereClauses = append(whereClauses, "file_size >= ?")
+		args = append(args, filter.MinBytes)
+	}
+	if filter.MaxBytes > 0 {
+		whereClauses = append(whereClauses, "file_size <= ?")
+		args = append(args, filter.MaxBytes)
+	}
+	if filter.DateFrom != "" {
+		whereClauses = append(whereClauses, "date(completed_at) >= ?")
+		args = append(args, filter.DateFrom)
+	}
+	if filter.DateTo != "" {
+		whereClauses = append(whereClauses, "date(completed_at) <= ?")
+		args = append(args, filter.DateTo)
+	}
+
+	whereSQL := strings.Join(whereClauses, " AND ")
+
 	// Count total
+	countSQL := "SELECT COUNT(*) FROM downloads WHERE " + whereSQL
 	var total int
-	err := s.db.QueryRow(
-		`SELECT COUNT(*) FROM downloads WHERE status IN ('completed', 'failed', 'skipped_existing')`,
-	).Scan(&total)
+	err := s.db.QueryRow(countSQL, args...).Scan(&total)
 	if err != nil {
 		return nil, 0, fmt.Errorf("counting download history: %w", err)
 	}
 
 	offset := (page - 1) * pageSize
-	rows, err := s.db.Query(
-		`SELECT id, pack_message, bot, server_address, channel, filename, file_size,
+	querySQL := `SELECT id, pack_message, bot, server_address, channel, filename, file_size,
 		        status, progress_bytes, speed_bps, error_message, priority,
 		        created_at, started_at, completed_at
-		 FROM downloads WHERE status IN ('completed', 'failed', 'skipped_existing')
+		 FROM downloads WHERE ` + whereSQL + `
 		 ORDER BY completed_at DESC, created_at DESC
-		 LIMIT ? OFFSET ?`, pageSize, offset,
-	)
+		 LIMIT ? OFFSET ?`
+	queryArgs := append([]any{}, args...)
+	queryArgs = append(queryArgs, pageSize, offset)
+
+	rows, err := s.db.Query(querySQL, queryArgs...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("getting download history: %w", err)
 	}
@@ -957,12 +1020,17 @@ func scanDownloads(rows *sql.Rows) ([]DownloadRecord, error) {
 		if err != nil {
 			return nil, err
 		}
-		downloads = append(downloads, *d)
+		if d != nil {
+			downloads = append(downloads, *d)
+		}
 	}
 	if downloads == nil {
 		downloads = []DownloadRecord{}
 	}
-	return downloads, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return downloads, nil
 }
 
 func scanDownloadFromRows(rows *sql.Rows) (*DownloadRecord, error) {
@@ -971,7 +1039,10 @@ func scanDownloadFromRows(rows *sql.Rows) (*DownloadRecord, error) {
 	if err := rows.Scan(&d.ID, &d.PackMessage, &d.Bot, &d.ServerAddress, &d.Channel,
 		&d.Filename, &d.FileSize, &d.Status, &d.ProgressBytes, &d.SpeedBPS,
 		&d.ErrorMessage, &d.Priority, &createdAt, &startedAt, &completedAt); err != nil {
-		return nil, fmt.Errorf("scanning download: %w", err)
+		// Defensive: if progress_bytes contains a string (corrupted data from old bug),
+		// skip this row instead of failing the entire history query.
+		// We log a warning and return nil to skip the row gracefully.
+		return nil, nil // Returning nil, nil signals the caller to skip this row
 	}
 	if createdAt.Valid {
 		d.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt.String)

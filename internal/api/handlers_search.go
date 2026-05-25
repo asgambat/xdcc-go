@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/lrstanley/girc"
 	"xdcc-go/internal/searchagg"
 	"xdcc-go/internal/store"
 )
@@ -430,13 +432,18 @@ func (a *API) handlePatchProvider(w http.ResponseWriter, r *http.Request) {
 func (a *API) handleParseXDCC(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Command string `json:"command"`
+		Message string `json:"message"` // alternative field name (frontend compatibility)
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "INVALID_JSON", "Invalid request body")
 		return
 	}
 
+	// Support both "command" (backend convention) and "message" (frontend sent this)
 	cmd := strings.TrimSpace(body.Command)
+	if cmd == "" {
+		cmd = strings.TrimSpace(body.Message)
+	}
 	if cmd == "" {
 		writeError(w, http.StatusBadRequest, "MISSING_COMMAND", "command is required")
 		return
@@ -488,11 +495,179 @@ func (a *API) handleParseXDCC(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if packNum == 0 {
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"parsed":       false,
+			"bot":          bot,
+			"pack_number":  0,
+			"pack_message": "",
+			"original":     cmd,
+			"error":        "no pack number found in command",
+		})
+		return
+	}
+
+	// If bot is not specified, search for it on all connected servers via WHOIS
+	var serverAddress string
+	if bot != "" && a.IRCManager != nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+		defer cancel()
+		serverAddress = findBotOnConnectedServers(ctx, a.IRCManager, bot)
+	}
+
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"parsed":       packNum > 0,
-		"bot":          bot,
-		"pack_number":  packNum,
-		"pack_message": fmt.Sprintf("xdcc send #%d", packNum),
-		"original":     cmd,
+		"parsed":         true,
+		"bot":            bot,
+		"pack_number":    packNum,
+		"pack_message":   fmt.Sprintf("xdcc send #%d", packNum),
+		"original":       cmd,
+		"server_address": serverAddress, // empty if not found or bot was already specified
 	})
+}
+
+// findBotOnConnectedServers performs parallel WHOIS on all connected servers
+// to find which one the bot is on. Returns the server address (host:port) of the
+// first server where the bot responds to WHOIS, or empty string if not found.
+// Maximum 10 concurrent WHOIS requests.
+func findBotOnConnectedServers(ctx context.Context, ircMgr IRCManager, bot string) string {
+	servers := ircMgr.GetServers()
+
+	// Collect connected servers
+	var connectedServers []struct {
+		id   int64
+		addr string
+	}
+	for _, srv := range servers {
+		if srv.Status != "connected" {
+			continue
+		}
+		addr := srv.Address
+		if srv.Port != 0 {
+			addr = fmt.Sprintf("%s:%d", srv.Address, srv.Port)
+		}
+		connectedServers = append(connectedServers, struct {
+			id   int64
+			addr string
+		}{srv.ID, addr})
+	}
+
+	if len(connectedServers) == 0 {
+		return ""
+	}
+
+	const maxParallel = 10
+	resultCh := make(chan string, 1)
+	var wg sync.WaitGroup
+
+	// Limit concurrency with a semaphore using a buffered channel
+	sem := make(chan struct{}, maxParallel)
+
+	for _, srv := range connectedServers {
+		wg.Add(1)
+		go func(serverID int64, addr string) {
+			defer wg.Done()
+			// Acquire semaphore slot
+			select {
+			case sem <- struct{}{}:
+			case <-ctx.Done():
+				return
+			}
+			defer func() { <-sem }()
+
+			// Check if context is still valid before starting WHOIS
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+
+			if whoisBotOnServer(ctx, ircMgr, serverID, bot) {
+				// Bot found on this server — send result (non-blocking)
+				select {
+				case resultCh <- addr:
+				default:
+				}
+			}
+		}(srv.id, srv.addr)
+	}
+
+	// Wait for all goroutines to complete (they exit when context is cancelled or done)
+	go func() {
+		wg.Wait()
+		close(resultCh)
+	}()
+
+	// Return the first result received, or empty if context cancelled / no result
+	select {
+	case result, ok := <-resultCh:
+		if ok && result != "" {
+			return result
+		}
+		return ""
+	case <-ctx.Done():
+		return ""
+	}
+}
+
+// whoisBotOnServer does a WHOIS for `bot` on a specific server and waits for
+// the response. Returns true if the bot was found (WHOIS returned a response).
+func whoisBotOnServer(ctx context.Context, ircMgr IRCManager, serverID int64, bot string) bool {
+	client := ircMgr.GetClient(serverID)
+	if client == nil {
+		return false
+	}
+
+	// Use a channel to receive the WHOIS result, with a timeout.
+	resultCh := make(chan string, 1)
+	gotReply := false
+
+	// Handler for RPL_WHOISUSER — bot exists on this server
+	cuid := client.Handlers.Add(girc.RPL_WHOISUSER, func(cl *girc.Client, e girc.Event) {
+		if len(e.Params) < 2 {
+			return
+		}
+		// Params: [nick, user, host, real name]
+		whoisNick := e.Params[0]
+		if strings.EqualFold(whoisNick, bot) {
+			if !gotReply {
+				gotReply = true
+				select {
+				case resultCh <- whoisNick:
+				default:
+				}
+			}
+		}
+	})
+	defer client.Handlers.Remove(cuid)
+
+	// Handler for ERR_NOSUCHNICK — bot not found on this server (no such nick)
+	cuid2 := client.Handlers.Add(girc.ERR_NOSUCHNICK, func(cl *girc.Client, e girc.Event) {
+		if len(e.Params) < 2 {
+			return
+		}
+		// Params: [nick, "No such nick"]
+		if strings.EqualFold(e.Params[0], bot) {
+			if !gotReply {
+				gotReply = true
+				select {
+				case resultCh <- "":
+				default:
+				}
+			}
+		}
+	})
+	defer client.Handlers.Remove(cuid2)
+
+	// Send WHOIS
+	client.Cmd.Whois(bot)
+
+	// Wait for reply or timeout
+	select {
+	case nick := <-resultCh:
+		return nick != ""
+	case <-ctx.Done():
+		return false
+	case <-time.After(5 * time.Second):
+		return false
+	}
 }

@@ -26,6 +26,9 @@ const (
 	EventDownloadBulkResult  EventType = "download_bulk_action_result"
 	EventDownloadAlternative EventType = "download_alternative_found"
 
+	// Download metadata (filename/size) discovered mid-download via bot notice or DCC
+	EventDownloadMetadataUpdate EventType = "download_metadata_update"
+
 	// Disk space events (Fase 9.2)
 	EventDiskSpaceLow EventType = "disk_space_low"
 	EventDiskSpaceOK  EventType = "disk_space_ok"

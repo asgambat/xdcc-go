@@ -35,7 +35,7 @@ func (a *API) handleListDownloads(w http.ResponseWriter, r *http.Request) {
 
 	// Include recently completed/failed/skipped downloads so the UI can show
 	// "Completed Today" counters and recent history without a separate fetch.
-	recent, _, err := a.Store.GetDownloadHistory(1, 50)
+	recent, _, err := a.Store.GetDownloadHistory(1, 50, store.HistoryFilter{})
 	if err != nil {
 		// Graceful degradation: log the warning but continue with the queue only.
 		// The frontend can still show active downloads even if history fails.
@@ -144,7 +144,23 @@ func (a *API) handleEnqueueDownload(w http.ResponseWriter, r *http.Request) {
 func (a *API) handleDownloadHistory(w http.ResponseWriter, r *http.Request) {
 	page, pageSize := parsePageParams(r)
 
-	downloads, total, err := a.Store.GetDownloadHistory(page, pageSize)
+	var filter store.HistoryFilter
+	q := r.URL.Query()
+	filter.Filename = q.Get("filename")
+	filter.Bot = q.Get("bot")
+	if q.Get("min_bytes") != "" {
+		filter.MinBytes, _ = parsePositiveInt64(q.Get("min_bytes"))
+	}
+	if q.Get("max_bytes") != "" {
+		filter.MaxBytes, _ = parsePositiveInt64(q.Get("max_bytes"))
+	}
+	filter.DateFrom = q.Get("date_from")
+	filter.DateTo = q.Get("date_to")
+	if statuses := q["status"]; len(statuses) > 0 {
+		filter.StatusList = statuses
+	}
+
+	downloads, total, err := a.Store.GetDownloadHistory(page, pageSize, filter)
 	if err != nil {
 		a.logAndError(w, http.StatusInternalServerError, "HISTORY_ERROR", err.Error())
 		return

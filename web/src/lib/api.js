@@ -63,8 +63,20 @@ export const ServersAPI = {
 // ---- Download API ----
 export const DownloadsAPI = {
   list()          { return api.get('/downloads'); },
-  history(page, pageSize) {
-    return api.get(`/downloads/history?page=${page||1}&pageSize=${pageSize||50}`);
+  history(page, pageSize, filters = {}) {
+    const q = new URLSearchParams();
+    q.set('page', String(page || 1));
+    q.set('pageSize', String(pageSize || 50));
+    if (filters.filename) q.set('filename', filters.filename);
+    if (filters.bot) q.set('bot', filters.bot);
+    if (filters.min_bytes) q.set('min_bytes', String(filters.min_bytes));
+    if (filters.max_bytes) q.set('max_bytes', String(filters.max_bytes));
+    if (filters.date_from) q.set('date_from', filters.date_from);
+    if (filters.date_to) q.set('date_to', filters.date_to);
+    if (filters.status_list?.length) {
+      for (const st of filters.status_list) q.append('status', st);
+    }
+    return api.get(`/downloads/history?${q.toString()}`);
   },
   enqueue(d)      { return api.post('/downloads', d); },
   get(id)         { return api.get(`/downloads/${id}`); },
@@ -88,7 +100,7 @@ export const SearchAPI = {
     }
     return api.get(`/search?${q.toString()}`);
   },
-  parse(msg) { return api.post('/xdcc/parse', { message: msg }); },
+  parse(msg) { return api.post('/xdcc/parse', { command: msg }); },
 };
 
 // ---- Preset API ----
@@ -127,6 +139,7 @@ export const SystemAPI = {
   importData(d)   { return api.post('/admin/import', d); },
   setupStatus()   { return api.get('/setup/status'); },
   bootstrap(c)    { return api.post('/setup/bootstrap', c); },
+  logs(count)     { return api.get(`/logs?count=${count || 100}`); },
 };
 
 // ---- SSE Client ----

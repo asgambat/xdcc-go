@@ -500,7 +500,7 @@ func TestMarkDownloadCompleted(t *testing.T) {
 	_ = s.MarkDownloadStarted(id)
 	_ = s.UpdateDownloadProgress(id, 1000, 0)
 
-	err := s.MarkDownloadCompleted(id)
+	err := s.MarkDownloadCompleted(id, "", 0)
 	if err != nil {
 		t.Fatalf("MarkDownloadCompleted: %v", err)
 	}
@@ -582,7 +582,7 @@ func TestMarkDownloadPaused_OnlyQueuedOrDownloading(t *testing.T) {
 	id, _ := s.EnqueueDownload(DownloadRecord{
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x", Filename: "f.mkv", FileSize: 1000,
 	})
-	_ = s.MarkDownloadCompleted(id)
+	_ = s.MarkDownloadCompleted(id, "", 0)
 
 	// Pausing a completed download should be a no-op (no rows affected, but no error)
 	err := s.MarkDownloadPaused(id)
@@ -688,7 +688,7 @@ func TestGetDownloadHistory(t *testing.T) {
 	id1, _ := s.EnqueueDownload(DownloadRecord{
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x", Filename: "a.mkv", FileSize: 100,
 	})
-	_ = s.MarkDownloadCompleted(id1)
+	_ = s.MarkDownloadCompleted(id1, "", 0)
 
 	id2, _ := s.EnqueueDownload(DownloadRecord{
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x", Filename: "b.mkv", FileSize: 100,
@@ -700,7 +700,7 @@ func TestGetDownloadHistory(t *testing.T) {
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x", Filename: "c.mkv", FileSize: 100,
 	})
 
-	history, total, err := s.GetDownloadHistory(1, 10)
+	history, total, err := s.GetDownloadHistory(1, 10, HistoryFilter{})
 	if err != nil {
 		t.Fatalf("GetDownloadHistory: %v", err)
 	}
@@ -1389,7 +1389,7 @@ func TestRequeueDownload(t *testing.T) {
 	id, _ := s.EnqueueDownload(DownloadRecord{
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x", Filename: "f.mkv", FileSize: 1000,
 	})
-	_ = s.MarkDownloadCompleted(id)
+	_ = s.MarkDownloadCompleted(id, "", 0)
 
 	err := s.RequeueDownload(id)
 	if err != nil {

@@ -41,18 +41,22 @@ type Store interface {
 	GetPendingByChannel(channel string) ([]DownloadRecord, error)
 	UpdateDownloadProgress(id int64, progressBytes int64, speedBPS int64) error
 	MarkDownloadStarted(id int64) error
-	MarkDownloadCompleted(id int64) error
+	MarkDownloadCompleted(id int64, filename string, fileSize int64) error
 	MarkDownloadFailed(id int64, errMsg string) error
 	MarkDownloadSkipped(id int64) error
 	MarkDownloadPaused(id int64) error
 	MarkDownloadRetry(id int64, newStatus string) error
 	DeleteDownload(id int64) error
 	RetryDownload(id int64) error
-	GetDownloadHistory(page, pageSize int) ([]DownloadRecord, int, error)
+	GetDownloadHistory(page, pageSize int, filter HistoryFilter) ([]DownloadRecord, int, error)
 	GetTotalDownloadedBytes() (int64, error)
 	RecoverDownloadsOnStartup() ([]DownloadRecord, error)
 	RequeueDownload(id int64) error
 	SetDownloadPriority(id int64, priority int) error
+
+	// UpdateDownloadMetadata updates the filename and/or file_size for a download.
+	// This is called when the bot notice reveals the actual filename/size mid-download.
+	UpdateDownloadMetadata(id int64, filename string, fileSize int64) error
 	BulkActionDownloads(ids []int64, action string) (map[int64]string, error)
 	FindDuplicateDownload(bot, serverAddress string, packNumber int) (*DownloadRecord, error)
 	GetDownloadByBotMessage(bot, packMessage string) (*DownloadRecord, error)

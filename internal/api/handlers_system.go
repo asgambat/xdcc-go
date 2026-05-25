@@ -105,7 +105,7 @@ func (a *API) handleStats(w http.ResponseWriter, r *http.Request) {
 
 	totalDownloadedBytes, _ := a.Store.GetTotalDownloadedBytes()
 
-	_, totalHistory, _ := a.Store.GetDownloadHistory(1, 1)
+	_, totalHistory, _ := a.Store.GetDownloadHistory(1, 1, store.HistoryFilter{})
 
 	servers, _ := a.Store.ListServers()
 	serverCount := len(servers)
@@ -219,6 +219,35 @@ func (a *API) handleAdminExport(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"exported_at": time.Now().Format(time.RFC3339),
 		"data":        export,
+	})
+}
+
+// =========================================================================
+// GET /api/logs
+// =========================================================================
+
+func (a *API) handleLogs(w http.ResponseWriter, r *http.Request) {
+	count := 100
+	if n := r.URL.Query().Get("count"); n != "" {
+		if parsed, err := parsePositiveInt(n); err == nil && parsed > 0 {
+			count = parsed
+		}
+	}
+
+	var entries []interface{}
+	if a.LogBroadcaster != nil {
+		for _, e := range a.LogBroadcaster.RecentEntries(count) {
+			entries = append(entries, map[string]interface{}{
+				"timestamp": e.Timestamp,
+				"level":     e.Level,
+				"message":   e.Message,
+			})
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"logs":  entries,
+		"count": len(entries),
 	})
 }
 

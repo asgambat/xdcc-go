@@ -1,6 +1,6 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
-  import { sseClient } from '../lib/api.js';
+  import { sseClient, SystemAPI } from '../lib/api.js';
 
   // ---- Configuration ----
   const MAX_LINES = 10000;
@@ -9,6 +9,7 @@
   // ---- Log buffer (circular array) ----
   let logs = $state([]);
   let logCount = $state(0);
+  let seenTimestamps = new Set(); // deduplicate SSE replay vs REST fetch
 
   // ---- Auto-scroll state ----
   let containerEl;
@@ -31,6 +32,15 @@
   }
 
   function addLog(entry) {
+    // Deduplicate: skip if we've already added a log with the same timestamp
+    if (seenTimestamps.has(entry.timestamp)) return;
+    seenTimestamps.add(entry.timestamp);
+    // Keep set bounded
+    if (seenTimestamps.size > MAX_LINES) {
+      // Evict oldest ~10% when set grows too large
+      const arr = [...seenTimestamps];
+      seenTimestamps = new Set(arr.slice(-Math.floor(MAX_LINES * 0.9)));
+    }
     logs.push(entry);
     logCount++;
     // Evict oldest entries if over limit
@@ -75,8 +85,33 @@
     logCount = 0;
   }
 
-  onMount(() => {
-    // Subscribe to log_entry SSE events
+  onMount(async () => {
+    // Fetch last 100 log entries before subscribing to SSE
+    try {
+      const resp = await SystemAPI.logs(100);
+      if (resp.logs && resp.logs.length > 0) {
+        // Batch-insert initial logs to avoid 100 individual re-renders
+        const initial = resp.logs.map(e => ({
+          timestamp: e.timestamp,
+          level:     e.level || 'INFO',
+          message:   e.message || '',
+        }));
+        for (const entry of initial) {
+          logs.push(entry);
+          logCount++;
+        }
+        // Evict oldest if over limit
+        while (logs.length > MAX_LINES) {
+          logs.shift();
+        }
+        // Scroll to bottom after loading initial logs
+        scrollToBottom();
+      }
+    } catch (e) {
+      console.warn('Failed to load initial logs:', e);
+    }
+
+    // Subscribe to log_entry SSE events for live updates
     unsubLogEntry = sseClient.on('log_entry', (data) => {
       addLog({
         timestamp: data.timestamp,

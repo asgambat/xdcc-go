@@ -485,7 +485,7 @@ func (m *Manager) DownloadPack(ctx context.Context, pack *entities.XDCCPack, cha
 		FallbackChannel:  channel,
 		ThrottleBytes:    0, // Use unlimited for now, can make configurable
 		WaitTime:         1,
-		ChannelJoinDelay: 5, // Fixed delay for persistent connections
+		ChannelJoinDelay: m.cfg.Download.ChannelJoinDelay, // from config: -1=random, 0=no delay, >0=fixed
 		Username:         m.cfg.IRC.Nickname,
 		Logger:           xdccirc.LoggerFunc(m.logger.Printf),
 		ProgressCallback: progressFn,

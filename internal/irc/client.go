@@ -58,6 +58,8 @@ type Client struct {
 	downloading   bool
 	downloadError error
 	lastBotNotice string
+	packFilename  string // discovered from bot notice before DCC SEND
+	packSize      int64  // discovered from bot notice before DCC SEND
 	downStartTime time.Time
 
 	ackQueue        chan []byte
@@ -412,6 +414,8 @@ func (c *Client) resetForPack() {
 	c.downloading = false
 	c.downloadError = nil
 	c.lastBotNotice = ""
+	c.packFilename = ""
+	c.packSize = 0
 	c.downStartTime = time.Time{}
 	c.mu.Unlock()
 
@@ -446,8 +450,9 @@ func (c *Client) downloadPackAtIndex(idx int, retryCount int) PackResult {
 
 	c.infof("--- Starting pack download: %s (pack #%d) from bot %s ---", pack.Filename, pack.PackNumber, pack.Bot)
 
-	// Channel-join delay only on first connection (not between packs)
-	if idx == 0 {
+	// Channel-join delay only on first connection (not between packs).
+	// 0 = no delay, -1 = random 5-10s, >0 = that many seconds.
+	if idx == 0 && c.opts.ChannelJoinDelay != 0 {
 		c.infof("Waiting %ds before WHOIS (channel join delay)", c.opts.ChannelJoinDelay)
 		select {
 		case <-c.ctx.Done():
@@ -461,7 +466,17 @@ func (c *Client) downloadPackAtIndex(idx int, retryCount int) PackResult {
 
 	err := c.waitForCurrentPack()
 	if err == nil {
-		return PackResult{FilePath: pack.GetFilepath()}
+		// Return discovered filename and size (may be empty/0 if not yet known).
+		// Read under lock to avoid data race with the NOTICE handler.
+		c.mu.Lock()
+		filename := c.packFilename
+		filesize := c.packSize
+		c.mu.Unlock()
+		return PackResult{
+			FilePath: pack.GetFilepath(),
+			Filename: filename,
+			FileSize: filesize,
+		}
 	}
 
 	switch {

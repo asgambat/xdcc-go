@@ -1,10 +1,13 @@
 package irc
 
 import (
+	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/lrstanley/girc"
+	"xdcc-go/internal/entities"
 )
 
 func (c *Client) registerHandlers() {
@@ -162,6 +165,23 @@ func (c *Client) registerHandlers() {
 			c.noticef("Bot notice: %s", notice)
 		}
 
+		// Try to extract pack filename and size from the notice.
+		// This is important for manual downloads where filename/size aren't known upfront.
+		if filename, size := parsePackInfoFromNotice(notice); filename != "" || size > 0 {
+			c.mu.Lock()
+			if filename != "" && c.packFilename == "" {
+				c.packFilename = filename
+				c.currentPack().SetFilename(filename, true)
+				c.infof("Bot notice: discovered filename=%s", filename)
+			}
+			if size > 0 && c.packSize == 0 {
+				c.packSize = size
+				c.currentPack().SetSize(size)
+				c.infof("Bot notice: discovered size=%s", entities.HumanReadableBytes(size))
+			}
+			c.mu.Unlock()
+		}
+
 		alreadyReqMsgs := []string{"you already requested", "richiesto questo pack!"}
 		blockedMsgs := []string{"xdcc send negato", "numero pack errato", "invalid pack number",
 			"gli slots sono occupati", "denied"}
@@ -216,4 +236,54 @@ func (c *Client) sendXDCCRequest(client *girc.Client) {
 	msg := pack.GetRequestMessage(false)
 	c.infof("→ Sending XDCC request to bot %s: %s", pack.Bot, msg)
 	client.Cmd.Message(pack.Bot, msg)
+}
+
+// parsePackInfoFromNotice extracts the pack filename and size from a bot notice.
+// Returns the filename and size in bytes, or empty string and 0 if not found.
+// Examples:
+//
+//	"Ti sto inviando il pack #128 (\"Don.Matteo.S15E01.ITA.DLMux.x264-WRM.mkv\"), che ha grandezza 1.6GB."
+//	"Sending pack #42 (file.mkv), size: 500MB"
+//	"Pack #99 - "another.file.avi" - 1.2GB"
+func parsePackInfoFromNotice(notice string) (filename string, sizeBytes int64) {
+	// Italian format: Ti sto inviando il pack #N ("filename"), che ha grandezza X.YGB/MB/KB
+	// e.g.: Ti sto inviando il pack #128 ("Don.Matteo.S15E01.ITA.DLMux.x264-WRM.mkv"), che ha grandezza 1.6GB
+	// Also handles: (ripresa download supportata) suffix
+
+	// Try to extract filename from quoted filename after "pack #N"
+	// Pattern: pack #<number> ("filename")
+	packFileRe := regexp.MustCompile(`pack #\d+\s*\(\s*"([^"]+)"\s*\)`)
+	if m := packFileRe.FindStringSubmatch(notice); len(m) >= 2 {
+		filename = m[1]
+	}
+
+	// Try to extract size from Italian "grandezza X.YGB/MB/KB" or English "size: X.YGB/MB/KB"
+	// Handle both formats, case-insensitive
+	sizePatterns := []string{
+		`(?i)grandezza\s*([\d.]+)\s*(gb|mb|kb)`,
+		`(?i)size\s*:?\s*([\d.]+)\s*(gb|mb|kb)`,
+		`(?i)\(([\d.]+)\s*(gb|mb|kb)\)`, // (1.6GB) format at end of message
+	}
+
+	for _, pattern := range sizePatterns {
+		re := regexp.MustCompile(pattern)
+		if m := re.FindStringSubmatch(notice); len(m) >= 3 {
+			var size float64
+			if _, err := fmt.Sscanf(m[1], "%f", &size); err == nil {
+				multiplier := int64(1)
+				switch strings.ToLower(m[2]) {
+				case "gb":
+					multiplier = 1024 * 1024 * 1024
+				case "mb":
+					multiplier = 1024 * 1024
+				case "kb":
+					multiplier = 1024
+				}
+				sizeBytes = int64(size * float64(multiplier))
+				break
+			}
+		}
+	}
+
+	return filename, sizeBytes
 }

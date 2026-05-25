@@ -141,7 +141,7 @@ func (m *mockStore) MarkDownloadStarted(id int64) error {
 	return nil
 }
 
-func (m *mockStore) MarkDownloadCompleted(id int64) error {
+func (m *mockStore) MarkDownloadCompleted(id int64, filename string, fileSize int64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if d, ok := m.downloads[id]; ok {
@@ -203,8 +203,7 @@ func (m *mockStore) RetryDownload(id int64) error {
 	}
 	return nil
 }
-
-func (m *mockStore) GetDownloadHistory(int, int) ([]store.DownloadRecord, int, error) {
+func (m *mockStore) GetDownloadHistory(int, int, store.HistoryFilter) ([]store.DownloadRecord, int, error) {
 	return nil, 0, nil
 }
 
@@ -255,6 +254,16 @@ func (m *mockStore) GetDownloadByBotMessage(bot, packMessage string) (*store.Dow
 		}
 	}
 	return nil, nil
+}
+
+func (m *mockStore) UpdateDownloadMetadata(id int64, filename string, size int64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if d, ok := m.downloads[id]; ok {
+		d.Filename = filename
+		d.FileSize = size
+	}
+	return nil
 }
 
 func (m *mockStore) SetSearchCache(store.SearchCacheEntry) error { return nil }

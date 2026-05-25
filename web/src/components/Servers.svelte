@@ -12,6 +12,7 @@
   // Track which servers are currently being connected to prevent double-clicks
   let connectingServers = $state(new Set());
   let unsubServerConnected, unsubServerDisconnected, unsubServerReconnecting;
+  let unsubChannelJoined, unsubChannelLeft, unsubChannelTopicUpdated;
 
   // Sort servers: connected first, then disconnected, then by address.
   // Server records may use either `address` or `server_address`.
@@ -76,12 +77,41 @@
         ));
       }
     });
+
+    // When a channel is joined (e.g. auto-join after connect), reload the
+    // channels list so the "Joined: YES" badge and topic update in the UI.
+    unsubChannelJoined = sseClient.on('channel_joined', (data) => {
+      const serverId = data.server_id;
+      if (serverId) {
+        loadChannels(serverId);
+      }
+    });
+
+    // When a channel is left, reload to update the Joined badge.
+    unsubChannelLeft = sseClient.on('channel_left', (data) => {
+      const serverId = data.server_id;
+      if (serverId) {
+        loadChannels(serverId);
+      }
+    });
+
+    // When a channel topic is updated, reload the channels list so the
+    // topic column reflects the new value without a full refresh.
+    unsubChannelTopicUpdated = sseClient.on('channel_topic_updated', (data) => {
+      const serverId = data.server_id;
+      if (serverId) {
+        loadChannels(serverId);
+      }
+    });
   });
 
   onDestroy(() => {
     if (unsubServerConnected) unsubServerConnected();
     if (unsubServerDisconnected) unsubServerDisconnected();
     if (unsubServerReconnecting) unsubServerReconnecting();
+    if (unsubChannelJoined) unsubChannelJoined();
+    if (unsubChannelLeft) unsubChannelLeft();
+    if (unsubChannelTopicUpdated) unsubChannelTopicUpdated();
   });
 
   async function loadServers() {

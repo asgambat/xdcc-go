@@ -144,6 +144,17 @@ type SchemaVersion struct {
 // Helper types
 // ---------------------------------------------------------------------------
 
+// HistoryFilter holds optional filter criteria for download history queries.
+type HistoryFilter struct {
+	Filename   string   `json:"filename"`
+	Bot        string   `json:"bot"`
+	StatusList []string `json:"status_list"`
+	MinBytes   int64    `json:"min_bytes"`
+	MaxBytes   int64    `json:"max_bytes"`
+	DateFrom   string   `json:"date_from"` // YYYY-MM-DD
+	DateTo     string   `json:"date_to"`   // YYYY-MM-DD
+}
+
 // DownloadHistoryPage holds a paginated list of download history records.
 type DownloadHistoryPage struct {
 	Downloads  []DownloadRecord `json:"downloads"`

@@ -19,12 +19,13 @@ import (
 
 // DownloadConfig holds the configuration for a single download worker.
 type DownloadConfig struct {
-	TempDir        string
-	DestDir        string
-	ConflictPolicy string
-	MaxRateBPS     int64
-	Nickname       string
-	Logger         xdccirc.Logger
+	TempDir          string
+	DestDir          string
+	ConflictPolicy   string
+	MaxRateBPS       int64
+	Nickname         string
+	ChannelJoinDelay int // seconds before WHOIS: -1=random 5-10s, 0=no delay, >0=fixed
+	Logger           xdccirc.Logger
 
 	// IRCManager for persistent connections (optional - if nil, uses temporary connections)
 	IRCManager IRCManagerInterface
@@ -39,6 +40,7 @@ type workerResult struct {
 	DownloadID int64
 	Error      error
 	FilePath   string // final file path on success
+	Filename   string // discovered filename (may be empty until DCC SEND)
 	FileSize   int64
 	BotNotice  string
 	Skipped    bool // true when file was skipped due to conflict policy
@@ -50,7 +52,7 @@ type workerResult struct {
 
 // runDownload runs a single XDCC pack download in the foreground (blocking).
 // It:
-//   - Builds an entities.XDCCPack from the download record
+//   - Uses the provided entities.XDCCPack (already built by the caller)
 //   - Creates an internal/irc client with a progress callback
 //   - Downloads the pack to the temp directory
 //   - On success, moves the file to the destination directory
@@ -59,6 +61,7 @@ type workerResult struct {
 func runDownload(
 	ctx context.Context,
 	rec store.DownloadRecord,
+	pack *entities.XDCCPack,
 	cfg DownloadConfig,
 	progressFn func(bytesReceived, totalBytes int64, speedBPS float64),
 	completeFn func(result workerResult),
@@ -70,24 +73,6 @@ func runDownload(
 		FileSize:   rec.FileSize,
 	}
 
-	// --- Build pack ---
-	server := entities.NewIrcServerWithPort(rec.ServerAddress, 6667)
-	packNumber := entities.ExtractPackNumber(rec.PackMessage)
-	pack := entities.NewXDCCPack(server, rec.Bot, packNumber)
-	pack.SetFilename(rec.Filename, true)
-	pack.SetSize(rec.FileSize)
-
-	// --- Resolve channels ---
-	// Use the channel from the download record as the WHOIS fallback channel.
-	// If empty, WHOIS will discover the bot's channel(s) automatically.
-	channel := rec.Channel
-	if channel != "" && channel[0] != '#' {
-		channel = "#" + channel
-	}
-
-	// --- Prepare download ---
-	pack.SetDirectory(cfg.TempDir)
-
 	var srcPath string
 	var downloadErr error
 
@@ -95,18 +80,26 @@ func runDownload(
 	if cfg.IRCManager != nil {
 		// Use persistent IRC connections via IRCManager
 		logger.Printf("→ [download %d] Using persistent IRC connection for %s (bot=%s, channel=%q, file=%s)",
-			rec.ID, rec.ServerAddress, rec.Bot, channel, rec.Filename)
-		srcPath, downloadErr = cfg.IRCManager.DownloadPack(ctx, pack, channel, progressFn)
+			rec.ID, rec.ServerAddress, rec.Bot, rec.Channel, rec.Filename)
+		srcPath, downloadErr = cfg.IRCManager.DownloadPack(ctx, pack, rec.Channel, progressFn)
 	} else {
 		// Fallback to temporary IRC connection (for CLI tools)
 		logger.Printf("→ [download %d] Using temporary IRC connection for %s (bot=%s, channel=%q, file=%s)",
-			rec.ID, rec.ServerAddress, rec.Bot, channel, rec.Filename)
-		srcPath, downloadErr = downloadWithTempConnection(ctx, pack, channel, cfg, progressFn)
+			rec.ID, rec.ServerAddress, rec.Bot, rec.Channel, rec.Filename)
+		srcPath, downloadErr = downloadWithTempConnection(ctx, pack, rec.Channel, cfg, progressFn)
+	}
+
+	// Capture filename and size from pack if discovered during download
+	if pack.Filename != "" && result.Filename == "" {
+		result.Filename = pack.Filename
+	}
+	if pack.Size > 0 {
+		result.FileSize = pack.Size
 	}
 
 	if downloadErr != nil {
 		logger.Printf("✗ [download %d] FAILED — bot=%s server=%s channel=%q file=%q error=%v",
-			rec.ID, rec.Bot, rec.ServerAddress, channel, rec.Filename, downloadErr)
+			rec.ID, rec.Bot, rec.ServerAddress, rec.Channel, rec.Filename, downloadErr)
 		result.Error = downloadErr
 		result.BotNotice = "" // TODO: extract from error if available
 		completeFn(result)
@@ -124,7 +117,13 @@ func runDownload(
 	}
 
 	// --- Move to destination directory ---
-	destPath := filepath.Join(cfg.DestDir, rec.Filename)
+	// Use discovered filename from pack if the record's filename is still empty
+	// (happens for manual downloads where filename is unknown until bot notice).
+	destFilename := rec.Filename
+	if destFilename == "" && pack.Filename != "" {
+		destFilename = pack.Filename
+	}
+	destPath := filepath.Join(cfg.DestDir, destFilename)
 
 	// Handle conflict policy
 	conflictPolicy := cfg.ConflictPolicy
@@ -183,6 +182,15 @@ func runDownload(
 		result.FileSize = fi.Size()
 	}
 
+	// If filename was discovered during download (e.g. from bot notice or DCC),
+	// propagate it to the result so the queue manager can update the store.
+	if pack.Filename != "" {
+		result.Filename = pack.Filename
+	}
+	if pack.Size > 0 {
+		result.FileSize = pack.Size
+	}
+
 	completeFn(result)
 }
 
@@ -234,7 +242,7 @@ func downloadWithTempConnection(
 		FallbackChannel:  channel,
 		ThrottleBytes:    throttle,
 		WaitTime:         1,
-		ChannelJoinDelay: -1, // random 5-10s
+		ChannelJoinDelay: cfg.ChannelJoinDelay, // from config: -1=random, 0=no delay, >0=fixed
 		Username:         cfg.Nickname,
 		Logger:           logger,
 		ProgressCallback: progressFn,

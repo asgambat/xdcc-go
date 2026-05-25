@@ -625,15 +625,30 @@ func (qm *QueueManager) startDownload(d store.DownloadRecord) {
 		FileSize:      d.FileSize,
 	})
 
+	// Build the pack object here so it can be captured in the goroutine closure.
+	// The pack object is shared with the IRC client and will be updated
+	// by the bot notice handler as metadata is discovered.
+	server := entities.NewIrcServerWithPort(d.ServerAddress, 6667)
+	packNumber := entities.ExtractPackNumber(d.PackMessage)
+	pack := entities.NewXDCCPack(server, d.Bot, packNumber)
+	pack.SetFilename(d.Filename, true)
+	pack.SetSize(d.FileSize)
+	pack.SetDirectory(qm.cfg.Download.TempDir)
+
+	// Track whether we've already emitted a metadata update for this download.
+	// This prevents redundant store writes and SSE events after the first discovery.
+	metadataEmitted := false
+
 	// Prepare worker config
 	wCfg := DownloadConfig{
-		TempDir:        qm.cfg.Download.TempDir,
-		DestDir:        qm.cfg.Download.DestDir,
-		ConflictPolicy: qm.cfg.Download.ConflictPolicy,
-		MaxRateBPS:     qm.cfg.Download.MaxRateBPS,
-		Nickname:       qm.cfg.IRC.Nickname,
-		Logger:         xdccirc.LoggerFunc(qm.log.Printf),
-		IRCManager:     qm.ircMgr, // Pass IRC Manager for persistent connections
+		TempDir:          qm.cfg.Download.TempDir,
+		DestDir:          qm.cfg.Download.DestDir,
+		ConflictPolicy:   qm.cfg.Download.ConflictPolicy,
+		MaxRateBPS:       qm.cfg.Download.MaxRateBPS,
+		Nickname:         qm.cfg.IRC.Nickname,
+		ChannelJoinDelay: qm.cfg.Download.ChannelJoinDelay, // from config: -1=random, 0=no delay, >0=fixed
+		Logger:           xdccirc.LoggerFunc(qm.log.Printf),
+		IRCManager:       qm.ircMgr, // Pass IRC Manager for persistent connections
 	}
 
 	// Track download goroutine for clean shutdown
@@ -653,8 +668,21 @@ func (qm *QueueManager) startDownload(d store.DownloadRecord) {
 				ProgressBytes: bytesReceived,
 				FileSize:      totalBytes,
 				SpeedBPS:      speedBPS,
-				Filename:      d.Filename,
+				Filename:      pack.Filename,
 			})
+
+			// If we discovered filename/size from the pack, update store and emit metadata event.
+			// Only emit once (when metadataEmitted is still false) to avoid redundant SSE events.
+			if !metadataEmitted && pack.Filename != "" && (d.Filename == "" || strings.HasPrefix(d.Filename, "manual_download")) {
+				_ = qm.store.UpdateDownloadMetadata(d.ID, pack.Filename, pack.Size)
+				qm.emitEvent(Event{
+					Type:       EventDownloadMetadataUpdate,
+					DownloadID: d.ID,
+					Filename:   pack.Filename,
+					FileSize:   pack.Size,
+				})
+				metadataEmitted = true
+			}
 		}
 
 		// Completion callback
@@ -715,7 +743,13 @@ func (qm *QueueManager) startDownload(d store.DownloadRecord) {
 				// File was skipped because destination already exists
 				_ = qm.store.MarkDownloadSkipped(d.ID)
 
-				qm.log.Printf("download %d skipped: %s already exists at %s", d.ID, d.Filename, result.FilePath)
+				// Use discovered filename if record filename was empty
+				skippedFilename := d.Filename
+				if skippedFilename == "" && pack.Filename != "" {
+					skippedFilename = pack.Filename
+				}
+
+				qm.log.Printf("download %d skipped: %s already exists at %s", d.ID, skippedFilename, result.FilePath)
 
 				qm.emitEvent(Event{
 					Type:          EventDownloadSkipped,
@@ -723,24 +757,33 @@ func (qm *QueueManager) startDownload(d store.DownloadRecord) {
 					Bot:           d.Bot,
 					ServerAddress: d.ServerAddress,
 					Channel:       d.Channel,
-					Filename:      d.Filename,
+					Filename:      skippedFilename,
 					FileSize:      result.FileSize,
 				})
 			} else {
 				// Download completed successfully
-				_ = qm.store.MarkDownloadCompleted(d.ID)
+				// Use discovered filename/size from pack if record was empty.
+				finalFilename := d.Filename
+				if finalFilename == "" && pack.Filename != "" {
+					finalFilename = pack.Filename
+				}
+				finalSize := d.FileSize
+				if finalSize == 0 && pack.Size > 0 {
+					finalSize = pack.Size
+				}
+				_ = qm.store.MarkDownloadCompleted(d.ID, finalFilename, finalSize)
 
 				qm.log.Printf("✓ download %d COMPLETED — bot=%s server=%s file=%s -> %s",
-					d.ID, d.Bot, d.ServerAddress, d.Filename, result.FilePath)
+					d.ID, d.Bot, d.ServerAddress, finalFilename, result.FilePath)
 
-				// Emit completion event
+				// Emit completion event with discovered filename
 				qm.emitEvent(Event{
 					Type:          EventDownloadCompleted,
 					DownloadID:    d.ID,
 					Bot:           d.Bot,
 					ServerAddress: d.ServerAddress,
 					Channel:       d.Channel,
-					Filename:      d.Filename,
+					Filename:      finalFilename,
 					FileSize:      result.FileSize,
 				})
 			}
@@ -749,7 +792,7 @@ func (qm *QueueManager) startDownload(d store.DownloadRecord) {
 			qm.tryDispatch()
 		}
 
-		runDownload(ctx, d, wCfg, progressFn, completeFn)
+		runDownload(ctx, d, pack, wCfg, progressFn, completeFn)
 	}()
 }
 

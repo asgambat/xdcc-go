@@ -36,6 +36,8 @@ download:
   max_parallel_total: 5
   # Max download rate in bytes/second (0 = unlimited)
   max_rate_bps: 0
+  # Seconds to wait after connecting before sending WHOIS (-1 = random 5-10s, 0 = no delay, >0 = fixed seconds)
+  channel_join_delay: -1
 
 search:
   # Timeout per provider in seconds
