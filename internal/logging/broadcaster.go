@@ -80,7 +80,7 @@ func (b *LogBroadcaster) Write(p []byte) (int, error) {
 }
 
 // RecentEntries returns the most recent n log entries from the ring buffer,
-// in chronological order. Used for SSE initial replay.
+// in chronological order (oldest first, newest last). Used for SSE initial replay.
 func (b *LogBroadcaster) RecentEntries(n int) []LogEntry {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -90,10 +90,11 @@ func (b *LogBroadcaster) RecentEntries(n int) []LogEntry {
 	}
 
 	result := make([]LogEntry, n)
-	// Oldest entry is at (b.bufPos - b.bufCount); add b.maxLen to keep modulo positive
-	offset := b.bufPos - b.bufCount + b.maxLen
+	// Start n entries before the next write position to get the newest n entries.
+	// Adding b.maxLen keeps the modulo operation positive.
+	startIdx := (b.bufPos - n + b.maxLen) % b.maxLen
 	for i := 0; i < n; i++ {
-		idx := (offset + i) % b.maxLen
+		idx := (startIdx + i) % b.maxLen
 		result[i] = b.buf[idx]
 	}
 	return result
