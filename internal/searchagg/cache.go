@@ -1,7 +1,9 @@
 package searchagg
 
 import (
+	"context"
 	"encoding/json"
+	"strings"
 	"sync"
 	"time"
 
@@ -58,30 +60,15 @@ func newSearchCache(st store.SearchCacheStore, enabled bool, freshTTL, staleTTL 
 }
 
 // cacheKey normalises a query string for use as a cache key.
+// Uses strings.ToLower and strings.Fields (both rune-safe) instead of
+// manual rune→byte iteration which would truncate non-ASCII characters.
 func cacheKey(query string) string {
-	// Simple normalisation: lowercase and trim
-	b := make([]byte, 0, len(query))
-	skip := false
-	for _, ch := range query {
-		if ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' {
-			if !skip {
-				b = append(b, ' ')
-				skip = true
-			}
-		} else {
-			if ch >= 'A' && ch <= 'Z' {
-				b = append(b, byte(ch+'a'-'A'))
-			} else {
-				b = append(b, byte(ch))
-			}
-			skip = false
-		}
-	}
-	return string(b)
+	parts := strings.Fields(strings.ToLower(query))
+	return strings.Join(parts, " ")
 }
 
 // get retrieves a cached entry. Returns nil if not found or expired beyond stale.
-func (c *searchCache) get(queryKey, provider string) *cacheEntry {
+func (c *searchCache) get(ctx context.Context, queryKey, provider string) *cacheEntry {
 	c.mu.RLock()
 	entry, ok := c.entries[queryKey][provider]
 	c.mu.RUnlock()
@@ -92,7 +79,7 @@ func (c *searchCache) get(queryKey, provider string) *cacheEntry {
 
 	// Try SQLite persistence
 	if c.enabled && c.st != nil {
-		sqlEntry, err := c.st.GetSearchCache(queryKey, provider)
+		sqlEntry, err := c.st.GetSearchCache(ctx, queryKey, provider)
 		if err == nil && sqlEntry != nil {
 			var packs []*entities.XDCCPack
 			if err := json.Unmarshal([]byte(sqlEntry.PayloadJSON), &packs); err == nil {
@@ -120,7 +107,7 @@ func (c *searchCache) get(queryKey, provider string) *cacheEntry {
 }
 
 // set stores an entry in the cache.
-func (c *searchCache) set(queryKey, provider string, packs []*entities.XDCCPack) {
+func (c *searchCache) set(ctx context.Context, queryKey, provider string, packs []*entities.XDCCPack) {
 	now := time.Now()
 	entry := &cacheEntry{
 		Packs:     packs,
@@ -142,7 +129,7 @@ func (c *searchCache) set(queryKey, provider string, packs []*entities.XDCCPack)
 		if err != nil {
 			return
 		}
-		_ = c.st.SetSearchCache(store.SearchCacheEntry{
+		_ = c.st.SetSearchCache(ctx, store.SearchCacheEntry{
 			QueryKey:       queryKey,
 			Provider:       provider,
 			PayloadJSON:    string(payload),
@@ -155,7 +142,7 @@ func (c *searchCache) set(queryKey, provider string, packs []*entities.XDCCPack)
 
 // getStale returns all entries for a query that are still within stale TTL.
 // Used as fallback when all live providers fail.
-func (c *searchCache) getStale(queryKey string) map[string]*cacheEntry {
+func (c *searchCache) getStale(ctx context.Context, queryKey string) map[string]*cacheEntry {
 	result := make(map[string]*cacheEntry)
 
 	c.mu.RLock()
@@ -168,7 +155,7 @@ func (c *searchCache) getStale(queryKey string) map[string]*cacheEntry {
 
 	// Also check SQLite for stale entries not in memory
 	if c.enabled && c.st != nil && len(result) == 0 {
-		entries, err := c.st.GetSearchCacheByQuery(queryKey)
+		entries, err := c.st.GetSearchCacheByQuery(ctx, queryKey)
 		if err == nil {
 			for _, sqlEntry := range entries {
 				if time.Now().Before(sqlEntry.StaleExpiresAt) {
@@ -201,7 +188,7 @@ func (c *searchCache) getStale(queryKey string) map[string]*cacheEntry {
 
 // getFresh returns all entries for a query that are still fresh.
 // Returns nil if no provider has fresh data.
-func (c *searchCache) getFresh(queryKey string) map[string]*cacheEntry {
+func (c *searchCache) getFresh(ctx context.Context, queryKey string) map[string]*cacheEntry {
 	result := make(map[string]*cacheEntry)
 
 	c.mu.RLock()
@@ -216,7 +203,7 @@ func (c *searchCache) getFresh(queryKey string) map[string]*cacheEntry {
 	if c.enabled && c.st != nil && len(result) == 0 {
 		// Use GetSearchCacheByQuery to fetch all entries in a single query,
 		// avoiding nested queries that deadlock on single-connection SQLite.
-		entries, err := c.st.GetSearchCacheByQuery(queryKey)
+		entries, err := c.st.GetSearchCacheByQuery(ctx, queryKey)
 		if err == nil {
 			for _, sqlEntry := range entries {
 				if time.Now().Before(sqlEntry.ExpiresAt) {

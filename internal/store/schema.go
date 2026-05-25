@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"os"
@@ -154,7 +155,7 @@ CREATE INDEX IF NOT EXISTS idx_provider_stats_provider_window ON provider_stats(
 
 // runMigrations applies all pending migrations in a transaction.
 // It creates a backup before running any migration that modifies the schema.
-func runMigrations(db *sql.DB, dbPath string) error {
+func runMigrations(ctx context.Context, db *sql.DB, dbPath string) error {
 	// Ensure schema_version table exists
 	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS schema_version (
 		version INTEGER PRIMARY KEY,
@@ -177,7 +178,7 @@ func runMigrations(db *sql.DB, dbPath string) error {
 		// Backup before destructive migration
 		backupPath := fmt.Sprintf("%s.backup.v%d.%s",
 			dbPath, m.version, time.Now().Format("20060102_150405"))
-		if err := backupDB(db, backupPath); err != nil {
+		if err := backupDB(ctx, db, backupPath); err != nil {
 			return fmt.Errorf("backing up database before migration v%d: %w", m.version, err)
 		}
 
@@ -218,7 +219,7 @@ func getCurrentVersion(db *sql.DB) (int, error) {
 }
 
 // CurrentSchemaVersion returns the highest applied schema version.
-func (s *SQLiteStore) CurrentSchemaVersion() (int, error) {
+func (s *SQLiteStore) CurrentSchemaVersion(ctx context.Context) (int, error) {
 	return getCurrentVersion(s.db)
 }
 
@@ -228,7 +229,7 @@ func (s *SQLiteStore) CurrentSchemaVersion() (int, error) {
 
 // backupDB creates a snapshot backup of the database at the given path.
 // It uses the backup API for live databases.
-func backupDB(db *sql.DB, destPath string) error {
+func backupDB(ctx context.Context, db *sql.DB, destPath string) error {
 	// Validate path: must be absolute and contain no SQL-special characters
 	// that could be used for injection
 	if !filepath.IsAbs(destPath) {
@@ -247,7 +248,7 @@ func backupDB(db *sql.DB, destPath string) error {
 
 	// Use VACUUM INTO for simple file-level backup (requires SQLite 3.27+)
 	// modernc.org/sqlite supports this.
-	_, err := db.Exec(fmt.Sprintf(`VACUUM INTO '%s'`, escapedPath))
+	_, err := db.ExecContext(ctx, fmt.Sprintf(`VACUUM INTO '%s'`, escapedPath))
 	if err != nil {
 		return fmt.Errorf("backing up database to %s: %w", destPath, err)
 	}
@@ -256,9 +257,9 @@ func backupDB(db *sql.DB, destPath string) error {
 
 // CreateBackup creates a timestamped backup of the database before running
 // destructive operations.
-func (s *SQLiteStore) CreateBackup() (string, error) {
+func (s *SQLiteStore) CreateBackup(ctx context.Context) (string, error) {
 	backupPath := fmt.Sprintf("%s.backup.%s", s.dbPath, time.Now().Format("20060102_150405"))
-	if err := backupDB(s.db, backupPath); err != nil {
+	if err := backupDB(ctx, s.db, backupPath); err != nil {
 		return "", err
 	}
 	return backupPath, nil

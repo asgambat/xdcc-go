@@ -1,6 +1,7 @@
 package searchagg
 
 import (
+	"context"
 	"time"
 
 	"xdcc-go/internal/store"
@@ -11,13 +12,13 @@ import (
 // ---------------------------------------------------------------------------
 
 // GetProviderStats returns stats for a specific provider since the given time.
-func (a *Aggregator) GetProviderStats(provider string, since time.Time) ([]store.ProviderStats, error) {
-	return a.store.GetProviderStats(provider, since)
+func (a *Aggregator) GetProviderStats(ctx context.Context, provider string, since time.Time) ([]store.ProviderStats, error) {
+	return a.store.GetProviderStats(ctx, provider, since)
 }
 
 // GetAllProviderStats returns stats for all providers since the given time.
-func (a *Aggregator) GetAllProviderStats(since time.Time) (map[string][]store.ProviderStats, error) {
-	return a.store.GetAllProviderStats(since)
+func (a *Aggregator) GetAllProviderStats(ctx context.Context, since time.Time) (map[string][]store.ProviderStats, error) {
+	return a.store.GetAllProviderStats(ctx, since)
 }
 
 // GetProviderInsights returns a summary of provider health for the dashboard.
@@ -36,9 +37,9 @@ type ProviderInsight struct {
 // GetProviderInsights returns a summary of all provider health.
 // Returns partial results if stats query fails — the `enabled` field is
 // always correct because it's derived from config/runtime state, not stats.
-func (a *Aggregator) GetProviderInsights() ([]ProviderInsight, error) {
+func (a *Aggregator) GetProviderInsights(ctx context.Context) ([]ProviderInsight, error) {
 	since := time.Now().Add(-24 * time.Hour)
-	allStats, err := a.store.GetAllProviderStats(since)
+	allStats, err := a.store.GetAllProviderStats(ctx, since)
 	if err != nil {
 		// Non-fatal: return insights without stats data
 		a.log.Warnf("GetProviderInsights: GetAllProviderStats failed: %v", err)

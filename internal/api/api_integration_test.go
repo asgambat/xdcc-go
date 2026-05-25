@@ -12,6 +12,7 @@ import (
 
 	"xdcc-go/internal/config"
 	"xdcc-go/internal/logging"
+	"xdcc-go/internal/metrics"
 	"xdcc-go/internal/searchagg"
 	"xdcc-go/internal/sse"
 	"xdcc-go/internal/store"
@@ -40,7 +41,7 @@ func newTestAPI(t *testing.T) *testAPI {
 	if err != nil {
 		t.Fatalf("NewSQLiteStore: %v", err)
 	}
-	if err := st.Migrate(); err != nil {
+	if err := st.Migrate(context.Background()); err != nil {
 		t.Fatalf("Migrate: %v", err)
 	}
 
@@ -62,7 +63,8 @@ func newTestAPI(t *testing.T) *testAPI {
 	// don't return 503. This uses the same store, so CRUD operations work.
 	agg := searchagg.New(st, &cfg.Search, apiLogger)
 
-	api := New(st, nil, nil, agg, hub, nil, cfg, apiLogger)
+	met := metrics.New()
+	api := New(st, nil, nil, agg, hub, nil, cfg, apiLogger, met)
 
 	router := api.Router()
 
@@ -272,7 +274,7 @@ func TestListServers_IncludesChannelCount(t *testing.T) {
 	ta := newTestAPI(t)
 
 	// Add a server with some channels
-	id, err := ta.store.AddServer(store.ServerRecord{
+	id, err := ta.store.AddServer(context.Background(), store.ServerRecord{
 		Address: "irc.test.net",
 		Port:    6667,
 		Status:  "disconnected",
@@ -280,11 +282,11 @@ func TestListServers_IncludesChannelCount(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AddServer: %v", err)
 	}
-	_, err = ta.store.AddChannel(store.ChannelRecord{ServerID: id, Name: "#channel1", Joined: true})
+	_, err = ta.store.AddChannel(context.Background(), store.ChannelRecord{ServerID: id, Name: "#channel1", Joined: true})
 	if err != nil {
 		t.Fatalf("AddChannel: %v", err)
 	}
-	_, err = ta.store.AddChannel(store.ChannelRecord{ServerID: id, Name: "#channel2", Joined: false})
+	_, err = ta.store.AddChannel(context.Background(), store.ChannelRecord{ServerID: id, Name: "#channel2", Joined: false})
 	if err != nil {
 		t.Fatalf("AddChannel: %v", err)
 	}
@@ -363,8 +365,8 @@ func TestListDownloads_IncludesRecentCompleted(t *testing.T) {
 	_ = json.NewDecoder(createResp.Body).Decode(&createData)
 	id := createData["id"]
 
-	_ = ta.store.MarkDownloadStarted(id)
-	_ = ta.store.MarkDownloadCompleted(id, "", 0)
+	_ = ta.store.MarkDownloadStarted(context.Background(), id)
+	_ = ta.store.MarkDownloadCompleted(context.Background(), id, "", 0)
 
 	// The completed download should still appear in the list
 	w := ta.request(t, "GET", "/api/downloads", nil)
@@ -462,7 +464,7 @@ func TestRetryDownload(t *testing.T) {
 	id := createData["id"]
 
 	// Mark as failed manually
-	_ = ta.store.MarkDownloadFailed(id, "test error")
+	_ = ta.store.MarkDownloadFailed(context.Background(), id, "test error")
 
 	// Retry via API
 	w := ta.request(t, "POST", "/api/downloads/"+itoa(id)+"/retry", nil)
@@ -491,8 +493,8 @@ func TestRetryDownload_Completed(t *testing.T) {
 	id := createData["id"]
 
 	// Mark as completed
-	_ = ta.store.MarkDownloadStarted(id)
-	_ = ta.store.MarkDownloadCompleted(id, "", 0)
+	_ = ta.store.MarkDownloadStarted(context.Background(), id)
+	_ = ta.store.MarkDownloadCompleted(context.Background(), id, "", 0)
 
 	// Retry via API — should succeed now that RetryDownload accepts 'completed'
 	w := ta.request(t, "POST", "/api/downloads/"+itoa(id)+"/retry", nil)
@@ -630,8 +632,8 @@ func TestDownloadHistory_WithItems(t *testing.T) {
 	_ = json.NewDecoder(createResp.Body).Decode(&createData)
 	id := createData["id"]
 
-	_ = ta.store.MarkDownloadStarted(id)
-	_ = ta.store.MarkDownloadCompleted(id, "", 0)
+	_ = ta.store.MarkDownloadStarted(context.Background(), id)
+	_ = ta.store.MarkDownloadCompleted(context.Background(), id, "", 0)
 
 	w := ta.request(t, "GET", "/api/downloads/history", nil)
 	if w.Code != http.StatusOK {

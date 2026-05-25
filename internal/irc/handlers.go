@@ -38,14 +38,29 @@ func (c *Client) registerHandlers() {
 			// But add a safety timeout: if the server doesn't re-emit JOIN
 			// (e.g. because we were already in the channel via an auto-join),
 			// send XDCC anyway after a few seconds.
+			//
+			// We use a reusable timer instead of time.After to avoid allocating
+			// a new timer (and its internal runtime goroutine) on every WHOIS.
+			// In burst scenarios this prevents transient goroutine accumulation.
 			c.infof("Waiting for JOIN confirmation before sending XDCC request (fallback in 5s)")
+
+			// Reset the reusable timer to 5s. Stop and drain first in case
+			// a stale value remains from a previous pack or a second WHOIS
+			// fires for the same pack (rare but safe to handle).
+			if c.whoisFallbackTimer == nil {
+				c.whoisFallbackTimer = time.NewTimer(5 * time.Second)
+			} else {
+				c.stopWhoisFallbackTimer()
+				c.whoisFallbackTimer.Reset(5 * time.Second)
+			}
+
 			go func() {
 				select {
 				case <-c.downloadDone:
 					return
 				case <-c.ctx.Done():
 					return
-				case <-time.After(5 * time.Second):
+				case <-c.whoisFallbackTimer.C:
 					if !c.messageSent.Load() {
 						c.infof("JOIN confirmation not received, sending XDCC request anyway")
 						c.sendXDCCRequest(client)

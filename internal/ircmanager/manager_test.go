@@ -1,6 +1,7 @@
 package ircmanager
 
 import (
+	"context"
 	"sync"
 	"testing"
 	"time"
@@ -57,11 +58,11 @@ func (m *mockStore) addChannel(serverID int64, name string, autoJoin bool) int64
 
 // Store interface
 
-func (m *mockStore) Close() error                       { return nil }
-func (m *mockStore) Migrate() error                     { return nil }
-func (m *mockStore) CurrentSchemaVersion() (int, error) { return 1, nil }
+func (m *mockStore) Close(ctx context.Context) error                       { return nil }
+func (m *mockStore) Migrate(ctx context.Context) error                     { return nil }
+func (m *mockStore) CurrentSchemaVersion(ctx context.Context) (int, error) { return 1, nil }
 
-func (m *mockStore) AddServer(s store.ServerRecord) (int64, error) {
+func (m *mockStore) AddServer(ctx context.Context, s store.ServerRecord) (int64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	id := m.nextSrvID
@@ -71,7 +72,7 @@ func (m *mockStore) AddServer(s store.ServerRecord) (int64, error) {
 	return id, nil
 }
 
-func (m *mockStore) GetServer(id int64) (*store.ServerRecord, error) {
+func (m *mockStore) GetServer(ctx context.Context, id int64) (*store.ServerRecord, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	s, ok := m.servers[id]
@@ -81,7 +82,7 @@ func (m *mockStore) GetServer(id int64) (*store.ServerRecord, error) {
 	return s, nil
 }
 
-func (m *mockStore) ListServers() ([]store.ServerRecord, error) {
+func (m *mockStore) ListServers(ctx context.Context) ([]store.ServerRecord, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var result []store.ServerRecord
@@ -91,7 +92,7 @@ func (m *mockStore) ListServers() ([]store.ServerRecord, error) {
 	return result, nil
 }
 
-func (m *mockStore) UpdateServer(s store.ServerRecord) error {
+func (m *mockStore) UpdateServer(ctx context.Context, s store.ServerRecord) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if existing, ok := m.servers[s.ID]; ok {
@@ -100,14 +101,14 @@ func (m *mockStore) UpdateServer(s store.ServerRecord) error {
 	return nil
 }
 
-func (m *mockStore) DeleteServer(id int64) error {
+func (m *mockStore) DeleteServer(ctx context.Context, id int64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.servers, id)
 	return nil
 }
 
-func (m *mockStore) SetServerStatus(id int64, status string) error {
+func (m *mockStore) SetServerStatus(ctx context.Context, id int64, status string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if s, ok := m.servers[id]; ok {
@@ -116,7 +117,7 @@ func (m *mockStore) SetServerStatus(id int64, status string) error {
 	return nil
 }
 
-func (m *mockStore) SetServerConnected(id int64) error {
+func (m *mockStore) SetServerConnected(ctx context.Context, id int64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if s, ok := m.servers[id]; ok {
@@ -128,7 +129,7 @@ func (m *mockStore) SetServerConnected(id int64) error {
 	return nil
 }
 
-func (m *mockStore) IncrementServerRetry(id int64) error {
+func (m *mockStore) IncrementServerRetry(ctx context.Context, id int64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if s, ok := m.servers[id]; ok {
@@ -138,7 +139,7 @@ func (m *mockStore) IncrementServerRetry(id int64) error {
 	return nil
 }
 
-func (m *mockStore) AddChannel(c store.ChannelRecord) (int64, error) {
+func (m *mockStore) AddChannel(ctx context.Context, c store.ChannelRecord) (int64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	id := m.nextChID
@@ -148,7 +149,7 @@ func (m *mockStore) AddChannel(c store.ChannelRecord) (int64, error) {
 	return id, nil
 }
 
-func (m *mockStore) GetChannelsByServer(serverID int64) ([]store.ChannelRecord, error) {
+func (m *mockStore) GetChannelsByServer(ctx context.Context, serverID int64) ([]store.ChannelRecord, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	chs := m.channels[serverID]
@@ -160,7 +161,7 @@ func (m *mockStore) GetChannelsByServer(serverID int64) ([]store.ChannelRecord, 
 	return result, nil
 }
 
-func (m *mockStore) GetChannelsByServerAndName(serverID int64, name string) (*store.ChannelRecord, error) {
+func (m *mockStore) GetChannelsByServerAndName(ctx context.Context, serverID int64, name string) (*store.ChannelRecord, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, ch := range m.channels[serverID] {
@@ -171,7 +172,7 @@ func (m *mockStore) GetChannelsByServerAndName(serverID int64, name string) (*st
 	return nil, nil
 }
 
-func (m *mockStore) UpdateChannel(c store.ChannelRecord) error {
+func (m *mockStore) UpdateChannel(ctx context.Context, c store.ChannelRecord) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for i, ch := range m.channels[c.ServerID] {
@@ -183,7 +184,7 @@ func (m *mockStore) UpdateChannel(c store.ChannelRecord) error {
 	return nil
 }
 
-func (m *mockStore) DeleteChannel(id int64) error {
+func (m *mockStore) DeleteChannel(ctx context.Context, id int64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for srvID, chs := range m.channels {
@@ -197,15 +198,15 @@ func (m *mockStore) DeleteChannel(id int64) error {
 	return nil
 }
 
-func (m *mockStore) SetChannelJoined(id int64, joined bool) error {
+func (m *mockStore) SetChannelJoined(ctx context.Context, id int64, joined bool) error {
 	return nil
 }
 
-func (m *mockStore) UpdateChannelTopic(id int64, topic string) error {
+func (m *mockStore) UpdateChannelTopic(ctx context.Context, id int64, topic string) error {
 	return nil
 }
 
-func (m *mockStore) GetAutoJoinChannels() ([]store.ChannelRecord, error) {
+func (m *mockStore) GetAutoJoinChannels(ctx context.Context) ([]store.ChannelRecord, error) {
 	var result []store.ChannelRecord
 	for _, chs := range m.channels {
 		for _, ch := range chs {
@@ -219,79 +220,119 @@ func (m *mockStore) GetAutoJoinChannels() ([]store.ChannelRecord, error) {
 
 // Stub for remaining store methods
 
-func (m *mockStore) EnqueueDownload(d store.DownloadRecord) (int64, error)      { return 1, nil }
-func (m *mockStore) GetDownload(id int64) (*store.DownloadRecord, error)        { return nil, nil }
-func (m *mockStore) GetQueue() ([]store.DownloadRecord, error)                  { return nil, nil }
-func (m *mockStore) GetQueueByChannel(string) ([]store.DownloadRecord, error)   { return nil, nil }
-func (m *mockStore) GetActiveDownloads() ([]store.DownloadRecord, error)        { return nil, nil }
-func (m *mockStore) GetPendingByChannel(string) ([]store.DownloadRecord, error) { return nil, nil }
-func (m *mockStore) UpdateDownloadProgress(int64, int64, int64) error           { return nil }
-func (m *mockStore) MarkDownloadStarted(int64) error                            { return nil }
-func (m *mockStore) MarkDownloadCompleted(int64, string, int64) error           { return nil }
-func (m *mockStore) UpdateDownloadMetadata(int64, string, int64) error          { return nil }
-func (m *mockStore) MarkDownloadFailed(int64, string) error                     { return nil }
-func (m *mockStore) MarkDownloadSkipped(int64) error                            { return nil }
-func (m *mockStore) MarkDownloadPaused(int64) error                             { return nil }
-func (m *mockStore) MarkDownloadRetry(int64, string) error                      { return nil }
-func (m *mockStore) DeleteDownload(int64) error                                 { return nil }
-func (m *mockStore) RetryDownload(int64) error                                  { return nil }
-func (m *mockStore) GetDownloadHistory(int, int, store.HistoryFilter) ([]store.DownloadRecord, int, error) {
+func (m *mockStore) EnqueueDownload(ctx context.Context, d store.DownloadRecord) (int64, error) {
+	return 1, nil
+}
+func (m *mockStore) GetDownload(ctx context.Context, id int64) (*store.DownloadRecord, error) {
+	return nil, nil
+}
+func (m *mockStore) GetQueue(ctx context.Context) ([]store.DownloadRecord, error) { return nil, nil }
+func (m *mockStore) GetQueueByChannel(ctx context.Context, channel string) ([]store.DownloadRecord, error) {
+	return nil, nil
+}
+func (m *mockStore) GetActiveDownloads(ctx context.Context) ([]store.DownloadRecord, error) {
+	return nil, nil
+}
+func (m *mockStore) GetPendingByChannel(ctx context.Context, channel string) ([]store.DownloadRecord, error) {
+	return nil, nil
+}
+func (m *mockStore) UpdateDownloadProgress(ctx context.Context, id int64, progressBytes int64, speedBPS int64) error {
+	return nil
+}
+func (m *mockStore) MarkDownloadStarted(ctx context.Context, id int64) error { return nil }
+func (m *mockStore) MarkDownloadCompleted(ctx context.Context, id int64, filename string, fileSize int64) error {
+	return nil
+}
+func (m *mockStore) UpdateDownloadMetadata(ctx context.Context, id int64, filename string, fileSize int64) error {
+	return nil
+}
+func (m *mockStore) MarkDownloadFailed(ctx context.Context, id int64, errMsg string) error {
+	return nil
+}
+func (m *mockStore) MarkDownloadSkipped(ctx context.Context, id int64) error              { return nil }
+func (m *mockStore) MarkDownloadPaused(ctx context.Context, id int64) error               { return nil }
+func (m *mockStore) MarkDownloadRetry(ctx context.Context, id int64, errMsg string) error { return nil }
+func (m *mockStore) DeleteDownload(ctx context.Context, id int64) error                   { return nil }
+func (m *mockStore) RetryDownload(ctx context.Context, id int64) error                    { return nil }
+func (m *mockStore) GetDownloadHistory(ctx context.Context, limit int, offset int, filter store.HistoryFilter) ([]store.DownloadRecord, int, error) {
 	return nil, 0, nil
 }
-func (m *mockStore) RecoverDownloadsOnStartup() ([]store.DownloadRecord, error) { return nil, nil }
-func (m *mockStore) RequeueDownload(int64) error                                { return nil }
-func (m *mockStore) SetDownloadPriority(int64, int) error                       { return nil }
-func (m *mockStore) BulkActionDownloads([]int64, string) (map[int64]string, error) {
+func (m *mockStore) RecoverDownloadsOnStartup(ctx context.Context) ([]store.DownloadRecord, error) {
 	return nil, nil
 }
-func (m *mockStore) FindDuplicateDownload(string, string, int) (*store.DownloadRecord, error) {
+func (m *mockStore) RequeueDownload(ctx context.Context, id int64) error { return nil }
+func (m *mockStore) SetDownloadPriority(ctx context.Context, id int64, priority int) error {
+	return nil
+}
+func (m *mockStore) BulkActionDownloads(ctx context.Context, ids []int64, action string) (map[int64]string, error) {
 	return nil, nil
 }
-func (m *mockStore) GetDownloadByBotMessage(string, string) (*store.DownloadRecord, error) {
+func (m *mockStore) FindDuplicateDownload(ctx context.Context, bot string, serverAddress string, packNumber int) (*store.DownloadRecord, error) {
+	return nil, nil
+}
+func (m *mockStore) GetDownloadByBotMessage(ctx context.Context, bot string, packMessage string) (*store.DownloadRecord, error) {
 	return nil, nil
 }
 
-func (m *mockStore) SetSearchCache(store.SearchCacheEntry) error { return nil }
-func (m *mockStore) GetSearchCache(string, string) (*store.SearchCacheEntry, error) {
+func (m *mockStore) SetSearchCache(ctx context.Context, e store.SearchCacheEntry) error { return nil }
+func (m *mockStore) GetSearchCache(ctx context.Context, query string, provider string) (*store.SearchCacheEntry, error) {
 	return nil, nil
 }
-func (m *mockStore) GetSearchCacheByQuery(string) ([]store.SearchCacheEntry, error) {
+func (m *mockStore) GetSearchCacheByQuery(ctx context.Context, query string) ([]store.SearchCacheEntry, error) {
 	return nil, nil
 }
-func (m *mockStore) DeleteExpiredSearchCache(time.Time) error { return nil }
+func (m *mockStore) DeleteExpiredSearchCache(ctx context.Context, t time.Time) error { return nil }
 
-func (m *mockStore) AddSearchPreset(store.SearchPreset) (int64, error)  { return 1, nil }
-func (m *mockStore) GetSearchPreset(int64) (*store.SearchPreset, error) { return nil, nil }
-func (m *mockStore) ListSearchPresets() ([]store.SearchPreset, error)   { return nil, nil }
-func (m *mockStore) UpdateSearchPreset(store.SearchPreset) error        { return nil }
-func (m *mockStore) DeleteSearchPreset(int64) error                     { return nil }
-func (m *mockStore) SetDefaultSearchPreset(int64) error                 { return nil }
-
-func (m *mockStore) AddWatchlist(store.Watchlist) (int64, error)      { return 1, nil }
-func (m *mockStore) GetWatchlist(int64) (*store.Watchlist, error)     { return nil, nil }
-func (m *mockStore) GetTotalDownloadedBytes() (int64, error)          { return 0, nil }
-func (m *mockStore) ListWatchlists() ([]store.Watchlist, error)       { return nil, nil }
-func (m *mockStore) UpdateWatchlist(store.Watchlist) error            { return nil }
-func (m *mockStore) DeleteWatchlist(int64) error                      { return nil }
-func (m *mockStore) SetWatchlistChecked(int64, string) error          { return nil }
-func (m *mockStore) SetWatchlistNotified(int64) error                 { return nil }
-func (m *mockStore) GetEnabledWatchlists() ([]store.Watchlist, error) { return nil, nil }
-
-func (m *mockStore) RecordProviderStats(store.ProviderStats) error { return nil }
-func (m *mockStore) GetProviderStats(string, time.Time) ([]store.ProviderStats, error) {
+func (m *mockStore) AddSearchPreset(ctx context.Context, p store.SearchPreset) (int64, error) {
+	return 1, nil
+}
+func (m *mockStore) GetSearchPreset(ctx context.Context, id int64) (*store.SearchPreset, error) {
 	return nil, nil
 }
-func (m *mockStore) GetAllProviderStats(time.Time) (map[string][]store.ProviderStats, error) {
+func (m *mockStore) ListSearchPresets(ctx context.Context) ([]store.SearchPreset, error) {
 	return nil, nil
 }
-func (m *mockStore) CleanupOldDownloads(int) (int, error) { return 0, nil }
-func (m *mockStore) RunCleanup(int, time.Duration) (chan struct{}, chan struct{}, error) {
+func (m *mockStore) UpdateSearchPreset(ctx context.Context, p store.SearchPreset) error { return nil }
+func (m *mockStore) DeleteSearchPreset(ctx context.Context, id int64) error             { return nil }
+func (m *mockStore) SetDefaultSearchPreset(ctx context.Context, id int64) error         { return nil }
+
+func (m *mockStore) AddWatchlist(ctx context.Context, w store.Watchlist) (int64, error) {
+	return 1, nil
+}
+func (m *mockStore) GetWatchlist(ctx context.Context, id int64) (*store.Watchlist, error) {
+	return nil, nil
+}
+func (m *mockStore) GetTotalDownloadedBytes(ctx context.Context) (int64, error)    { return 0, nil }
+func (m *mockStore) ListWatchlists(ctx context.Context) ([]store.Watchlist, error) { return nil, nil }
+func (m *mockStore) UpdateWatchlist(ctx context.Context, w store.Watchlist) error  { return nil }
+func (m *mockStore) DeleteWatchlist(ctx context.Context, id int64) error           { return nil }
+func (m *mockStore) SetWatchlistChecked(ctx context.Context, id int64, query string) error {
+	return nil
+}
+func (m *mockStore) SetWatchlistNotified(ctx context.Context, id int64) error { return nil }
+func (m *mockStore) GetEnabledWatchlists(ctx context.Context) ([]store.Watchlist, error) {
+	return nil, nil
+}
+
+func (m *mockStore) RecordProviderStats(ctx context.Context, s store.ProviderStats) error { return nil }
+func (m *mockStore) GetProviderStats(ctx context.Context, provider string, since time.Time) ([]store.ProviderStats, error) {
+	return nil, nil
+}
+func (m *mockStore) GetAllProviderStats(ctx context.Context, since time.Time) (map[string][]store.ProviderStats, error) {
+	return nil, nil
+}
+func (m *mockStore) CleanupOldDownloads(ctx context.Context, retentionDays int) (int, error) {
+	return 0, nil
+}
+func (m *mockStore) RunCleanup(ctx context.Context, retentionDays int, cleanupInterval time.Duration) (chan struct{}, chan struct{}, error) {
 	return nil, nil, nil
 }
-func (m *mockStore) Vacuum() error                          { return nil }
-func (m *mockStore) ExportData() (*store.ExportData, error) { return &store.ExportData{}, nil }
-func (m *mockStore) ImportData(*store.ExportData) error     { return nil }
-func (m *mockStore) BackupDatabase(string) error            { return nil }
+func (m *mockStore) Vacuum(ctx context.Context) error { return nil }
+func (m *mockStore) ExportData(ctx context.Context) (*store.ExportData, error) {
+	return &store.ExportData{}, nil
+}
+func (m *mockStore) ImportData(ctx context.Context, data *store.ExportData) error { return nil }
+func (m *mockStore) BackupDatabase(ctx context.Context, path string) error        { return nil }
 
 // ===========================================================================
 // Test helpers

@@ -73,7 +73,15 @@ type Logger struct {
 	filePath     string
 	maxSizeMB    int
 	extraWriters []io.Writer // additional outputs added via AddWriter
+
+	// writeCount tracks writes since the last rotation check. Rotation checks
+	// (os.Stat on the log file) happen every checkRotateInterval writes to
+	// avoid a syscall on every single log line at high throughput.
+	writeCount int64
 }
+
+// checkRotateInterval is the number of log writes between rotation checks.
+const checkRotateInterval = 100
 
 // New creates a new Logger.
 //   - level: minimum level to log
@@ -242,9 +250,13 @@ func (l *Logger) log(level Level, msg string, kv ...interface{}) {
 	now := time.Now().Format(time.RFC3339)
 	parts := formatKeyValues(kv...)
 
-	// Check file size for rotation
+	// Check file size for rotation (throttled to avoid os.Stat per write)
 	if l.file != nil && l.maxSizeMB > 0 {
-		l.rotateIfNeeded()
+		l.writeCount++
+		if l.writeCount >= checkRotateInterval {
+			l.writeCount = 0
+			l.rotateIfNeeded()
+		}
 	}
 
 	line := fmt.Sprintf("%s [%s] %s %s\n", now, level.String(), msg, parts)

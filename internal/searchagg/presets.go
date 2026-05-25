@@ -11,8 +11,8 @@ import (
 // ---------------------------------------------------------------------------
 
 // CreatePreset creates a new search preset.
-func (a *Aggregator) CreatePreset(name, query, filtersJSON string, isDefault bool) (int64, error) {
-	return a.store.AddSearchPreset(store.SearchPreset{
+func (a *Aggregator) CreatePreset(ctx context.Context, name, query, filtersJSON string, isDefault bool) (int64, error) {
+	return a.store.AddSearchPreset(ctx, store.SearchPreset{
 		Name:        name,
 		Query:       query,
 		FiltersJSON: filtersJSON,
@@ -21,33 +21,33 @@ func (a *Aggregator) CreatePreset(name, query, filtersJSON string, isDefault boo
 }
 
 // GetPreset returns a preset by ID.
-func (a *Aggregator) GetPreset(id int64) (*store.SearchPreset, error) {
-	return a.store.GetSearchPreset(id)
+func (a *Aggregator) GetPreset(ctx context.Context, id int64) (*store.SearchPreset, error) {
+	return a.store.GetSearchPreset(ctx, id)
 }
 
 // ListPresets returns all search presets.
-func (a *Aggregator) ListPresets() ([]store.SearchPreset, error) {
-	return a.store.ListSearchPresets()
+func (a *Aggregator) ListPresets(ctx context.Context) ([]store.SearchPreset, error) {
+	return a.store.ListSearchPresets(ctx)
 }
 
 // UpdatePreset updates an existing preset.
-func (a *Aggregator) UpdatePreset(p store.SearchPreset) error {
-	return a.store.UpdateSearchPreset(p)
+func (a *Aggregator) UpdatePreset(ctx context.Context, p store.SearchPreset) error {
+	return a.store.UpdateSearchPreset(ctx, p)
 }
 
 // DeletePreset deletes a preset.
-func (a *Aggregator) DeletePreset(id int64) error {
-	return a.store.DeleteSearchPreset(id)
+func (a *Aggregator) DeletePreset(ctx context.Context, id int64) error {
+	return a.store.DeleteSearchPreset(ctx, id)
 }
 
 // SetDefaultPreset marks a preset as the default.
-func (a *Aggregator) SetDefaultPreset(id int64) error {
-	return a.store.SetDefaultSearchPreset(id)
+func (a *Aggregator) SetDefaultPreset(ctx context.Context, id int64) error {
+	return a.store.SetDefaultSearchPreset(ctx, id)
 }
 
 // SearchPreset executes a saved preset's search.
 func (a *Aggregator) SearchPreset(ctx context.Context, presetID int64, opts SearchOptions) (*SearchResult, error) {
-	preset, err := a.store.GetSearchPreset(presetID)
+	preset, err := a.store.GetSearchPreset(ctx, presetID)
 	if err != nil || preset == nil {
 		return nil, err
 	}

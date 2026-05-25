@@ -63,30 +63,31 @@ func (h *Hub[T]) Close() {
 // Publish fans out an event to all subscribers. If a subscriber's buffer is
 // full, the event is silently dropped to prevent blocking the publisher.
 //
-// The subscriber slice is snapshotted under RLock to avoid writer starvation:
-// Unsubscribe (which takes a write lock) is never blocked by the send loop.
+// The entire broadcast executes under a write lock so that a concurrent
+// Close or Unsubscribe cannot close a subscriber channel while we are
+// sending to it (TOCTOU race). Since every send uses a non-blocking select,
+// holding the lock for the duration of the broadcast is safe and eliminates
+// the need for fragile recover() guards.
 //
-// A recover guard catches the edge case where Close() concurrently closes
-// a subscriber channel between our snapshot and the send (TOCTOU race).
-// This is safe because the panic from sending on a closed channel is
-// deterministic and recoverable; the event is simply dropped.
+// This matches the approach used in internal/sse/hub.go.
 func (h *Hub[T]) Publish(evt T) {
 	// Fast-path check: if already closed, skip entirely.
 	if h.closed.Load() {
 		return
 	}
-	h.mu.RLock()
-	subscribers := make([]chan T, len(h.subscribers))
-	copy(subscribers, h.subscribers)
-	h.mu.RUnlock()
-	for _, ch := range subscribers {
-		func() {
-			defer func() { _ = recover() }()
-			select {
-			case ch <- evt:
-			default:
-				// Drop event if subscriber is not consuming fast enough
-			}
-		}()
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	// Double-check now that we hold the lock.
+	if h.closed.Load() {
+		return
+	}
+
+	for _, ch := range h.subscribers {
+		select {
+		case ch <- evt:
+		default:
+			// Drop event if subscriber is not consuming fast enough
+		}
 	}
 }

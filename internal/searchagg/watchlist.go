@@ -83,7 +83,7 @@ func (a *Aggregator) RunWatchlist(ctx context.Context, w store.Watchlist) (*Watc
 
 	// Auto-enqueue new packs
 	if wr.HasChanges && w.AutoEnqueue && len(wr.NewPacks) > 0 {
-		enqueued, err := a.enqueueNewPacks(wr.NewPacks)
+		enqueued, err := a.enqueueNewPacks(ctx, wr.NewPacks)
 		if err != nil {
 			a.log.Warnf("watchlist %d: auto-enqueue error: %v", w.ID, err)
 		}
@@ -91,10 +91,10 @@ func (a *Aggregator) RunWatchlist(ctx context.Context, w store.Watchlist) (*Watc
 	}
 
 	// Update the watchlist in the store
-	_ = a.store.SetWatchlistChecked(w.ID, fingerprint)
+	_ = a.store.SetWatchlistChecked(ctx, w.ID, fingerprint)
 	if wr.HasChanges && !w.AutoEnqueue {
 		// Mark as needing notification
-		_ = a.store.SetWatchlistNotified(w.ID)
+		_ = a.store.SetWatchlistNotified(ctx, w.ID)
 	}
 
 	return wr, nil
@@ -102,7 +102,7 @@ func (a *Aggregator) RunWatchlist(ctx context.Context, w store.Watchlist) (*Watc
 
 // RunAllWatchlists executes all enabled watchlists.
 func (a *Aggregator) RunAllWatchlists(ctx context.Context) ([]*WatchlistRunResult, error) {
-	watchlists, err := a.store.GetEnabledWatchlists()
+	watchlists, err := a.store.GetEnabledWatchlists(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("getting enabled watchlists: %w", err)
 	}
@@ -181,7 +181,7 @@ func findNewPacks(packs []*entities.XDCCPack, prevFingerprint string) []*entitie
 // ---------------------------------------------------------------------------
 
 // enqueueNewPacks automatically enqueues packs from a watchlist result.
-func (a *Aggregator) enqueueNewPacks(packs []*entities.XDCCPack) (int, error) {
+func (a *Aggregator) enqueueNewPacks(ctx context.Context, packs []*entities.XDCCPack) (int, error) {
 	enqueued := 0
 	for _, p := range packs {
 		// Build a pack message
@@ -204,7 +204,7 @@ func (a *Aggregator) enqueueNewPacks(packs []*entities.XDCCPack) (int, error) {
 			Priority:      100,
 		}
 
-		_, err := a.store.EnqueueDownload(d)
+		_, err := a.store.EnqueueDownload(ctx, d)
 		if err != nil {
 			// Skip duplicates and other errors
 			continue

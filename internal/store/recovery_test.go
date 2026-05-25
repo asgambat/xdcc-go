@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -15,7 +16,7 @@ func TestRecoverDownloadsOnStartup_NoStuck(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	recovered, err := s.RecoverDownloadsOnStartup()
+	recovered, err := s.RecoverDownloadsOnStartup(context.Background())
 	if err != nil {
 		t.Fatalf("RecoverDownloadsOnStartup: %v", err)
 	}
@@ -28,13 +29,13 @@ func TestRecoverDownloadsOnStartup_RequeuesDownloading(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	id, _ := s.EnqueueDownload(DownloadRecord{
+	id, _ := s.EnqueueDownload(context.Background(), DownloadRecord{
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x",
 		Filename: "test.mkv", FileSize: 1000,
 	})
-	_ = s.MarkDownloadStarted(id)
+	_ = s.MarkDownloadStarted(context.Background(), id)
 
-	recovered, err := s.RecoverDownloadsOnStartup()
+	recovered, err := s.RecoverDownloadsOnStartup(context.Background())
 	if err != nil {
 		t.Fatalf("RecoverDownloadsOnStartup: %v", err)
 	}
@@ -45,7 +46,7 @@ func TestRecoverDownloadsOnStartup_RequeuesDownloading(t *testing.T) {
 		t.Errorf("expected recovered id %d, got %d", id, recovered[0].ID)
 	}
 
-	d, _ := s.GetDownload(id)
+	d, _ := s.GetDownload(context.Background(), id)
 	if d.Status != DownloadStatusQueued {
 		t.Errorf("expected status 'queued' after recovery, got %s", d.Status)
 	}
@@ -59,26 +60,26 @@ func TestRecoverDownloadsOnStartup_OnlyDownloading(t *testing.T) {
 	defer closeStore(t, s)
 
 	// Completed download should NOT be recovered
-	idCompleted, _ := s.EnqueueDownload(DownloadRecord{
+	idCompleted, _ := s.EnqueueDownload(context.Background(), DownloadRecord{
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x",
 		Filename: "done.mkv", FileSize: 100,
 	})
-	_ = s.MarkDownloadCompleted(idCompleted, "", 0)
+	_ = s.MarkDownloadCompleted(context.Background(), idCompleted, "", 0)
 
 	// Queued download should NOT be recovered
-	_, _ = s.EnqueueDownload(DownloadRecord{
+	_, _ = s.EnqueueDownload(context.Background(), DownloadRecord{
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x",
 		Filename: "pending.mkv", FileSize: 100,
 	})
 
 	// Downloading status should be recovered
-	idStuck, _ := s.EnqueueDownload(DownloadRecord{
+	idStuck, _ := s.EnqueueDownload(context.Background(), DownloadRecord{
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x",
 		Filename: "stuck.mkv", FileSize: 100,
 	})
-	_ = s.MarkDownloadStarted(idStuck)
+	_ = s.MarkDownloadStarted(context.Background(), idStuck)
 
-	recovered, _ := s.RecoverDownloadsOnStartup()
+	recovered, _ := s.RecoverDownloadsOnStartup(context.Background())
 	if len(recovered) != 1 {
 		t.Errorf("expected exactly 1 recovered download, got %d", len(recovered))
 	}
@@ -95,7 +96,7 @@ func TestReconcileFileSystem_NoIssues(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	actions, err := s.ReconcileFileSystem(t.TempDir(), "skip", "")
+	actions, err := s.ReconcileFileSystem(context.Background(), t.TempDir(), "skip", "")
 	if err != nil {
 		t.Fatalf("ReconcileFileSystem: %v", err)
 	}
@@ -109,13 +110,13 @@ func TestReconcileFileSystem_MissingTempFile(t *testing.T) {
 	defer closeStore(t, s)
 
 	// Create a 'downloading' record with a temp file path that doesn't exist
-	id, _ := s.EnqueueDownload(DownloadRecord{
+	id, _ := s.EnqueueDownload(context.Background(), DownloadRecord{
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x",
 		Filename: "missing_temp.mkv", FileSize: 1000,
 	})
-	_ = s.MarkDownloadStarted(id)
+	_ = s.MarkDownloadStarted(context.Background(), id)
 
-	actions, err := s.ReconcileFileSystem(t.TempDir(), "skip", "")
+	actions, err := s.ReconcileFileSystem(context.Background(), t.TempDir(), "skip", "")
 	if err != nil {
 		t.Fatalf("ReconcileFileSystem: %v", err)
 	}
@@ -143,7 +144,7 @@ func TestReconcileFileSystem_OrphanedFileDelete(t *testing.T) {
 		t.Fatalf("creating orphaned file: %v", err)
 	}
 
-	actions, err := s.ReconcileFileSystem(tempDir, "delete", "")
+	actions, err := s.ReconcileFileSystem(context.Background(), tempDir, "delete", "")
 	if err != nil {
 		t.Fatalf("ReconcileFileSystem: %v", err)
 	}
@@ -175,7 +176,7 @@ func TestReconcileFileSystem_OrphanedFileMove(t *testing.T) {
 		t.Fatalf("creating orphaned file: %v", err)
 	}
 
-	actions, err := s.ReconcileFileSystem(tempDir, "move", orphanedDir)
+	actions, err := s.ReconcileFileSystem(context.Background(), tempDir, "move", orphanedDir)
 	if err != nil {
 		t.Fatalf("ReconcileFileSystem: %v", err)
 	}
@@ -206,7 +207,7 @@ func TestReconcileFileSystem_NonOrphanedFileSkipped(t *testing.T) {
 	tempDir := t.TempDir()
 
 	// Create a queued download with a filename that exists as temp file
-	_, _ = s.EnqueueDownload(DownloadRecord{
+	_, _ = s.EnqueueDownload(context.Background(), DownloadRecord{
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x",
 		Filename: "active.mkv", FileSize: 1000,
 	})
@@ -216,7 +217,7 @@ func TestReconcileFileSystem_NonOrphanedFileSkipped(t *testing.T) {
 		t.Fatalf("creating temp file: %v", err)
 	}
 
-	actions, err := s.ReconcileFileSystem(tempDir, "delete", "")
+	actions, err := s.ReconcileFileSystem(context.Background(), tempDir, "delete", "")
 	if err != nil {
 		t.Fatalf("ReconcileFileSystem: %v", err)
 	}
@@ -239,7 +240,7 @@ func TestReconcileFileSystem_OrphanedFileSkip(t *testing.T) {
 		t.Fatalf("creating orphaned file: %v", err)
 	}
 
-	actions, err := s.ReconcileFileSystem(tempDir, "unknown_policy", "")
+	actions, err := s.ReconcileFileSystem(context.Background(), tempDir, "unknown_policy", "")
 	if err != nil {
 		t.Fatalf("ReconcileFileSystem: %v", err)
 	}
@@ -271,16 +272,16 @@ func TestCleanupOldDownloads(t *testing.T) {
 	now := time.Now()
 
 	// Create a completed download (will be marked with completed_at = now by MarkDownloadCompleted)
-	id1, _ := s.EnqueueDownload(DownloadRecord{
+	id1, _ := s.EnqueueDownload(context.Background(), DownloadRecord{
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x",
 		Filename: "old.mkv", FileSize: 100,
 	})
-	_ = s.MarkDownloadCompleted(id1, "", 0)
+	_ = s.MarkDownloadCompleted(context.Background(), id1, "", 0)
 
 	// We can't easily set completed_at to a past date via the API,
 	// so let's just verify the SQL filters work by checking that cleanup
 	// with retentionDays=0 would catch recent items
-	deleted, err := s.CleanupOldDownloads(0)
+	deleted, err := s.CleanupOldDownloads(context.Background(), 0)
 	if err != nil {
 		t.Fatalf("CleanupOldDownloads: %v", err)
 	}
@@ -289,14 +290,14 @@ func TestCleanupOldDownloads(t *testing.T) {
 	}
 
 	// Create a failed download
-	id2, _ := s.EnqueueDownload(DownloadRecord{
+	id2, _ := s.EnqueueDownload(context.Background(), DownloadRecord{
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x",
 		Filename: "failed.mkv", FileSize: 100,
 	})
-	_ = s.MarkDownloadFailed(id2, "error")
+	_ = s.MarkDownloadFailed(context.Background(), id2, "error")
 
 	_ = now // used for potential future enhancements
-	_, _ = s.CleanupOldDownloads(0)
+	_, _ = s.CleanupOldDownloads(context.Background(), 0)
 }
 
 func TestCleanupOldDownloads_DoesNotDeleteQueued(t *testing.T) {
@@ -304,12 +305,12 @@ func TestCleanupOldDownloads_DoesNotDeleteQueued(t *testing.T) {
 	defer closeStore(t, s)
 
 	// Queued download should NOT be deleted
-	_, _ = s.EnqueueDownload(DownloadRecord{
+	_, _ = s.EnqueueDownload(context.Background(), DownloadRecord{
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x",
 		Filename: "pending.mkv", FileSize: 100,
 	})
 
-	deleted, err := s.CleanupOldDownloads(0)
+	deleted, err := s.CleanupOldDownloads(context.Background(), 0)
 	if err != nil {
 		t.Fatalf("CleanupOldDownloads: %v", err)
 	}
@@ -326,7 +327,7 @@ func TestRunCleanup_StopChannel(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	stopCh, doneCh, err := s.RunCleanup(30, 100*time.Millisecond)
+	stopCh, doneCh, err := s.RunCleanup(context.Background(), 30, 100*time.Millisecond)
 	if err != nil {
 		t.Fatalf("RunCleanup: %v", err)
 	}

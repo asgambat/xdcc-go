@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -20,7 +21,7 @@ func newTestStore(tb testing.TB) *SQLiteStore {
 	if err != nil {
 		tb.Fatalf("NewSQLiteStore: %v", err)
 	}
-	if err := s.Migrate(); err != nil {
+	if err := s.Migrate(context.Background()); err != nil {
 		tb.Fatalf("Migrate: %v", err)
 	}
 
@@ -54,7 +55,7 @@ func TestAddServer(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	id, err := s.AddServer(ServerRecord{
+	id, err := s.AddServer(context.Background(), ServerRecord{
 		Address:     "irc.test.net",
 		Port:        6667,
 		AutoConnect: true,
@@ -72,7 +73,7 @@ func TestGetServer_NotFound(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	srv, err := s.GetServer(999)
+	srv, err := s.GetServer(context.Background(), 999)
 	if err != nil {
 		t.Fatalf("GetServer: %v", err)
 	}
@@ -85,8 +86,8 @@ func TestGetServer_Found(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	id, _ := s.AddServer(ServerRecord{Address: "irc.example.com", Port: 6667, Status: "disconnected"})
-	srv, err := s.GetServer(id)
+	id, _ := s.AddServer(context.Background(), ServerRecord{Address: "irc.example.com", Port: 6667, Status: "disconnected"})
+	srv, err := s.GetServer(context.Background(), id)
 	if err != nil {
 		t.Fatalf("GetServer: %v", err)
 	}
@@ -108,7 +109,7 @@ func TestListServers_Empty(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	servers, err := s.ListServers()
+	servers, err := s.ListServers(context.Background())
 	if err != nil {
 		t.Fatalf("ListServers: %v", err)
 	}
@@ -121,10 +122,10 @@ func TestListServers_Multiple(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	_, _ = s.AddServer(ServerRecord{Address: "irc.alpha.net", Port: 6667, Status: "disconnected"})
-	_, _ = s.AddServer(ServerRecord{Address: "irc.beta.net", Port: 6667, Status: "connected"})
+	_, _ = s.AddServer(context.Background(), ServerRecord{Address: "irc.alpha.net", Port: 6667, Status: "disconnected"})
+	_, _ = s.AddServer(context.Background(), ServerRecord{Address: "irc.beta.net", Port: 6667, Status: "connected"})
 
-	servers, err := s.ListServers()
+	servers, err := s.ListServers(context.Background())
 	if err != nil {
 		t.Fatalf("ListServers: %v", err)
 	}
@@ -137,13 +138,13 @@ func TestUpdateServer(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	id, _ := s.AddServer(ServerRecord{Address: "irc.old.net", Port: 6667, Status: "disconnected"})
-	err := s.UpdateServer(ServerRecord{ID: id, Address: "irc.new.net", Port: 6667, Status: "connected"})
+	id, _ := s.AddServer(context.Background(), ServerRecord{Address: "irc.old.net", Port: 6667, Status: "disconnected"})
+	err := s.UpdateServer(context.Background(), ServerRecord{ID: id, Address: "irc.new.net", Port: 6667, Status: "connected"})
 	if err != nil {
 		t.Fatalf("UpdateServer: %v", err)
 	}
 
-	srv, _ := s.GetServer(id)
+	srv, _ := s.GetServer(context.Background(), id)
 	if srv.Address != "irc.new.net" {
 		t.Errorf("expected address updated to irc.new.net, got %s", srv.Address)
 	}
@@ -153,13 +154,13 @@ func TestDeleteServer(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	id, _ := s.AddServer(ServerRecord{Address: "irc.del.net", Port: 6667, Status: "disconnected"})
-	err := s.DeleteServer(id)
+	id, _ := s.AddServer(context.Background(), ServerRecord{Address: "irc.del.net", Port: 6667, Status: "disconnected"})
+	err := s.DeleteServer(context.Background(), id)
 	if err != nil {
 		t.Fatalf("DeleteServer: %v", err)
 	}
 
-	srv, _ := s.GetServer(id)
+	srv, _ := s.GetServer(context.Background(), id)
 	if srv != nil {
 		t.Errorf("expected deleted server to be nil, got %+v", srv)
 	}
@@ -169,13 +170,13 @@ func TestSetServerStatus(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	id, _ := s.AddServer(ServerRecord{Address: "irc.status.net", Port: 6667, Status: "disconnected"})
-	err := s.SetServerStatus(id, "connected")
+	id, _ := s.AddServer(context.Background(), ServerRecord{Address: "irc.status.net", Port: 6667, Status: "disconnected"})
+	err := s.SetServerStatus(context.Background(), id, "connected")
 	if err != nil {
 		t.Fatalf("SetServerStatus: %v", err)
 	}
 
-	srv, _ := s.GetServer(id)
+	srv, _ := s.GetServer(context.Background(), id)
 	if srv.Status != "connected" {
 		t.Errorf("expected status 'connected', got %s", srv.Status)
 	}
@@ -185,13 +186,13 @@ func TestSetServerConnected(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	id, _ := s.AddServer(ServerRecord{Address: "irc.conn.net", Port: 6667, Status: "disconnected", RetryCount: 3})
-	err := s.SetServerConnected(id)
+	id, _ := s.AddServer(context.Background(), ServerRecord{Address: "irc.conn.net", Port: 6667, Status: "disconnected", RetryCount: 3})
+	err := s.SetServerConnected(context.Background(), id)
 	if err != nil {
 		t.Fatalf("SetServerConnected: %v", err)
 	}
 
-	srv, _ := s.GetServer(id)
+	srv, _ := s.GetServer(context.Background(), id)
 	if srv.Status != "connected" {
 		t.Errorf("expected status 'connected', got %s", srv.Status)
 	}
@@ -207,13 +208,13 @@ func TestIncrementServerRetry(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	id, _ := s.AddServer(ServerRecord{Address: "irc.retry.net", Port: 6667, Status: "connected"})
-	err := s.IncrementServerRetry(id)
+	id, _ := s.AddServer(context.Background(), ServerRecord{Address: "irc.retry.net", Port: 6667, Status: "connected"})
+	err := s.IncrementServerRetry(context.Background(), id)
 	if err != nil {
 		t.Fatalf("IncrementServerRetry: %v", err)
 	}
 
-	srv, _ := s.GetServer(id)
+	srv, _ := s.GetServer(context.Background(), id)
 	if srv.RetryCount != 1 {
 		t.Errorf("expected retry_count 1, got %d", srv.RetryCount)
 	}
@@ -230,8 +231,8 @@ func TestAddChannel(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	srvID, _ := s.AddServer(ServerRecord{Address: "irc.chan.net", Port: 6667})
-	chID, err := s.AddChannel(ChannelRecord{
+	srvID, _ := s.AddServer(context.Background(), ServerRecord{Address: "irc.chan.net", Port: 6667})
+	chID, err := s.AddChannel(context.Background(), ChannelRecord{
 		ServerID: srvID,
 		Name:     "#test",
 		AutoJoin: true,
@@ -248,11 +249,11 @@ func TestGetChannelsByServer(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	srvID, _ := s.AddServer(ServerRecord{Address: "irc.chan2.net", Port: 6667})
-	_, _ = s.AddChannel(ChannelRecord{ServerID: srvID, Name: "#alpha"})
-	_, _ = s.AddChannel(ChannelRecord{ServerID: srvID, Name: "#beta"})
+	srvID, _ := s.AddServer(context.Background(), ServerRecord{Address: "irc.chan2.net", Port: 6667})
+	_, _ = s.AddChannel(context.Background(), ChannelRecord{ServerID: srvID, Name: "#alpha"})
+	_, _ = s.AddChannel(context.Background(), ChannelRecord{ServerID: srvID, Name: "#beta"})
 
-	channels, err := s.GetChannelsByServer(srvID)
+	channels, err := s.GetChannelsByServer(context.Background(), srvID)
 	if err != nil {
 		t.Fatalf("GetChannelsByServer: %v", err)
 	}
@@ -261,7 +262,7 @@ func TestGetChannelsByServer(t *testing.T) {
 	}
 
 	// Wrong server ID
-	empty, _ := s.GetChannelsByServer(999)
+	empty, _ := s.GetChannelsByServer(context.Background(), 999)
 	if len(empty) != 0 {
 		t.Errorf("expected 0 channels for non-existent server, got %d", len(empty))
 	}
@@ -271,10 +272,10 @@ func TestGetChannelsByServerAndName(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	srvID, _ := s.AddServer(ServerRecord{Address: "irc.channelookup.net", Port: 6667})
-	chID, _ := s.AddChannel(ChannelRecord{ServerID: srvID, Name: "#lookup"})
+	srvID, _ := s.AddServer(context.Background(), ServerRecord{Address: "irc.channelookup.net", Port: 6667})
+	chID, _ := s.AddChannel(context.Background(), ChannelRecord{ServerID: srvID, Name: "#lookup"})
 
-	ch, err := s.GetChannelsByServerAndName(srvID, "#lookup")
+	ch, err := s.GetChannelsByServerAndName(context.Background(), srvID, "#lookup")
 	if err != nil {
 		t.Fatalf("GetChannelsByServerAndName: %v", err)
 	}
@@ -286,7 +287,7 @@ func TestGetChannelsByServerAndName(t *testing.T) {
 	}
 
 	// Not found
-	missing, _ := s.GetChannelsByServerAndName(srvID, "#missing")
+	missing, _ := s.GetChannelsByServerAndName(context.Background(), srvID, "#missing")
 	if missing != nil {
 		t.Errorf("expected nil for missing channel, got %+v", missing)
 	}
@@ -296,15 +297,15 @@ func TestUpdateChannel(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	srvID, _ := s.AddServer(ServerRecord{Address: "irc.updchan.net", Port: 6667})
-	chID, _ := s.AddChannel(ChannelRecord{ServerID: srvID, Name: "#old", AutoJoin: true})
+	srvID, _ := s.AddServer(context.Background(), ServerRecord{Address: "irc.updchan.net", Port: 6667})
+	chID, _ := s.AddChannel(context.Background(), ChannelRecord{ServerID: srvID, Name: "#old", AutoJoin: true})
 
-	err := s.UpdateChannel(ChannelRecord{ID: chID, ServerID: srvID, Name: "#old", Topic: "new topic", AutoJoin: true, Joined: true})
+	err := s.UpdateChannel(context.Background(), ChannelRecord{ID: chID, ServerID: srvID, Name: "#old", Topic: "new topic", AutoJoin: true, Joined: true})
 	if err != nil {
 		t.Fatalf("UpdateChannel: %v", err)
 	}
 
-	ch, _ := s.GetChannelsByServerAndName(srvID, "#old")
+	ch, _ := s.GetChannelsByServerAndName(context.Background(), srvID, "#old")
 	if ch.Topic != "new topic" {
 		t.Errorf("expected topic 'new topic', got %s", ch.Topic)
 	}
@@ -317,11 +318,11 @@ func TestSetChannelJoined(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	srvID, _ := s.AddServer(ServerRecord{Address: "irc.joined.net", Port: 6667})
-	chID, _ := s.AddChannel(ChannelRecord{ServerID: srvID, Name: "#joinedtest"})
+	srvID, _ := s.AddServer(context.Background(), ServerRecord{Address: "irc.joined.net", Port: 6667})
+	chID, _ := s.AddChannel(context.Background(), ChannelRecord{ServerID: srvID, Name: "#joinedtest"})
 
-	_ = s.SetChannelJoined(chID, true)
-	ch, _ := s.GetChannelsByServerAndName(srvID, "#joinedtest")
+	_ = s.SetChannelJoined(context.Background(), chID, true)
+	ch, _ := s.GetChannelsByServerAndName(context.Background(), srvID, "#joinedtest")
 	if !ch.Joined {
 		t.Errorf("expected joined=true after SetChannelJoined")
 	}
@@ -331,11 +332,11 @@ func TestDeleteChannel(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	srvID, _ := s.AddServer(ServerRecord{Address: "irc.delchan.net", Port: 6667})
-	chID, _ := s.AddChannel(ChannelRecord{ServerID: srvID, Name: "#delme"})
+	srvID, _ := s.AddServer(context.Background(), ServerRecord{Address: "irc.delchan.net", Port: 6667})
+	chID, _ := s.AddChannel(context.Background(), ChannelRecord{ServerID: srvID, Name: "#delme"})
 
-	_ = s.DeleteChannel(chID)
-	channels, _ := s.GetChannelsByServer(srvID)
+	_ = s.DeleteChannel(context.Background(), chID)
+	channels, _ := s.GetChannelsByServer(context.Background(), srvID)
 	if len(channels) != 0 {
 		t.Errorf("expected 0 channels after delete, got %d", len(channels))
 	}
@@ -346,19 +347,19 @@ func TestGetAutoJoinChannels(t *testing.T) {
 	defer closeStore(t, s)
 
 	// Add a server with auto_connect=true
-	srvID, _ := s.AddServer(ServerRecord{
+	srvID, _ := s.AddServer(context.Background(), ServerRecord{
 		Address: "irc.auto.net", Port: 6667, AutoConnect: true, Status: "disconnected",
 	})
-	_, _ = s.AddChannel(ChannelRecord{ServerID: srvID, Name: "#auto1", AutoJoin: true})
-	_, _ = s.AddChannel(ChannelRecord{ServerID: srvID, Name: "#auto2", AutoJoin: false})
+	_, _ = s.AddChannel(context.Background(), ChannelRecord{ServerID: srvID, Name: "#auto1", AutoJoin: true})
+	_, _ = s.AddChannel(context.Background(), ChannelRecord{ServerID: srvID, Name: "#auto2", AutoJoin: false})
 
 	// Add another server with auto_connect=false — its channels should NOT be returned
-	srvID2, _ := s.AddServer(ServerRecord{
+	srvID2, _ := s.AddServer(context.Background(), ServerRecord{
 		Address: "irc.manual.net", Port: 6667, AutoConnect: false,
 	})
-	_, _ = s.AddChannel(ChannelRecord{ServerID: srvID2, Name: "#manual", AutoJoin: true})
+	_, _ = s.AddChannel(context.Background(), ChannelRecord{ServerID: srvID2, Name: "#manual", AutoJoin: true})
 
-	autoChs, err := s.GetAutoJoinChannels()
+	autoChs, err := s.GetAutoJoinChannels(context.Background())
 	if err != nil {
 		t.Fatalf("GetAutoJoinChannels: %v", err)
 	}
@@ -378,7 +379,7 @@ func TestEnqueueAndGetDownload(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	id, err := s.EnqueueDownload(DownloadRecord{
+	id, err := s.EnqueueDownload(context.Background(), DownloadRecord{
 		PackMessage:   "xdcc send #1",
 		Bot:           "TestBot",
 		ServerAddress: "irc.test.net",
@@ -390,7 +391,7 @@ func TestEnqueueAndGetDownload(t *testing.T) {
 		t.Fatalf("EnqueueDownload: %v", err)
 	}
 
-	d, err := s.GetDownload(id)
+	d, err := s.GetDownload(context.Background(), id)
 	if err != nil {
 		t.Fatalf("GetDownload: %v", err)
 	}
@@ -410,11 +411,11 @@ func TestGetQueue(t *testing.T) {
 	defer closeStore(t, s)
 
 	// Enqueue 3 downloads
-	_, _ = s.EnqueueDownload(DownloadRecord{Bot: "Bot1", ServerAddress: "irc.t.net", Channel: "#a", Filename: "a.mkv", FileSize: 100})
-	_, _ = s.EnqueueDownload(DownloadRecord{Bot: "Bot2", ServerAddress: "irc.t.net", Channel: "#b", Filename: "b.mkv", FileSize: 200})
-	_, _ = s.EnqueueDownload(DownloadRecord{Bot: "Bot3", ServerAddress: "irc.t.net", Channel: "#c", Filename: "c.mkv", FileSize: 300})
+	_, _ = s.EnqueueDownload(context.Background(), DownloadRecord{Bot: "Bot1", ServerAddress: "irc.t.net", Channel: "#a", Filename: "a.mkv", FileSize: 100})
+	_, _ = s.EnqueueDownload(context.Background(), DownloadRecord{Bot: "Bot2", ServerAddress: "irc.t.net", Channel: "#b", Filename: "b.mkv", FileSize: 200})
+	_, _ = s.EnqueueDownload(context.Background(), DownloadRecord{Bot: "Bot3", ServerAddress: "irc.t.net", Channel: "#c", Filename: "c.mkv", FileSize: 300})
 
-	queue, err := s.GetQueue()
+	queue, err := s.GetQueue(context.Background())
 	if err != nil {
 		t.Fatalf("GetQueue: %v", err)
 	}
@@ -428,14 +429,14 @@ func TestGetQueue_OrderedByPriority(t *testing.T) {
 	defer closeStore(t, s)
 
 	// Enqueue with different priorities
-	id1, _ := s.EnqueueDownload(DownloadRecord{
+	id1, _ := s.EnqueueDownload(context.Background(), DownloadRecord{
 		Bot: "BotA", ServerAddress: "irc.t.net", Channel: "#a", Filename: "low.mkv", FileSize: 100, Priority: 200,
 	})
-	id2, _ := s.EnqueueDownload(DownloadRecord{
+	id2, _ := s.EnqueueDownload(context.Background(), DownloadRecord{
 		Bot: "BotB", ServerAddress: "irc.t.net", Channel: "#a", Filename: "high.mkv", FileSize: 100, Priority: 50,
 	})
 
-	queue, _ := s.GetQueue()
+	queue, _ := s.GetQueue(context.Background())
 	if len(queue) < 2 {
 		t.Fatal("expected at least 2 queue items")
 	}
@@ -452,16 +453,16 @@ func TestGetQueueByChannel(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	_, _ = s.EnqueueDownload(DownloadRecord{Bot: "Bot1", ServerAddress: "irc.t.net", Channel: "#xdcc", Filename: "a.mkv", FileSize: 100})
-	_, _ = s.EnqueueDownload(DownloadRecord{Bot: "Bot2", ServerAddress: "irc.t.net", Channel: "#other", Filename: "b.mkv", FileSize: 100})
-	_, _ = s.EnqueueDownload(DownloadRecord{Bot: "Bot3", ServerAddress: "irc.t.net", Channel: "#xdcc", Filename: "c.mkv", FileSize: 100})
+	_, _ = s.EnqueueDownload(context.Background(), DownloadRecord{Bot: "Bot1", ServerAddress: "irc.t.net", Channel: "#xdcc", Filename: "a.mkv", FileSize: 100})
+	_, _ = s.EnqueueDownload(context.Background(), DownloadRecord{Bot: "Bot2", ServerAddress: "irc.t.net", Channel: "#other", Filename: "b.mkv", FileSize: 100})
+	_, _ = s.EnqueueDownload(context.Background(), DownloadRecord{Bot: "Bot3", ServerAddress: "irc.t.net", Channel: "#xdcc", Filename: "c.mkv", FileSize: 100})
 
-	queue, _ := s.GetQueueByChannel("#xdcc")
+	queue, _ := s.GetQueueByChannel(context.Background(), "#xdcc")
 	if len(queue) != 2 {
 		t.Errorf("expected 2 items for #xdcc, got %d", len(queue))
 	}
 
-	other, _ := s.GetQueueByChannel("#nonexistent")
+	other, _ := s.GetQueueByChannel(context.Background(), "#nonexistent")
 	if len(other) != 0 {
 		t.Errorf("expected 0 items for nonexistent channel, got %d", len(other))
 	}
@@ -471,15 +472,15 @@ func TestMarkDownloadStarted(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	id, _ := s.EnqueueDownload(DownloadRecord{
+	id, _ := s.EnqueueDownload(context.Background(), DownloadRecord{
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x", Filename: "f.mkv", FileSize: 100,
 	})
-	err := s.MarkDownloadStarted(id)
+	err := s.MarkDownloadStarted(context.Background(), id)
 	if err != nil {
 		t.Fatalf("MarkDownloadStarted: %v", err)
 	}
 
-	d, _ := s.GetDownload(id)
+	d, _ := s.GetDownload(context.Background(), id)
 	if d.Status != DownloadStatusDownloading {
 		t.Errorf("expected status 'downloading', got %s", d.Status)
 	}
@@ -492,12 +493,12 @@ func TestUpdateDownloadProgress(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	id, _ := s.EnqueueDownload(DownloadRecord{
+	id, _ := s.EnqueueDownload(context.Background(), DownloadRecord{
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x", Filename: "f.mkv", FileSize: 1000,
 	})
 
-	_ = s.UpdateDownloadProgress(id, 500, 100)
-	d, _ := s.GetDownload(id)
+	_ = s.UpdateDownloadProgress(context.Background(), id, 500, 100)
+	d, _ := s.GetDownload(context.Background(), id)
 	if d.ProgressBytes != 500 {
 		t.Errorf("expected progress 500, got %d", d.ProgressBytes)
 	}
@@ -510,18 +511,18 @@ func TestMarkDownloadCompleted(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	id, _ := s.EnqueueDownload(DownloadRecord{
+	id, _ := s.EnqueueDownload(context.Background(), DownloadRecord{
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x", Filename: "f.mkv", FileSize: 1000,
 	})
-	_ = s.MarkDownloadStarted(id)
-	_ = s.UpdateDownloadProgress(id, 1000, 0)
+	_ = s.MarkDownloadStarted(context.Background(), id)
+	_ = s.UpdateDownloadProgress(context.Background(), id, 1000, 0)
 
-	err := s.MarkDownloadCompleted(id, "", 0)
+	err := s.MarkDownloadCompleted(context.Background(), id, "", 0)
 	if err != nil {
 		t.Fatalf("MarkDownloadCompleted: %v", err)
 	}
 
-	d, _ := s.GetDownload(id)
+	d, _ := s.GetDownload(context.Background(), id)
 	if d.Status != DownloadStatusCompleted {
 		t.Errorf("expected status 'completed', got %s", d.Status)
 	}
@@ -534,15 +535,15 @@ func TestMarkDownloadFailed(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	id, _ := s.EnqueueDownload(DownloadRecord{
+	id, _ := s.EnqueueDownload(context.Background(), DownloadRecord{
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x", Filename: "f.mkv", FileSize: 1000,
 	})
-	err := s.MarkDownloadFailed(id, "connection timeout")
+	err := s.MarkDownloadFailed(context.Background(), id, "connection timeout")
 	if err != nil {
 		t.Fatalf("MarkDownloadFailed: %v", err)
 	}
 
-	d, _ := s.GetDownload(id)
+	d, _ := s.GetDownload(context.Background(), id)
 	if d.Status != DownloadStatusFailed {
 		t.Errorf("expected status 'failed', got %s", d.Status)
 	}
@@ -555,17 +556,17 @@ func TestMarkDownloadSkipped(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	id, _ := s.EnqueueDownload(DownloadRecord{
+	id, _ := s.EnqueueDownload(context.Background(), DownloadRecord{
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x", Filename: "f.mkv", FileSize: 1000,
 	})
-	_ = s.MarkDownloadStarted(id)
+	_ = s.MarkDownloadStarted(context.Background(), id)
 
-	err := s.MarkDownloadSkipped(id)
+	err := s.MarkDownloadSkipped(context.Background(), id)
 	if err != nil {
 		t.Fatalf("MarkDownloadSkipped: %v", err)
 	}
 
-	d, _ := s.GetDownload(id)
+	d, _ := s.GetDownload(context.Background(), id)
 	if d.Status != DownloadStatusSkipped {
 		t.Errorf("expected status 'skipped_existing', got %s", d.Status)
 	}
@@ -575,17 +576,17 @@ func TestMarkDownloadPaused(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	id, _ := s.EnqueueDownload(DownloadRecord{
+	id, _ := s.EnqueueDownload(context.Background(), DownloadRecord{
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x", Filename: "f.mkv", FileSize: 1000,
 	})
-	_ = s.MarkDownloadStarted(id)
+	_ = s.MarkDownloadStarted(context.Background(), id)
 
-	err := s.MarkDownloadPaused(id)
+	err := s.MarkDownloadPaused(context.Background(), id)
 	if err != nil {
 		t.Fatalf("MarkDownloadPaused: %v", err)
 	}
 
-	d, _ := s.GetDownload(id)
+	d, _ := s.GetDownload(context.Background(), id)
 	if d.Status != DownloadStatusPaused {
 		t.Errorf("expected status 'paused', got %s", d.Status)
 	}
@@ -595,18 +596,18 @@ func TestMarkDownloadPaused_OnlyQueuedOrDownloading(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	id, _ := s.EnqueueDownload(DownloadRecord{
+	id, _ := s.EnqueueDownload(context.Background(), DownloadRecord{
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x", Filename: "f.mkv", FileSize: 1000,
 	})
-	_ = s.MarkDownloadCompleted(id, "", 0)
+	_ = s.MarkDownloadCompleted(context.Background(), id, "", 0)
 
 	// Pausing a completed download should be a no-op (no rows affected, but no error)
-	err := s.MarkDownloadPaused(id)
+	err := s.MarkDownloadPaused(context.Background(), id)
 	if err != nil {
 		t.Fatalf("MarkDownloadPaused on completed: %v", err)
 	}
 
-	d, _ := s.GetDownload(id)
+	d, _ := s.GetDownload(context.Background(), id)
 	if d.Status != DownloadStatusCompleted {
 		t.Errorf("expected status still 'completed', got %s", d.Status)
 	}
@@ -616,17 +617,17 @@ func TestRetryDownload(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	id, _ := s.EnqueueDownload(DownloadRecord{
+	id, _ := s.EnqueueDownload(context.Background(), DownloadRecord{
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x", Filename: "f.mkv", FileSize: 1000,
 	})
-	_ = s.MarkDownloadFailed(id, "some error")
+	_ = s.MarkDownloadFailed(context.Background(), id, "some error")
 
-	err := s.RetryDownload(id)
+	err := s.RetryDownload(context.Background(), id)
 	if err != nil {
 		t.Fatalf("RetryDownload: %v", err)
 	}
 
-	d, _ := s.GetDownload(id)
+	d, _ := s.GetDownload(context.Background(), id)
 	if d.Status != DownloadStatusQueued {
 		t.Errorf("expected status 'queued' after retry, got %s", d.Status)
 	}
@@ -642,12 +643,12 @@ func TestDeleteDownload(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	id, _ := s.EnqueueDownload(DownloadRecord{
+	id, _ := s.EnqueueDownload(context.Background(), DownloadRecord{
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x", Filename: "f.mkv", FileSize: 1000,
 	})
-	_ = s.DeleteDownload(id)
+	_ = s.DeleteDownload(context.Background(), id)
 
-	d, _ := s.GetDownload(id)
+	d, _ := s.GetDownload(context.Background(), id)
 	if d != nil {
 		t.Errorf("expected deleted download to be nil, got %+v", d)
 	}
@@ -657,16 +658,16 @@ func TestSetDownloadPriority(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	id, _ := s.EnqueueDownload(DownloadRecord{
+	id, _ := s.EnqueueDownload(context.Background(), DownloadRecord{
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x", Filename: "f.mkv", FileSize: 1000,
 	})
 
-	err := s.SetDownloadPriority(id, 1)
+	err := s.SetDownloadPriority(context.Background(), id, 1)
 	if err != nil {
 		t.Fatalf("SetDownloadPriority: %v", err)
 	}
 
-	d, _ := s.GetDownload(id)
+	d, _ := s.GetDownload(context.Background(), id)
 	if d.Priority != 1 {
 		t.Errorf("expected priority 1, got %d", d.Priority)
 	}
@@ -676,12 +677,12 @@ func TestFindDuplicateDownload(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	_, _ = s.EnqueueDownload(DownloadRecord{
+	_, _ = s.EnqueueDownload(context.Background(), DownloadRecord{
 		Bot: "MyBot", ServerAddress: "irc.t.net", Channel: "#x", Filename: "f.mkv", FileSize: 1000,
 		PackMessage: "xdcc send #5",
 	})
 
-	dup, err := s.FindDuplicateDownload("MyBot", "irc.t.net", 5)
+	dup, err := s.FindDuplicateDownload(context.Background(), "MyBot", "irc.t.net", 5)
 	if err != nil {
 		t.Fatalf("FindDuplicateDownload: %v", err)
 	}
@@ -690,7 +691,7 @@ func TestFindDuplicateDownload(t *testing.T) {
 	}
 
 	// Different pack number
-	noDup, _ := s.FindDuplicateDownload("MyBot", "irc.t.net", 99)
+	noDup, _ := s.FindDuplicateDownload(context.Background(), "MyBot", "irc.t.net", 99)
 	if noDup != nil {
 		t.Errorf("expected no duplicate for different pack number, got %+v", noDup)
 	}
@@ -701,22 +702,22 @@ func TestGetDownloadHistory(t *testing.T) {
 	defer closeStore(t, s)
 
 	// Add completed downloads
-	id1, _ := s.EnqueueDownload(DownloadRecord{
+	id1, _ := s.EnqueueDownload(context.Background(), DownloadRecord{
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x", Filename: "a.mkv", FileSize: 100,
 	})
-	_ = s.MarkDownloadCompleted(id1, "", 0)
+	_ = s.MarkDownloadCompleted(context.Background(), id1, "", 0)
 
-	id2, _ := s.EnqueueDownload(DownloadRecord{
+	id2, _ := s.EnqueueDownload(context.Background(), DownloadRecord{
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x", Filename: "b.mkv", FileSize: 100,
 	})
-	_ = s.MarkDownloadFailed(id2, "error")
+	_ = s.MarkDownloadFailed(context.Background(), id2, "error")
 
 	// Queued download should NOT appear in history
-	_, _ = s.EnqueueDownload(DownloadRecord{
+	_, _ = s.EnqueueDownload(context.Background(), DownloadRecord{
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x", Filename: "c.mkv", FileSize: 100,
 	})
 
-	history, total, err := s.GetDownloadHistory(1, 10, HistoryFilter{})
+	history, total, err := s.GetDownloadHistory(context.Background(), 1, 10, HistoryFilter{})
 	if err != nil {
 		t.Fatalf("GetDownloadHistory: %v", err)
 	}
@@ -732,14 +733,14 @@ func TestBulkActionDownloads(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	id1, _ := s.EnqueueDownload(DownloadRecord{
+	id1, _ := s.EnqueueDownload(context.Background(), DownloadRecord{
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x", Filename: "a.mkv", FileSize: 100,
 	})
-	id2, _ := s.EnqueueDownload(DownloadRecord{
+	id2, _ := s.EnqueueDownload(context.Background(), DownloadRecord{
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x", Filename: "b.mkv", FileSize: 100,
 	})
 
-	results, err := s.BulkActionDownloads([]int64{id1, id2}, "pause")
+	results, err := s.BulkActionDownloads(context.Background(), []int64{id1, id2}, "pause")
 	if err != nil {
 		t.Fatalf("BulkActionDownloads: %v", err)
 	}
@@ -753,7 +754,7 @@ func TestBulkActionDownloads(t *testing.T) {
 	}
 
 	// Verify both are paused
-	queue, _ := s.GetQueue()
+	queue, _ := s.GetQueue(context.Background())
 	for _, d := range queue {
 		if d.ID == id1 || d.ID == id2 {
 			if d.Status != DownloadStatusPaused {
@@ -767,10 +768,10 @@ func TestBulkActionUnknownAction(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	id, _ := s.EnqueueDownload(DownloadRecord{
+	id, _ := s.EnqueueDownload(context.Background(), DownloadRecord{
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x", Filename: "f.mkv", FileSize: 100,
 	})
-	results, _ := s.BulkActionDownloads([]int64{id}, "unknown")
+	results, _ := s.BulkActionDownloads(context.Background(), []int64{id}, "unknown")
 	if results[id] != "unknown action: unknown" {
 		t.Errorf("expected 'unknown action: unknown', got %s", results[id])
 	}
@@ -794,12 +795,12 @@ func TestSetAndGetSearchCache(t *testing.T) {
 		StaleExpiresAt: now.Add(24 * time.Hour),
 	}
 
-	err := s.SetSearchCache(entry)
+	err := s.SetSearchCache(context.Background(), entry)
 	if err != nil {
 		t.Fatalf("SetSearchCache: %v", err)
 	}
 
-	got, err := s.GetSearchCache("test query", "nibl")
+	got, err := s.GetSearchCache(context.Background(), "test query", "nibl")
 	if err != nil {
 		t.Fatalf("GetSearchCache: %v", err)
 	}
@@ -815,7 +816,7 @@ func TestGetSearchCache_Missing(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	entry, err := s.GetSearchCache("nonexistent", "nibl")
+	entry, err := s.GetSearchCache(context.Background(), "nonexistent", "nibl")
 	if err != nil {
 		t.Fatalf("GetSearchCache: %v", err)
 	}
@@ -837,14 +838,14 @@ func TestDeleteExpiredSearchCache(t *testing.T) {
 		ExpiresAt:      now.Add(-24 * time.Hour),
 		StaleExpiresAt: now.Add(-1 * time.Hour),
 	}
-	_ = s.SetSearchCache(entry)
+	_ = s.SetSearchCache(context.Background(), entry)
 
-	err := s.DeleteExpiredSearchCache(now)
+	err := s.DeleteExpiredSearchCache(context.Background(), now)
 	if err != nil {
 		t.Fatalf("DeleteExpiredSearchCache: %v", err)
 	}
 
-	got, _ := s.GetSearchCache("stale query", "xdcc_eu")
+	got, _ := s.GetSearchCache(context.Background(), "stale query", "xdcc_eu")
 	if got != nil {
 		t.Errorf("expected stale entry to be deleted, but got %+v", got)
 	}
@@ -865,7 +866,7 @@ func TestGetSearchCacheByQuery(t *testing.T) {
 			ExpiresAt:      now.Add(time.Hour),
 			StaleExpiresAt: now.Add(24 * time.Hour),
 		}
-		if err := s.SetSearchCache(entry); err != nil {
+		if err := s.SetSearchCache(context.Background(), entry); err != nil {
 			t.Fatalf("SetSearchCache(%s): %v", prov, err)
 		}
 	}
@@ -879,9 +880,9 @@ func TestGetSearchCacheByQuery(t *testing.T) {
 		ExpiresAt:      now.Add(time.Hour),
 		StaleExpiresAt: now.Add(24 * time.Hour),
 	}
-	_ = s.SetSearchCache(other)
+	_ = s.SetSearchCache(context.Background(), other)
 
-	entries, err := s.GetSearchCacheByQuery("multi provider")
+	entries, err := s.GetSearchCacheByQuery(context.Background(), "multi provider")
 	if err != nil {
 		t.Fatalf("GetSearchCacheByQuery: %v", err)
 	}
@@ -907,7 +908,7 @@ func TestGetSearchCacheByQuery_Empty(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	entries, err := s.GetSearchCacheByQuery("nonexistent")
+	entries, err := s.GetSearchCacheByQuery(context.Background(), "nonexistent")
 	if err != nil {
 		t.Fatalf("GetSearchCacheByQuery: %v", err)
 	}
@@ -934,14 +935,14 @@ func TestGetSearchCacheByQuery_NoDeadlock(t *testing.T) {
 			ExpiresAt:      now.Add(time.Hour),
 			StaleExpiresAt: now.Add(24 * time.Hour),
 		}
-		_ = s.SetSearchCache(entry)
+		_ = s.SetSearchCache(context.Background(), entry)
 	}
 
 	// Run concurrent GetSearchCacheByQuery - should not deadlock
 	done := make(chan bool, 10)
 	for i := 0; i < 10; i++ {
 		go func() {
-			entries, err := s.GetSearchCacheByQuery("deadlock test")
+			entries, err := s.GetSearchCacheByQuery(context.Background(), "deadlock test")
 			done <- (err == nil && len(entries) == 5)
 		}()
 	}
@@ -975,12 +976,12 @@ func TestAddAndGetSearchPreset(t *testing.T) {
 		IsDefault:   true,
 	}
 
-	id, err := s.AddSearchPreset(p)
+	id, err := s.AddSearchPreset(context.Background(), p)
 	if err != nil {
 		t.Fatalf("AddSearchPreset: %v", err)
 	}
 
-	got, err := s.GetSearchPreset(id)
+	got, err := s.GetSearchPreset(context.Background(), id)
 	if err != nil {
 		t.Fatalf("GetSearchPreset: %v", err)
 	}
@@ -999,10 +1000,10 @@ func TestListSearchPresets(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	_, _ = s.AddSearchPreset(SearchPreset{Name: "Preset A", Query: "query a"})
-	_, _ = s.AddSearchPreset(SearchPreset{Name: "Preset B", Query: "query b"})
+	_, _ = s.AddSearchPreset(context.Background(), SearchPreset{Name: "Preset A", Query: "query a"})
+	_, _ = s.AddSearchPreset(context.Background(), SearchPreset{Name: "Preset B", Query: "query b"})
 
-	presets, err := s.ListSearchPresets()
+	presets, err := s.ListSearchPresets(context.Background())
 	if err != nil {
 		t.Fatalf("ListSearchPresets: %v", err)
 	}
@@ -1015,13 +1016,13 @@ func TestUpdateSearchPreset(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	id, _ := s.AddSearchPreset(SearchPreset{Name: "Old Name", Query: "old query"})
-	err := s.UpdateSearchPreset(SearchPreset{ID: id, Name: "New Name", Query: "new query", FiltersJSON: "{}"})
+	id, _ := s.AddSearchPreset(context.Background(), SearchPreset{Name: "Old Name", Query: "old query"})
+	err := s.UpdateSearchPreset(context.Background(), SearchPreset{ID: id, Name: "New Name", Query: "new query", FiltersJSON: "{}"})
 	if err != nil {
 		t.Fatalf("UpdateSearchPreset: %v", err)
 	}
 
-	got, _ := s.GetSearchPreset(id)
+	got, _ := s.GetSearchPreset(context.Background(), id)
 	if got.Name != "New Name" {
 		t.Errorf("expected name 'New Name', got %s", got.Name)
 	}
@@ -1031,10 +1032,10 @@ func TestDeleteSearchPreset(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	id, _ := s.AddSearchPreset(SearchPreset{Name: "Del Me", Query: "delete me"})
-	_ = s.DeleteSearchPreset(id)
+	id, _ := s.AddSearchPreset(context.Background(), SearchPreset{Name: "Del Me", Query: "delete me"})
+	_ = s.DeleteSearchPreset(context.Background(), id)
 
-	got, _ := s.GetSearchPreset(id)
+	got, _ := s.GetSearchPreset(context.Background(), id)
 	if got != nil {
 		t.Errorf("expected nil after delete, got %+v", got)
 	}
@@ -1044,16 +1045,16 @@ func TestSetDefaultSearchPreset(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	id1, _ := s.AddSearchPreset(SearchPreset{Name: "A", Query: "a", IsDefault: true})
-	id2, _ := s.AddSearchPreset(SearchPreset{Name: "B", Query: "b"})
+	id1, _ := s.AddSearchPreset(context.Background(), SearchPreset{Name: "A", Query: "a", IsDefault: true})
+	id2, _ := s.AddSearchPreset(context.Background(), SearchPreset{Name: "B", Query: "b"})
 
-	err := s.SetDefaultSearchPreset(id2)
+	err := s.SetDefaultSearchPreset(context.Background(), id2)
 	if err != nil {
 		t.Fatalf("SetDefaultSearchPreset: %v", err)
 	}
 
-	p1, _ := s.GetSearchPreset(id1)
-	p2, _ := s.GetSearchPreset(id2)
+	p1, _ := s.GetSearchPreset(context.Background(), id1)
+	p2, _ := s.GetSearchPreset(context.Background(), id2)
 	if p1.IsDefault {
 		t.Errorf("expected preset A to no longer be default")
 	}
@@ -1078,12 +1079,12 @@ func TestAddAndGetWatchlist(t *testing.T) {
 		AutoEnqueue: false,
 	}
 
-	id, err := s.AddWatchlist(w)
+	id, err := s.AddWatchlist(context.Background(), w)
 	if err != nil {
 		t.Fatalf("AddWatchlist: %v", err)
 	}
 
-	got, err := s.GetWatchlist(id)
+	got, err := s.GetWatchlist(context.Background(), id)
 	if err != nil {
 		t.Fatalf("GetWatchlist: %v", err)
 	}
@@ -1102,10 +1103,10 @@ func TestListWatchlists(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	_, _ = s.AddWatchlist(Watchlist{Name: "WL1", Query: "query1"})
-	_, _ = s.AddWatchlist(Watchlist{Name: "WL2", Query: "query2"})
+	_, _ = s.AddWatchlist(context.Background(), Watchlist{Name: "WL1", Query: "query1"})
+	_, _ = s.AddWatchlist(context.Background(), Watchlist{Name: "WL2", Query: "query2"})
 
-	lists, err := s.ListWatchlists()
+	lists, err := s.ListWatchlists(context.Background())
 	if err != nil {
 		t.Fatalf("ListWatchlists: %v", err)
 	}
@@ -1118,13 +1119,13 @@ func TestUpdateWatchlist(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	id, _ := s.AddWatchlist(Watchlist{Name: "Old", Query: "old", Enabled: true})
-	err := s.UpdateWatchlist(Watchlist{ID: id, Name: "New", Query: "new", Enabled: false, AutoEnqueue: true})
+	id, _ := s.AddWatchlist(context.Background(), Watchlist{Name: "Old", Query: "old", Enabled: true})
+	err := s.UpdateWatchlist(context.Background(), Watchlist{ID: id, Name: "New", Query: "new", Enabled: false, AutoEnqueue: true})
 	if err != nil {
 		t.Fatalf("UpdateWatchlist: %v", err)
 	}
 
-	got, _ := s.GetWatchlist(id)
+	got, _ := s.GetWatchlist(context.Background(), id)
 	if got.Name != "New" {
 		t.Errorf("expected name 'New', got %s", got.Name)
 	}
@@ -1140,10 +1141,10 @@ func TestDeleteWatchlist(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	id, _ := s.AddWatchlist(Watchlist{Name: "Del", Query: "delete"})
-	_ = s.DeleteWatchlist(id)
+	id, _ := s.AddWatchlist(context.Background(), Watchlist{Name: "Del", Query: "delete"})
+	_ = s.DeleteWatchlist(context.Background(), id)
 
-	got, _ := s.GetWatchlist(id)
+	got, _ := s.GetWatchlist(context.Background(), id)
 	if got != nil {
 		t.Errorf("expected nil after delete, got %+v", got)
 	}
@@ -1153,13 +1154,13 @@ func TestSetWatchlistChecked(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	id, _ := s.AddWatchlist(Watchlist{Name: "Check", Query: "check"})
-	err := s.SetWatchlistChecked(id, "abc123")
+	id, _ := s.AddWatchlist(context.Background(), Watchlist{Name: "Check", Query: "check"})
+	err := s.SetWatchlistChecked(context.Background(), id, "abc123")
 	if err != nil {
 		t.Fatalf("SetWatchlistChecked: %v", err)
 	}
 
-	w, _ := s.GetWatchlist(id)
+	w, _ := s.GetWatchlist(context.Background(), id)
 	if w.LastMatchFingerprint != "abc123" {
 		t.Errorf("expected fingerprint 'abc123', got %s", w.LastMatchFingerprint)
 	}
@@ -1172,11 +1173,11 @@ func TestGetEnabledWatchlists(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	_, _ = s.AddWatchlist(Watchlist{Name: "Enabled1", Query: "q1", Enabled: true})
-	_, _ = s.AddWatchlist(Watchlist{Name: "Disabled", Query: "q2", Enabled: false})
-	_, _ = s.AddWatchlist(Watchlist{Name: "Enabled2", Query: "q3", Enabled: true})
+	_, _ = s.AddWatchlist(context.Background(), Watchlist{Name: "Enabled1", Query: "q1", Enabled: true})
+	_, _ = s.AddWatchlist(context.Background(), Watchlist{Name: "Disabled", Query: "q2", Enabled: false})
+	_, _ = s.AddWatchlist(context.Background(), Watchlist{Name: "Enabled2", Query: "q3", Enabled: true})
 
-	enabled, err := s.GetEnabledWatchlists()
+	enabled, err := s.GetEnabledWatchlists(context.Background())
 	if err != nil {
 		t.Fatalf("GetEnabledWatchlists: %v", err)
 	}
@@ -1206,13 +1207,13 @@ func TestRecordAndGetProviderStats(t *testing.T) {
 		UpdatedAt:    now,
 	}
 
-	err := s.RecordProviderStats(stats)
+	err := s.RecordProviderStats(context.Background(), stats)
 	if err != nil {
 		t.Fatalf("RecordProviderStats: %v", err)
 	}
 
 	since := now.Add(-2 * time.Hour)
-	got, err := s.GetProviderStats("nibl", since)
+	got, err := s.GetProviderStats(context.Background(), "nibl", since)
 	if err != nil {
 		t.Fatalf("GetProviderStats: %v", err)
 	}
@@ -1231,16 +1232,16 @@ func TestGetAllProviderStats(t *testing.T) {
 	defer closeStore(t, s)
 
 	now := time.Now()
-	_ = s.RecordProviderStats(ProviderStats{
+	_ = s.RecordProviderStats(context.Background(), ProviderStats{
 		Provider: "nibl", WindowStart: now.Add(-30 * time.Minute),
 		WindowEnd: now, Requests: 5, Successes: 5,
 	})
-	_ = s.RecordProviderStats(ProviderStats{
+	_ = s.RecordProviderStats(context.Background(), ProviderStats{
 		Provider: "xdcc_eu", WindowStart: now.Add(-30 * time.Minute),
 		WindowEnd: now, Requests: 3, Successes: 3,
 	})
 
-	all, err := s.GetAllProviderStats(now.Add(-2 * time.Hour))
+	all, err := s.GetAllProviderStats(context.Background(), now.Add(-2*time.Hour))
 	if err != nil {
 		t.Fatalf("GetAllProviderStats: %v", err)
 	}
@@ -1257,7 +1258,7 @@ func TestCurrentSchemaVersion(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	v, err := s.CurrentSchemaVersion()
+	v, err := s.CurrentSchemaVersion(context.Background())
 	if err != nil {
 		t.Fatalf("CurrentSchemaVersion: %v", err)
 	}
@@ -1274,7 +1275,7 @@ func TestExportData_Empty(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	exp, err := s.ExportData()
+	exp, err := s.ExportData(context.Background())
 	if err != nil {
 		t.Fatalf("ExportData: %v", err)
 	}
@@ -1291,11 +1292,11 @@ func TestExportImportData(t *testing.T) {
 	defer closeStore(t, s)
 
 	// Add some data
-	_, _ = s.AddServer(ServerRecord{Address: "irc.export.net", Port: 6667, Status: "connected"})
-	_, _ = s.AddWatchlist(Watchlist{Name: "Export WL", Query: "test", Enabled: true})
-	_, _ = s.AddSearchPreset(SearchPreset{Name: "Export Preset", Query: "test"})
+	_, _ = s.AddServer(context.Background(), ServerRecord{Address: "irc.export.net", Port: 6667, Status: "connected"})
+	_, _ = s.AddWatchlist(context.Background(), Watchlist{Name: "Export WL", Query: "test", Enabled: true})
+	_, _ = s.AddSearchPreset(context.Background(), SearchPreset{Name: "Export Preset", Query: "test"})
 
-	exp, err := s.ExportData()
+	exp, err := s.ExportData(context.Background())
 	if err != nil {
 		t.Fatalf("ExportData: %v", err)
 	}
@@ -1310,13 +1311,13 @@ func TestExportImportData(t *testing.T) {
 	s2 := newTestStore(t)
 	defer closeStore(t, s2)
 
-	err = s2.ImportData(exp)
+	err = s2.ImportData(context.Background(), exp)
 	if err != nil {
 		t.Fatalf("ImportData: %v", err)
 	}
 
 	// Verify imported data
-	servers, _ := s2.ListServers()
+	servers, _ := s2.ListServers(context.Background())
 	if len(servers) != 1 {
 		t.Errorf("expected 1 server imported, got %d", len(servers))
 	}
@@ -1324,7 +1325,7 @@ func TestExportImportData(t *testing.T) {
 		t.Errorf("expected address 'irc.export.net', got %s", servers[0].Address)
 	}
 
-	wls, _ := s2.ListWatchlists()
+	wls, _ := s2.ListWatchlists(context.Background())
 	if len(wls) != 1 {
 		t.Errorf("expected 1 watchlist imported, got %d", len(wls))
 	}
@@ -1338,7 +1339,7 @@ func TestVacuum(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	err := s.Vacuum()
+	err := s.Vacuum(context.Background())
 	if err != nil {
 		t.Fatalf("Vacuum: %v", err)
 	}
@@ -1353,7 +1354,7 @@ func TestBackupDatabase(t *testing.T) {
 	defer closeStore(t, s)
 
 	backupPath := filepath.Join(t.TempDir(), "backup.db")
-	err := s.BackupDatabase(backupPath)
+	err := s.BackupDatabase(context.Background(), backupPath)
 	if err != nil {
 		t.Fatalf("BackupDatabase: %v", err)
 	}
@@ -1371,12 +1372,12 @@ func TestGetDownloadByBotMessage(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	id, _ := s.EnqueueDownload(DownloadRecord{
+	id, _ := s.EnqueueDownload(context.Background(), DownloadRecord{
 		Bot: "MyBot", ServerAddress: "irc.t.net", Channel: "#x",
 		Filename: "f.mkv", FileSize: 1000, PackMessage: "xdcc send #42",
 	})
 
-	d, err := s.GetDownloadByBotMessage("MyBot", "xdcc send #42")
+	d, err := s.GetDownloadByBotMessage(context.Background(), "MyBot", "xdcc send #42")
 	if err != nil {
 		t.Fatalf("GetDownloadByBotMessage: %v", err)
 	}
@@ -1388,7 +1389,7 @@ func TestGetDownloadByBotMessage(t *testing.T) {
 	}
 
 	// Not found
-	missing, _ := s.GetDownloadByBotMessage("MyBot", "xdcc send #999")
+	missing, _ := s.GetDownloadByBotMessage(context.Background(), "MyBot", "xdcc send #999")
 	if missing != nil {
 		t.Errorf("expected nil for non-matching message, got %+v", missing)
 	}
@@ -1402,17 +1403,17 @@ func TestRequeueDownload(t *testing.T) {
 	s := newTestStore(t)
 	defer closeStore(t, s)
 
-	id, _ := s.EnqueueDownload(DownloadRecord{
+	id, _ := s.EnqueueDownload(context.Background(), DownloadRecord{
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x", Filename: "f.mkv", FileSize: 1000,
 	})
-	_ = s.MarkDownloadCompleted(id, "", 0)
+	_ = s.MarkDownloadCompleted(context.Background(), id, "", 0)
 
-	err := s.RequeueDownload(id)
+	err := s.RequeueDownload(context.Background(), id)
 	if err != nil {
 		t.Fatalf("RequeueDownload: %v", err)
 	}
 
-	d, _ := s.GetDownload(id)
+	d, _ := s.GetDownload(context.Background(), id)
 	if d.Status != DownloadStatusQueued {
 		t.Errorf("expected status 'queued', got %s", d.Status)
 	}

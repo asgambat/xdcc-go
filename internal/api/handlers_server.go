@@ -32,7 +32,7 @@ func (a *API) handleListServers(w http.ResponseWriter, r *http.Request) {
 	} else {
 		// Fallback: get from store directly
 		var err error
-		servers, err = a.Store.ListServers()
+		servers, err = a.Store.ListServers(r.Context())
 		if err != nil {
 			a.logAndError(w, http.StatusInternalServerError, "LIST_SERVERS_ERROR", err.Error())
 			return
@@ -48,7 +48,7 @@ func (a *API) handleListServers(w http.ResponseWriter, r *http.Request) {
 		if a.IRCManager != nil {
 			chs = a.IRCManager.GetChannels(s.ID)
 		} else {
-			chs, _ = a.Store.GetChannelsByServer(s.ID)
+			chs, _ = a.Store.GetChannelsByServer(r.Context(), s.ID)
 		}
 		for _, ch := range chs {
 			if ch.Joined {
@@ -83,6 +83,7 @@ func (a *API) handleConnectServer(w http.ResponseWriter, r *http.Request) {
 		Port        int    `json:"port"`
 		AutoConnect bool   `json:"auto_connect"`
 	}
+	defer r.Body.Close()
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "INVALID_JSON", "Invalid request body")
 		return
@@ -91,7 +92,7 @@ func (a *API) handleConnectServer(w http.ResponseWriter, r *http.Request) {
 	// Reconnect to an existing server by ID: fetch it from the store and
 	// tell the IRC manager to dial it again. The server card stays in the UI.
 	if body.ID > 0 {
-		srv, err := a.Store.GetServer(body.ID)
+		srv, err := a.Store.GetServer(r.Context(), body.ID)
 		if err != nil {
 			a.logAndError(w, http.StatusInternalServerError, "GET_SERVER_ERROR", err.Error())
 			return
@@ -120,7 +121,7 @@ func (a *API) handleConnectServer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Add to store
-	id, err := a.Store.AddServer(store.ServerRecord{
+	id, err := a.Store.AddServer(r.Context(), store.ServerRecord{
 		Address:     body.Address,
 		Port:        body.Port,
 		AutoConnect: body.AutoConnect,
@@ -181,7 +182,7 @@ func (a *API) handleRemoveServer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Delete from store (also removes associated channels via CASCADE)
-	if err := a.Store.DeleteServer(id); err != nil {
+	if err := a.Store.DeleteServer(r.Context(), id); err != nil {
 		a.logAndError(w, http.StatusInternalServerError, "DELETE_SERVER_ERROR", err.Error())
 		return
 	}
@@ -208,7 +209,7 @@ func (a *API) handleListChannels(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Fallback: get from store directly
-	channels, err := a.Store.GetChannelsByServer(id)
+	channels, err := a.Store.GetChannelsByServer(r.Context(), id)
 	if err != nil {
 		a.logAndError(w, http.StatusInternalServerError, "LIST_CHANNELS_ERROR", err.Error())
 		return
@@ -230,6 +231,7 @@ func (a *API) handleJoinChannel(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Name string `json:"name"`
 	}
+	defer r.Body.Close()
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "INVALID_JSON", "Invalid request body")
 		return
@@ -244,7 +246,7 @@ func (a *API) handleJoinChannel(w http.ResponseWriter, r *http.Request) {
 	// entries are created when IRC events use different casing.
 	body.Name = strings.ToLower(body.Name)
 
-	chID, err := a.Store.AddChannel(store.ChannelRecord{
+	chID, err := a.Store.AddChannel(r.Context(), store.ChannelRecord{
 		ServerID: serverID,
 		Name:     body.Name,
 		AutoJoin: true,
@@ -258,7 +260,7 @@ func (a *API) handleJoinChannel(w http.ResponseWriter, r *http.Request) {
 	if a.IRCManager != nil {
 		if err := a.IRCManager.JoinChannel(serverID, body.Name); err != nil {
 			// Clean up the channel record since the IRC join failed
-			_ = a.Store.DeleteChannel(chID)
+			_ = a.Store.DeleteChannel(r.Context(), chID)
 			a.logAndError(w, http.StatusInternalServerError, "JOIN_CHANNEL_ERROR",
 				fmt.Sprintf("joining channel %s: %v", body.Name, err))
 			return
@@ -293,8 +295,8 @@ func (a *API) handleLeaveChannel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Remove from store
-	if ch, err := a.Store.GetChannelsByServerAndName(serverID, channelName); err == nil && ch != nil {
-		_ = a.Store.DeleteChannel(ch.ID)
+	if ch, err := a.Store.GetChannelsByServerAndName(r.Context(), serverID, channelName); err == nil && ch != nil {
+		_ = a.Store.DeleteChannel(r.Context(), ch.ID)
 	}
 
 	w.WriteHeader(http.StatusNoContent)
@@ -349,13 +351,14 @@ func (a *API) handleUpdateChannel(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		AutoJoin *bool `json:"auto_join"`
 	}
+	defer r.Body.Close()
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "INVALID_JSON", "Invalid request body")
 		return
 	}
 
 	// Get channel from store
-	ch, err := a.Store.GetChannelsByServerAndName(serverID, channelName)
+	ch, err := a.Store.GetChannelsByServerAndName(r.Context(), serverID, channelName)
 	if err != nil || ch == nil {
 		writeError(w, http.StatusNotFound, "CHANNEL_NOT_FOUND", "Channel not found")
 		return
@@ -364,7 +367,7 @@ func (a *API) handleUpdateChannel(w http.ResponseWriter, r *http.Request) {
 	// Update auto_join if provided
 	if body.AutoJoin != nil {
 		ch.AutoJoin = *body.AutoJoin
-		if err := a.Store.UpdateChannel(*ch); err != nil {
+		if err := a.Store.UpdateChannel(r.Context(), *ch); err != nil {
 			a.logAndError(w, http.StatusInternalServerError, "UPDATE_ERROR", err.Error())
 			return
 		}

@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"strings"
@@ -100,16 +101,16 @@ func (s *SQLiteStore) DBPath() string {
 }
 
 // Migrate runs all pending schema migrations.
-func (s *SQLiteStore) Migrate() error {
-	return runMigrations(s.db, s.dbPath)
+func (s *SQLiteStore) Migrate(ctx context.Context) error {
+	return runMigrations(ctx, s.db, s.dbPath)
 }
 
 // =========================================================================
 // IRC Servers
 // =========================================================================
 
-func (s *SQLiteStore) AddServer(srv ServerRecord) (int64, error) {
-	res, err := s.db.Exec(
+func (s *SQLiteStore) AddServer(ctx context.Context, srv ServerRecord) (int64, error) {
+	res, err := s.db.ExecContext(ctx,
 		`INSERT INTO irc_servers (address, port, auto_connect, status, retry_count)
 		 VALUES (?, ?, ?, ?, ?)`,
 		srv.Address, srv.Port, boolToInt(srv.AutoConnect), srv.Status, srv.RetryCount,
@@ -120,16 +121,16 @@ func (s *SQLiteStore) AddServer(srv ServerRecord) (int64, error) {
 	return res.LastInsertId()
 }
 
-func (s *SQLiteStore) GetServer(id int64) (*ServerRecord, error) {
-	row := s.db.QueryRow(
+func (s *SQLiteStore) GetServer(ctx context.Context, id int64) (*ServerRecord, error) {
+	row := s.db.QueryRowContext(ctx,
 		`SELECT id, address, port, auto_connect, status, last_connected_at, retry_count, created_at, updated_at
 		 FROM irc_servers WHERE id = ?`, id,
 	)
 	return scanServer(row)
 }
 
-func (s *SQLiteStore) ListServers() ([]ServerRecord, error) {
-	rows, err := s.db.Query(
+func (s *SQLiteStore) ListServers(ctx context.Context) ([]ServerRecord, error) {
+	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, address, port, auto_connect, status, last_connected_at, retry_count, created_at, updated_at
 		 FROM irc_servers ORDER BY address, port`,
 	)
@@ -152,8 +153,8 @@ func (s *SQLiteStore) ListServers() ([]ServerRecord, error) {
 	return servers, rows.Err()
 }
 
-func (s *SQLiteStore) UpdateServer(srv ServerRecord) error {
-	_, err := s.db.Exec(
+func (s *SQLiteStore) UpdateServer(ctx context.Context, srv ServerRecord) error {
+	_, err := s.db.ExecContext(ctx,
 		`UPDATE irc_servers SET address=?, port=?, auto_connect=?, status=?, updated_at=datetime('now')
 		 WHERE id=?`,
 		srv.Address, srv.Port, boolToInt(srv.AutoConnect), srv.Status, srv.ID,
@@ -161,29 +162,29 @@ func (s *SQLiteStore) UpdateServer(srv ServerRecord) error {
 	return err
 }
 
-func (s *SQLiteStore) DeleteServer(id int64) error {
-	_, err := s.db.Exec(`DELETE FROM irc_servers WHERE id = ?`, id)
+func (s *SQLiteStore) DeleteServer(ctx context.Context, id int64) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM irc_servers WHERE id = ?`, id)
 	return err
 }
 
-func (s *SQLiteStore) SetServerStatus(id int64, status string) error {
-	_, err := s.db.Exec(
+func (s *SQLiteStore) SetServerStatus(ctx context.Context, id int64, status string) error {
+	_, err := s.db.ExecContext(ctx,
 		`UPDATE irc_servers SET status=?, updated_at=datetime('now') WHERE id=?`,
 		status, id,
 	)
 	return err
 }
 
-func (s *SQLiteStore) SetServerConnected(id int64) error {
-	_, err := s.db.Exec(
+func (s *SQLiteStore) SetServerConnected(ctx context.Context, id int64) error {
+	_, err := s.db.ExecContext(ctx,
 		`UPDATE irc_servers SET status='connected', last_connected_at=datetime('now'), retry_count=0, updated_at=datetime('now') WHERE id=?`,
 		id,
 	)
 	return err
 }
 
-func (s *SQLiteStore) IncrementServerRetry(id int64) error {
-	_, err := s.db.Exec(
+func (s *SQLiteStore) IncrementServerRetry(ctx context.Context, id int64) error {
+	_, err := s.db.ExecContext(ctx,
 		`UPDATE irc_servers SET retry_count=retry_count+1, status='reconnecting', updated_at=datetime('now') WHERE id=?`,
 		id,
 	)
@@ -194,8 +195,8 @@ func (s *SQLiteStore) IncrementServerRetry(id int64) error {
 // IRC Channels
 // =========================================================================
 
-func (s *SQLiteStore) AddChannel(ch ChannelRecord) (int64, error) {
-	res, err := s.db.Exec(
+func (s *SQLiteStore) AddChannel(ctx context.Context, ch ChannelRecord) (int64, error) {
+	res, err := s.db.ExecContext(ctx,
 		`INSERT INTO irc_channels (server_id, name, topic, auto_join, joined)
 		 VALUES (?, ?, ?, ?, ?)`,
 		ch.ServerID, ch.Name, ch.Topic, boolToInt(ch.AutoJoin), boolToInt(ch.Joined),
@@ -206,8 +207,8 @@ func (s *SQLiteStore) AddChannel(ch ChannelRecord) (int64, error) {
 	return res.LastInsertId()
 }
 
-func (s *SQLiteStore) GetChannelsByServer(serverID int64) ([]ChannelRecord, error) {
-	rows, err := s.db.Query(
+func (s *SQLiteStore) GetChannelsByServer(ctx context.Context, serverID int64) ([]ChannelRecord, error) {
+	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, server_id, name, topic, auto_join, joined
 		 FROM irc_channels WHERE server_id = ? ORDER BY name`, serverID,
 	)
@@ -230,8 +231,8 @@ func (s *SQLiteStore) GetChannelsByServer(serverID int64) ([]ChannelRecord, erro
 	return channels, rows.Err()
 }
 
-func (s *SQLiteStore) GetChannelsByServerAndName(serverID int64, name string) (*ChannelRecord, error) {
-	row := s.db.QueryRow(
+func (s *SQLiteStore) GetChannelsByServerAndName(ctx context.Context, serverID int64, name string) (*ChannelRecord, error) {
+	row := s.db.QueryRowContext(ctx,
 		`SELECT id, server_id, name, topic, auto_join, joined
 		 FROM irc_channels WHERE server_id = ? AND name = ?`, serverID, name,
 	)
@@ -245,31 +246,31 @@ func (s *SQLiteStore) GetChannelsByServerAndName(serverID int64, name string) (*
 	return &ch, nil
 }
 
-func (s *SQLiteStore) UpdateChannel(ch ChannelRecord) error {
-	_, err := s.db.Exec(
+func (s *SQLiteStore) UpdateChannel(ctx context.Context, ch ChannelRecord) error {
+	_, err := s.db.ExecContext(ctx,
 		`UPDATE irc_channels SET name=?, topic=?, auto_join=?, joined=? WHERE id=?`,
 		ch.Name, ch.Topic, boolToInt(ch.AutoJoin), boolToInt(ch.Joined), ch.ID,
 	)
 	return err
 }
 
-func (s *SQLiteStore) DeleteChannel(id int64) error {
-	_, err := s.db.Exec(`DELETE FROM irc_channels WHERE id = ?`, id)
+func (s *SQLiteStore) DeleteChannel(ctx context.Context, id int64) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM irc_channels WHERE id = ?`, id)
 	return err
 }
 
-func (s *SQLiteStore) SetChannelJoined(id int64, joined bool) error {
-	_, err := s.db.Exec(`UPDATE irc_channels SET joined=? WHERE id=?`, boolToInt(joined), id)
+func (s *SQLiteStore) SetChannelJoined(ctx context.Context, id int64, joined bool) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE irc_channels SET joined=? WHERE id=?`, boolToInt(joined), id)
 	return err
 }
 
-func (s *SQLiteStore) UpdateChannelTopic(id int64, topic string) error {
-	_, err := s.db.Exec(`UPDATE irc_channels SET topic=? WHERE id=?`, topic, id)
+func (s *SQLiteStore) UpdateChannelTopic(ctx context.Context, id int64, topic string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE irc_channels SET topic=? WHERE id=?`, topic, id)
 	return err
 }
 
-func (s *SQLiteStore) GetAutoJoinChannels() ([]ChannelRecord, error) {
-	rows, err := s.db.Query(
+func (s *SQLiteStore) GetAutoJoinChannels(ctx context.Context) ([]ChannelRecord, error) {
+	rows, err := s.db.QueryContext(ctx,
 		`SELECT ch.id, ch.server_id, ch.name, ch.topic, ch.auto_join, ch.joined
 		 FROM irc_channels ch
 		 JOIN irc_servers srv ON srv.id = ch.server_id
@@ -299,8 +300,8 @@ func (s *SQLiteStore) GetAutoJoinChannels() ([]ChannelRecord, error) {
 // Downloads
 // =========================================================================
 
-func (s *SQLiteStore) EnqueueDownload(d DownloadRecord) (int64, error) {
-	res, err := s.db.Exec(
+func (s *SQLiteStore) EnqueueDownload(ctx context.Context, d DownloadRecord) (int64, error) {
+	res, err := s.db.ExecContext(ctx,
 		`INSERT INTO downloads (pack_message, bot, server_address, channel, filename, file_size, status, priority, created_at)
 		 VALUES (?, ?, ?, ?, ?, ?, 'queued', ?, datetime('now'))`,
 		d.PackMessage, d.Bot, d.ServerAddress, d.Channel, d.Filename, d.FileSize, d.Priority,
@@ -311,8 +312,8 @@ func (s *SQLiteStore) EnqueueDownload(d DownloadRecord) (int64, error) {
 	return res.LastInsertId()
 }
 
-func (s *SQLiteStore) GetDownload(id int64) (*DownloadRecord, error) {
-	row := s.db.QueryRow(
+func (s *SQLiteStore) GetDownload(ctx context.Context, id int64) (*DownloadRecord, error) {
+	row := s.db.QueryRowContext(ctx,
 		`SELECT id, pack_message, bot, server_address, channel, filename, file_size,
 		        status, progress_bytes, speed_bps, error_message, priority,
 		        created_at, started_at, completed_at
@@ -321,8 +322,8 @@ func (s *SQLiteStore) GetDownload(id int64) (*DownloadRecord, error) {
 	return scanDownload(row)
 }
 
-func (s *SQLiteStore) GetQueue() ([]DownloadRecord, error) {
-	rows, err := s.db.Query(
+func (s *SQLiteStore) GetQueue(ctx context.Context) ([]DownloadRecord, error) {
+	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, pack_message, bot, server_address, channel, filename, file_size,
 		        status, progress_bytes, speed_bps, error_message, priority,
 		        created_at, started_at, completed_at
@@ -336,8 +337,8 @@ func (s *SQLiteStore) GetQueue() ([]DownloadRecord, error) {
 	return s.scanDownloads(rows)
 }
 
-func (s *SQLiteStore) GetQueueByChannel(channel string) ([]DownloadRecord, error) {
-	rows, err := s.db.Query(
+func (s *SQLiteStore) GetQueueByChannel(ctx context.Context, channel string) ([]DownloadRecord, error) {
+	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, pack_message, bot, server_address, channel, filename, file_size,
 		        status, progress_bytes, speed_bps, error_message, priority,
 		        created_at, started_at, completed_at
@@ -351,8 +352,8 @@ func (s *SQLiteStore) GetQueueByChannel(channel string) ([]DownloadRecord, error
 	return s.scanDownloads(rows)
 }
 
-func (s *SQLiteStore) GetActiveDownloads() ([]DownloadRecord, error) {
-	rows, err := s.db.Query(
+func (s *SQLiteStore) GetActiveDownloads(ctx context.Context) ([]DownloadRecord, error) {
+	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, pack_message, bot, server_address, channel, filename, file_size,
 		        status, progress_bytes, speed_bps, error_message, priority,
 		        created_at, started_at, completed_at
@@ -366,8 +367,8 @@ func (s *SQLiteStore) GetActiveDownloads() ([]DownloadRecord, error) {
 	return s.scanDownloads(rows)
 }
 
-func (s *SQLiteStore) GetPendingByChannel(channel string) ([]DownloadRecord, error) {
-	rows, err := s.db.Query(
+func (s *SQLiteStore) GetPendingByChannel(ctx context.Context, channel string) ([]DownloadRecord, error) {
+	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, pack_message, bot, server_address, channel, filename, file_size,
 		        status, progress_bytes, speed_bps, error_message, priority,
 		        created_at, started_at, completed_at
@@ -381,12 +382,12 @@ func (s *SQLiteStore) GetPendingByChannel(channel string) ([]DownloadRecord, err
 	return s.scanDownloads(rows)
 }
 
-func (s *SQLiteStore) UpdateDownloadProgress(id, progressBytes, speedBPS int64) error {
+func (s *SQLiteStore) UpdateDownloadProgress(ctx context.Context, id, progressBytes, speedBPS int64) error {
 	// Note: status is NOT set here — MarkDownloadStarted already sets it before
 	// progress callbacks begin. This prevents a race where a concurrent
 	// PauseDownload/RemoveDownload changes the status, only to have this
 	// progress callback overwrite it back to 'downloading'.
-	_, err := s.db.Exec(
+	_, err := s.db.ExecContext(ctx,
 		`UPDATE downloads SET progress_bytes=?, speed_bps=? WHERE id=?`,
 		progressBytes, speedBPS, id,
 	)
@@ -396,8 +397,8 @@ func (s *SQLiteStore) UpdateDownloadProgress(id, progressBytes, speedBPS int64) 
 	return nil
 }
 
-func (s *SQLiteStore) MarkDownloadStarted(id int64) error {
-	_, err := s.db.Exec(
+func (s *SQLiteStore) MarkDownloadStarted(ctx context.Context, id int64) error {
+	_, err := s.db.ExecContext(ctx,
 		`UPDATE downloads SET status='downloading', started_at=datetime('now') WHERE id=?`, id,
 	)
 	return err
@@ -406,8 +407,8 @@ func (s *SQLiteStore) MarkDownloadStarted(id int64) error {
 // MarkDownloadCompleted marks a download as completed and updates filename/file_size
 // with values discovered during download (e.g. from bot notice). Pass empty string
 // and 0 if no metadata was discovered.
-func (s *SQLiteStore) MarkDownloadCompleted(id int64, filename string, fileSize int64) error {
-	_, err := s.db.Exec(
+func (s *SQLiteStore) MarkDownloadCompleted(ctx context.Context, id int64, filename string, fileSize int64) error {
+	_, err := s.db.ExecContext(ctx,
 		`UPDATE downloads SET status='completed', completed_at=datetime('now'),
 		 filename=COALESCE(NULLIF(?, ''), filename),
 		 progress_bytes=COALESCE(NULLIF(?, ''), progress_bytes),
@@ -418,66 +419,66 @@ func (s *SQLiteStore) MarkDownloadCompleted(id int64, filename string, fileSize 
 	return err
 }
 
-func (s *SQLiteStore) MarkDownloadSkipped(id int64) error {
-	_, err := s.db.Exec(
+func (s *SQLiteStore) MarkDownloadSkipped(ctx context.Context, id int64) error {
+	_, err := s.db.ExecContext(ctx,
 		`UPDATE downloads SET status='skipped_existing' WHERE id=? AND status IN ('downloading','queued')`,
 		id,
 	)
 	return err
 }
 
-func (s *SQLiteStore) MarkDownloadFailed(id int64, errMsg string) error {
-	_, err := s.db.Exec(
+func (s *SQLiteStore) MarkDownloadFailed(ctx context.Context, id int64, errMsg string) error {
+	_, err := s.db.ExecContext(ctx,
 		`UPDATE downloads SET status='failed', error_message=?, completed_at=datetime('now') WHERE id=?`,
 		errMsg, id,
 	)
 	return err
 }
 
-func (s *SQLiteStore) MarkDownloadPaused(id int64) error {
-	_, err := s.db.Exec(
+func (s *SQLiteStore) MarkDownloadPaused(ctx context.Context, id int64) error {
+	_, err := s.db.ExecContext(ctx,
 		`UPDATE downloads SET status='paused' WHERE id=? AND status IN ('queued', 'downloading')`, id,
 	)
 	return err
 }
 
-func (s *SQLiteStore) MarkDownloadRetry(id int64, newStatus string) error {
-	_, err := s.db.Exec(
+func (s *SQLiteStore) MarkDownloadRetry(ctx context.Context, id int64, newStatus string) error {
+	_, err := s.db.ExecContext(ctx,
 		`UPDATE downloads SET status=?, error_message='' WHERE id=?`, newStatus, id,
 	)
 	return err
 }
 
-func (s *SQLiteStore) DeleteDownload(id int64) error {
-	_, err := s.db.Exec(`DELETE FROM downloads WHERE id=?`, id)
+func (s *SQLiteStore) DeleteDownload(ctx context.Context, id int64) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM downloads WHERE id=?`, id)
 	return err
 }
 
-func (s *SQLiteStore) RetryDownload(id int64) error {
-	_, err := s.db.Exec(
+func (s *SQLiteStore) RetryDownload(ctx context.Context, id int64) error {
+	_, err := s.db.ExecContext(ctx,
 		`UPDATE downloads SET status='queued', progress_bytes=0, error_message='', completed_at=NULL WHERE id=? AND status IN ('failed', 'paused', 'completed', 'skipped_existing')`,
 		id,
 	)
 	return err
 }
 
-func (s *SQLiteStore) RequeueDownload(id int64) error {
-	_, err := s.db.Exec(
+func (s *SQLiteStore) RequeueDownload(ctx context.Context, id int64) error {
+	_, err := s.db.ExecContext(ctx,
 		`UPDATE downloads SET status='queued', progress_bytes=0, error_message='' WHERE id=?`,
 		id,
 	)
 	return err
 }
 
-func (s *SQLiteStore) SetDownloadPriority(id int64, priority int) error {
-	_, err := s.db.Exec(`UPDATE downloads SET priority=? WHERE id=?`, priority, id)
+func (s *SQLiteStore) SetDownloadPriority(ctx context.Context, id int64, priority int) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE downloads SET priority=? WHERE id=?`, priority, id)
 	return err
 }
 
 // UpdateDownloadMetadata updates the filename and/or file_size for a download.
 // This is called when the bot notice reveals the actual filename/size mid-download.
-func (s *SQLiteStore) UpdateDownloadMetadata(id int64, filename string, fileSize int64) error {
-	_, err := s.db.Exec(
+func (s *SQLiteStore) UpdateDownloadMetadata(ctx context.Context, id int64, filename string, fileSize int64) error {
+	_, err := s.db.ExecContext(ctx,
 		`UPDATE downloads SET filename=COALESCE(NULLIF(?, ''), filename),
 		 file_size=CASE WHEN ? > 0 THEN ? ELSE file_size END
 		 WHERE id=?`,
@@ -486,9 +487,9 @@ func (s *SQLiteStore) UpdateDownloadMetadata(id int64, filename string, fileSize
 	return err
 }
 
-func (s *SQLiteStore) GetTotalDownloadedBytes() (int64, error) {
+func (s *SQLiteStore) GetTotalDownloadedBytes(ctx context.Context) (int64, error) {
 	var total sql.NullInt64
-	err := s.db.QueryRow(
+	err := s.db.QueryRowContext(ctx,
 		`SELECT SUM(progress_bytes) FROM downloads`,
 	).Scan(&total)
 	if err != nil {
@@ -500,7 +501,7 @@ func (s *SQLiteStore) GetTotalDownloadedBytes() (int64, error) {
 	return 0, nil
 }
 
-func (s *SQLiteStore) GetDownloadHistory(page, pageSize int, filter HistoryFilter) ([]DownloadRecord, int, error) {
+func (s *SQLiteStore) GetDownloadHistory(ctx context.Context, page, pageSize int, filter HistoryFilter) ([]DownloadRecord, int, error) {
 	whereClauses := []string{}
 	args := []any{}
 
@@ -546,7 +547,7 @@ func (s *SQLiteStore) GetDownloadHistory(page, pageSize int, filter HistoryFilte
 	// Count total
 	countSQL := "SELECT COUNT(*) FROM downloads WHERE " + whereSQL
 	var total int
-	err := s.db.QueryRow(countSQL, args...).Scan(&total)
+	err := s.db.QueryRowContext(ctx, countSQL, args...).Scan(&total)
 	if err != nil {
 		return nil, 0, fmt.Errorf("counting download history: %w", err)
 	}
@@ -562,7 +563,7 @@ func (s *SQLiteStore) GetDownloadHistory(page, pageSize int, filter HistoryFilte
 	queryArgs := append([]any{}, args...)
 	queryArgs = append(queryArgs, pageSize, offset)
 
-	rows, err := s.db.Query(querySQL, queryArgs...)
+	rows, err := s.db.QueryContext(ctx, querySQL, queryArgs...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("getting download history: %w", err)
 	}
@@ -575,17 +576,17 @@ func (s *SQLiteStore) GetDownloadHistory(page, pageSize int, filter HistoryFilte
 	return downloads, total, nil
 }
 
-func (s *SQLiteStore) BulkActionDownloads(ids []int64, action string) (map[int64]string, error) {
+func (s *SQLiteStore) BulkActionDownloads(ctx context.Context, ids []int64, action string) (map[int64]string, error) {
 	results := make(map[int64]string)
 	for _, id := range ids {
 		var err error
 		switch strings.ToLower(action) {
 		case "pause":
-			err = s.MarkDownloadPaused(id)
+			err = s.MarkDownloadPaused(ctx, id)
 		case "resume":
-			err = s.RetryDownload(id)
+			err = s.RetryDownload(ctx, id)
 		case "remove":
-			err = s.DeleteDownload(id)
+			err = s.DeleteDownload(ctx, id)
 		default:
 			results[id] = fmt.Sprintf("unknown action: %s", action)
 			continue
@@ -599,12 +600,12 @@ func (s *SQLiteStore) BulkActionDownloads(ids []int64, action string) (map[int64
 	return results, nil
 }
 
-func (s *SQLiteStore) FindDuplicateDownload(bot, serverAddress string, packNumber int) (*DownloadRecord, error) {
+func (s *SQLiteStore) FindDuplicateDownload(ctx context.Context, bot, serverAddress string, packNumber int) (*DownloadRecord, error) {
 	// Use exact pack message match to avoid LIKE matching wrong pack numbers
 	// (e.g. '#1' matching '#10', '#11', etc.). Match both the full message and
 	// messages that end with the exact pack reference (e.g. 'xdcc send #42').
 	packExact := fmt.Sprintf("xdcc send #%d", packNumber)
-	row := s.db.QueryRow(
+	row := s.db.QueryRowContext(ctx,
 		`SELECT id, pack_message, bot, server_address, channel, filename, file_size,
 		        status, progress_bytes, speed_bps, error_message, priority,
 		        created_at, started_at, completed_at
@@ -616,8 +617,8 @@ func (s *SQLiteStore) FindDuplicateDownload(bot, serverAddress string, packNumbe
 	return scanDownload(row)
 }
 
-func (s *SQLiteStore) GetDownloadByBotMessage(bot, packMessage string) (*DownloadRecord, error) {
-	row := s.db.QueryRow(
+func (s *SQLiteStore) GetDownloadByBotMessage(ctx context.Context, bot, packMessage string) (*DownloadRecord, error) {
+	row := s.db.QueryRowContext(ctx,
 		`SELECT id, pack_message, bot, server_address, channel, filename, file_size,
 		        status, progress_bytes, speed_bps, error_message, priority,
 		        created_at, started_at, completed_at
@@ -632,8 +633,8 @@ func (s *SQLiteStore) GetDownloadByBotMessage(bot, packMessage string) (*Downloa
 // Search Cache
 // =========================================================================
 
-func (s *SQLiteStore) SetSearchCache(entry SearchCacheEntry) error {
-	_, err := s.db.Exec(
+func (s *SQLiteStore) SetSearchCache(ctx context.Context, entry SearchCacheEntry) error {
+	_, err := s.db.ExecContext(ctx,
 		`INSERT OR REPLACE INTO search_cache (query_key, provider, payload_json, fetched_at, expires_at, stale_expires_at)
 		 VALUES (?, ?, ?, ?, ?, ?)`,
 		entry.QueryKey, entry.Provider, entry.PayloadJSON,
@@ -644,8 +645,8 @@ func (s *SQLiteStore) SetSearchCache(entry SearchCacheEntry) error {
 	return err
 }
 
-func (s *SQLiteStore) GetSearchCache(queryKey, provider string) (*SearchCacheEntry, error) {
-	row := s.db.QueryRow(
+func (s *SQLiteStore) GetSearchCache(ctx context.Context, queryKey, provider string) (*SearchCacheEntry, error) {
+	row := s.db.QueryRowContext(ctx,
 		`SELECT query_key, provider, payload_json, fetched_at, expires_at, stale_expires_at
 		 FROM search_cache WHERE query_key = ? AND provider = ?`, queryKey, provider,
 	)
@@ -676,8 +677,8 @@ func (s *SQLiteStore) GetSearchCache(queryKey, provider string) (*SearchCacheEnt
 
 // GetSearchCacheByQuery returns all cache entries for a given query key in a single query.
 // This avoids the need for nested queries which can deadlock on single-connection SQLite.
-func (s *SQLiteStore) GetSearchCacheByQuery(queryKey string) ([]SearchCacheEntry, error) {
-	rows, err := s.db.Query(
+func (s *SQLiteStore) GetSearchCacheByQuery(ctx context.Context, queryKey string) ([]SearchCacheEntry, error) {
+	rows, err := s.db.QueryContext(ctx,
 		`SELECT query_key, provider, payload_json, fetched_at, expires_at, stale_expires_at
 		 FROM search_cache WHERE query_key = ?`, queryKey,
 	)
@@ -711,8 +712,8 @@ func (s *SQLiteStore) GetSearchCacheByQuery(queryKey string) ([]SearchCacheEntry
 	return entries, rows.Err()
 }
 
-func (s *SQLiteStore) DeleteExpiredSearchCache(staleBefore time.Time) error {
-	_, err := s.db.Exec(
+func (s *SQLiteStore) DeleteExpiredSearchCache(ctx context.Context, staleBefore time.Time) error {
+	_, err := s.db.ExecContext(ctx,
 		`DELETE FROM search_cache WHERE stale_expires_at < ?`,
 		staleBefore.Format(time.RFC3339),
 	)
@@ -721,9 +722,9 @@ func (s *SQLiteStore) DeleteExpiredSearchCache(staleBefore time.Time) error {
 
 // CleanupSearchCache removes stale cache entries beyond their stale TTL.
 // Returns the number of entries deleted.
-func (s *SQLiteStore) CleanupSearchCache() (int, error) {
+func (s *SQLiteStore) CleanupSearchCache(ctx context.Context) (int, error) {
 	now := time.Now()
-	result, err := s.db.Exec(
+	result, err := s.db.ExecContext(ctx,
 		`DELETE FROM search_cache WHERE stale_expires_at < ?`,
 		now.Format(time.RFC3339),
 	)
@@ -739,8 +740,8 @@ func (s *SQLiteStore) CleanupSearchCache() (int, error) {
 // Search Presets
 // =========================================================================
 
-func (s *SQLiteStore) AddSearchPreset(p SearchPreset) (int64, error) {
-	res, err := s.db.Exec(
+func (s *SQLiteStore) AddSearchPreset(ctx context.Context, p SearchPreset) (int64, error) {
+	res, err := s.db.ExecContext(ctx,
 		`INSERT INTO search_presets (name, query, filters_json, is_default)
 		 VALUES (?, ?, ?, ?)`,
 		p.Name, p.Query, p.FiltersJSON, boolToInt(p.IsDefault),
@@ -751,16 +752,16 @@ func (s *SQLiteStore) AddSearchPreset(p SearchPreset) (int64, error) {
 	return res.LastInsertId()
 }
 
-func (s *SQLiteStore) GetSearchPreset(id int64) (*SearchPreset, error) {
-	row := s.db.QueryRow(
+func (s *SQLiteStore) GetSearchPreset(ctx context.Context, id int64) (*SearchPreset, error) {
+	row := s.db.QueryRowContext(ctx,
 		`SELECT id, name, query, filters_json, is_default, created_at, updated_at
 		 FROM search_presets WHERE id = ?`, id,
 	)
 	return scanSearchPreset(row)
 }
 
-func (s *SQLiteStore) ListSearchPresets() ([]SearchPreset, error) {
-	rows, err := s.db.Query(
+func (s *SQLiteStore) ListSearchPresets(ctx context.Context) ([]SearchPreset, error) {
+	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, name, query, filters_json, is_default, created_at, updated_at
 		 FROM search_presets ORDER BY is_default DESC, name ASC`,
 	)
@@ -783,32 +784,32 @@ func (s *SQLiteStore) ListSearchPresets() ([]SearchPreset, error) {
 	return presets, rows.Err()
 }
 
-func (s *SQLiteStore) UpdateSearchPreset(p SearchPreset) error {
-	_, err := s.db.Exec(
+func (s *SQLiteStore) UpdateSearchPreset(ctx context.Context, p SearchPreset) error {
+	_, err := s.db.ExecContext(ctx,
 		`UPDATE search_presets SET name=?, query=?, filters_json=?, is_default=?, updated_at=datetime('now') WHERE id=?`,
 		p.Name, p.Query, p.FiltersJSON, boolToInt(p.IsDefault), p.ID,
 	)
 	return err
 }
 
-func (s *SQLiteStore) DeleteSearchPreset(id int64) error {
-	_, err := s.db.Exec(`DELETE FROM search_presets WHERE id=?`, id)
+func (s *SQLiteStore) DeleteSearchPreset(ctx context.Context, id int64) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM search_presets WHERE id=?`, id)
 	return err
 }
 
-func (s *SQLiteStore) SetDefaultSearchPreset(id int64) error {
-	tx, err := s.db.Begin()
+func (s *SQLiteStore) SetDefaultSearchPreset(ctx context.Context, id int64) error {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback() //nolint:errcheck // Rollback error on read-only setup is harmless
 
 	// Clear all defaults
-	if _, err := tx.Exec(`UPDATE search_presets SET is_default=0`); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE search_presets SET is_default=0`); err != nil {
 		return err
 	}
 	// Set new default
-	if _, err := tx.Exec(`UPDATE search_presets SET is_default=1 WHERE id=?`, id); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE search_presets SET is_default=1 WHERE id=?`, id); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -818,8 +819,8 @@ func (s *SQLiteStore) SetDefaultSearchPreset(id int64) error {
 // Watchlists
 // =========================================================================
 
-func (s *SQLiteStore) AddWatchlist(w Watchlist) (int64, error) {
-	res, err := s.db.Exec(
+func (s *SQLiteStore) AddWatchlist(ctx context.Context, w Watchlist) (int64, error) {
+	res, err := s.db.ExecContext(ctx,
 		`INSERT INTO watchlists (name, query, filters_json, enabled, auto_enqueue)
 		 VALUES (?, ?, ?, ?, ?)`,
 		w.Name, w.Query, w.FiltersJSON, boolToInt(w.Enabled), boolToInt(w.AutoEnqueue),
@@ -830,8 +831,8 @@ func (s *SQLiteStore) AddWatchlist(w Watchlist) (int64, error) {
 	return res.LastInsertId()
 }
 
-func (s *SQLiteStore) GetWatchlist(id int64) (*Watchlist, error) {
-	row := s.db.QueryRow(
+func (s *SQLiteStore) GetWatchlist(ctx context.Context, id int64) (*Watchlist, error) {
+	row := s.db.QueryRowContext(ctx,
 		`SELECT id, name, query, filters_json, enabled, auto_enqueue,
 		        last_checked_at, last_match_fingerprint, last_notified_at,
 		        created_at, updated_at
@@ -840,8 +841,8 @@ func (s *SQLiteStore) GetWatchlist(id int64) (*Watchlist, error) {
 	return scanWatchlist(row)
 }
 
-func (s *SQLiteStore) ListWatchlists() ([]Watchlist, error) {
-	rows, err := s.db.Query(
+func (s *SQLiteStore) ListWatchlists(ctx context.Context) ([]Watchlist, error) {
+	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, name, query, filters_json, enabled, auto_enqueue,
 		        last_checked_at, last_match_fingerprint, last_notified_at,
 		        created_at, updated_at
@@ -866,36 +867,36 @@ func (s *SQLiteStore) ListWatchlists() ([]Watchlist, error) {
 	return watchlists, rows.Err()
 }
 
-func (s *SQLiteStore) UpdateWatchlist(w Watchlist) error {
-	_, err := s.db.Exec(
+func (s *SQLiteStore) UpdateWatchlist(ctx context.Context, w Watchlist) error {
+	_, err := s.db.ExecContext(ctx,
 		`UPDATE watchlists SET name=?, query=?, filters_json=?, enabled=?, auto_enqueue=?, updated_at=datetime('now') WHERE id=?`,
 		w.Name, w.Query, w.FiltersJSON, boolToInt(w.Enabled), boolToInt(w.AutoEnqueue), w.ID,
 	)
 	return err
 }
 
-func (s *SQLiteStore) DeleteWatchlist(id int64) error {
-	_, err := s.db.Exec(`DELETE FROM watchlists WHERE id=?`, id)
+func (s *SQLiteStore) DeleteWatchlist(ctx context.Context, id int64) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM watchlists WHERE id=?`, id)
 	return err
 }
 
-func (s *SQLiteStore) SetWatchlistChecked(id int64, fingerprint string) error {
-	_, err := s.db.Exec(
+func (s *SQLiteStore) SetWatchlistChecked(ctx context.Context, id int64, fingerprint string) error {
+	_, err := s.db.ExecContext(ctx,
 		`UPDATE watchlists SET last_checked_at=datetime('now'), last_match_fingerprint=? WHERE id=?`,
 		fingerprint, id,
 	)
 	return err
 }
 
-func (s *SQLiteStore) SetWatchlistNotified(id int64) error {
-	_, err := s.db.Exec(
+func (s *SQLiteStore) SetWatchlistNotified(ctx context.Context, id int64) error {
+	_, err := s.db.ExecContext(ctx,
 		`UPDATE watchlists SET last_notified_at=datetime('now') WHERE id=?`, id,
 	)
 	return err
 }
 
-func (s *SQLiteStore) GetEnabledWatchlists() ([]Watchlist, error) {
-	rows, err := s.db.Query(
+func (s *SQLiteStore) GetEnabledWatchlists(ctx context.Context) ([]Watchlist, error) {
+	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, name, query, filters_json, enabled, auto_enqueue,
 		        last_checked_at, last_match_fingerprint, last_notified_at,
 		        created_at, updated_at
@@ -924,8 +925,8 @@ func (s *SQLiteStore) GetEnabledWatchlists() ([]Watchlist, error) {
 // Provider Stats
 // =========================================================================
 
-func (s *SQLiteStore) RecordProviderStats(stats ProviderStats) error {
-	_, err := s.db.Exec(
+func (s *SQLiteStore) RecordProviderStats(ctx context.Context, stats ProviderStats) error {
+	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO provider_stats (provider, window_start, window_end, requests, successes, timeouts, failures, avg_latency_ms)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		stats.Provider,
@@ -937,8 +938,8 @@ func (s *SQLiteStore) RecordProviderStats(stats ProviderStats) error {
 	return err
 }
 
-func (s *SQLiteStore) GetProviderStats(provider string, since time.Time) ([]ProviderStats, error) {
-	rows, err := s.db.Query(
+func (s *SQLiteStore) GetProviderStats(ctx context.Context, provider string, since time.Time) ([]ProviderStats, error) {
+	rows, err := s.db.QueryContext(ctx,
 		`SELECT provider, window_start, window_end, requests, successes, timeouts, failures, avg_latency_ms, updated_at
 		 FROM provider_stats WHERE provider = ? AND window_start >= ?
 		 ORDER BY window_start DESC`, provider, since.Format(time.RFC3339),
@@ -967,8 +968,8 @@ func (s *SQLiteStore) GetProviderStats(provider string, since time.Time) ([]Prov
 	return stats, rows.Err()
 }
 
-func (s *SQLiteStore) GetAllProviderStats(since time.Time) (map[string][]ProviderStats, error) {
-	rows, err := s.db.Query(
+func (s *SQLiteStore) GetAllProviderStats(ctx context.Context, since time.Time) (map[string][]ProviderStats, error) {
+	rows, err := s.db.QueryContext(ctx,
 		`SELECT provider, window_start, window_end, requests, successes, timeouts, failures, avg_latency_ms, updated_at
 		 FROM provider_stats WHERE window_start >= ?
 		 ORDER BY provider, window_start DESC`, since.Format(time.RFC3339),

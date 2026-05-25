@@ -1,6 +1,7 @@
 package queue
 
 import (
+	"context"
 	"sync"
 	"testing"
 	"time"
@@ -31,30 +32,40 @@ func newMockStore() *mockStore {
 
 // Store interface methods needed by queue manager
 
-func (m *mockStore) Close() error                                 { return nil }
-func (m *mockStore) Migrate() error                               { return nil }
-func (m *mockStore) CurrentSchemaVersion() (int, error)           { return 1, nil }
-func (m *mockStore) AddServer(store.ServerRecord) (int64, error)  { return 1, nil }
-func (m *mockStore) GetServer(int64) (*store.ServerRecord, error) { return nil, nil }
-func (m *mockStore) ListServers() ([]store.ServerRecord, error)   { return nil, nil }
-func (m *mockStore) UpdateServer(store.ServerRecord) error        { return nil }
-func (m *mockStore) DeleteServer(int64) error                     { return nil }
-func (m *mockStore) SetServerStatus(int64, string) error          { return nil }
-func (m *mockStore) SetServerConnected(int64) error               { return nil }
-func (m *mockStore) IncrementServerRetry(int64) error             { return nil }
-
-func (m *mockStore) AddChannel(store.ChannelRecord) (int64, error)            { return 1, nil }
-func (m *mockStore) GetChannelsByServer(int64) ([]store.ChannelRecord, error) { return nil, nil }
-func (m *mockStore) GetChannelsByServerAndName(int64, string) (*store.ChannelRecord, error) {
+func (m *mockStore) Close(ctx context.Context) error                       { return nil }
+func (m *mockStore) Migrate(ctx context.Context) error                     { return nil }
+func (m *mockStore) CurrentSchemaVersion(ctx context.Context) (int, error) { return 1, nil }
+func (m *mockStore) AddServer(ctx context.Context, s store.ServerRecord) (int64, error) {
+	return 1, nil
+}
+func (m *mockStore) GetServer(ctx context.Context, id int64) (*store.ServerRecord, error) {
 	return nil, nil
 }
-func (m *mockStore) UpdateChannel(store.ChannelRecord) error             { return nil }
-func (m *mockStore) DeleteChannel(int64) error                           { return nil }
-func (m *mockStore) SetChannelJoined(int64, bool) error                  { return nil }
-func (m *mockStore) UpdateChannelTopic(int64, string) error              { return nil }
-func (m *mockStore) GetAutoJoinChannels() ([]store.ChannelRecord, error) { return nil, nil }
+func (m *mockStore) ListServers(ctx context.Context) ([]store.ServerRecord, error)      { return nil, nil }
+func (m *mockStore) UpdateServer(ctx context.Context, s store.ServerRecord) error       { return nil }
+func (m *mockStore) DeleteServer(ctx context.Context, id int64) error                   { return nil }
+func (m *mockStore) SetServerStatus(ctx context.Context, id int64, status string) error { return nil }
+func (m *mockStore) SetServerConnected(ctx context.Context, id int64) error             { return nil }
+func (m *mockStore) IncrementServerRetry(ctx context.Context, id int64) error           { return nil }
 
-func (m *mockStore) EnqueueDownload(d store.DownloadRecord) (int64, error) {
+func (m *mockStore) AddChannel(ctx context.Context, c store.ChannelRecord) (int64, error) {
+	return 1, nil
+}
+func (m *mockStore) GetChannelsByServer(ctx context.Context, serverID int64) ([]store.ChannelRecord, error) {
+	return nil, nil
+}
+func (m *mockStore) GetChannelsByServerAndName(ctx context.Context, serverID int64, name string) (*store.ChannelRecord, error) {
+	return nil, nil
+}
+func (m *mockStore) UpdateChannel(ctx context.Context, c store.ChannelRecord) error       { return nil }
+func (m *mockStore) DeleteChannel(ctx context.Context, id int64) error                    { return nil }
+func (m *mockStore) SetChannelJoined(ctx context.Context, id int64, joined bool) error    { return nil }
+func (m *mockStore) UpdateChannelTopic(ctx context.Context, id int64, topic string) error { return nil }
+func (m *mockStore) GetAutoJoinChannels(ctx context.Context) ([]store.ChannelRecord, error) {
+	return nil, nil
+}
+
+func (m *mockStore) EnqueueDownload(ctx context.Context, d store.DownloadRecord) (int64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	id := m.nextID
@@ -67,7 +78,7 @@ func (m *mockStore) EnqueueDownload(d store.DownloadRecord) (int64, error) {
 	return id, nil
 }
 
-func (m *mockStore) GetDownload(id int64) (*store.DownloadRecord, error) {
+func (m *mockStore) GetDownload(ctx context.Context, id int64) (*store.DownloadRecord, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	d, ok := m.downloads[id]
@@ -77,7 +88,7 @@ func (m *mockStore) GetDownload(id int64) (*store.DownloadRecord, error) {
 	return d, nil
 }
 
-func (m *mockStore) GetQueue() ([]store.DownloadRecord, error) {
+func (m *mockStore) GetQueue(ctx context.Context) ([]store.DownloadRecord, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.getQueueFn != nil {
@@ -92,7 +103,7 @@ func (m *mockStore) GetQueue() ([]store.DownloadRecord, error) {
 	return result, nil
 }
 
-func (m *mockStore) GetQueueByChannel(channel string) ([]store.DownloadRecord, error) {
+func (m *mockStore) GetQueueByChannel(ctx context.Context, channel string) ([]store.DownloadRecord, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var result []store.DownloadRecord
@@ -104,7 +115,7 @@ func (m *mockStore) GetQueueByChannel(channel string) ([]store.DownloadRecord, e
 	return result, nil
 }
 
-func (m *mockStore) GetActiveDownloads() ([]store.DownloadRecord, error) {
+func (m *mockStore) GetActiveDownloads(ctx context.Context) ([]store.DownloadRecord, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var result []store.DownloadRecord
@@ -116,11 +127,11 @@ func (m *mockStore) GetActiveDownloads() ([]store.DownloadRecord, error) {
 	return result, nil
 }
 
-func (m *mockStore) GetPendingByChannel(channel string) ([]store.DownloadRecord, error) {
-	return m.GetQueueByChannel(channel)
+func (m *mockStore) GetPendingByChannel(ctx context.Context, channel string) ([]store.DownloadRecord, error) {
+	return m.GetQueueByChannel(ctx, channel)
 }
 
-func (m *mockStore) UpdateDownloadProgress(id int64, progressBytes int64, speedBPS int64) error {
+func (m *mockStore) UpdateDownloadProgress(ctx context.Context, id int64, progressBytes int64, speedBPS int64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if d, ok := m.downloads[id]; ok {
@@ -130,7 +141,7 @@ func (m *mockStore) UpdateDownloadProgress(id int64, progressBytes int64, speedB
 	return nil
 }
 
-func (m *mockStore) MarkDownloadStarted(id int64) error {
+func (m *mockStore) MarkDownloadStarted(ctx context.Context, id int64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if d, ok := m.downloads[id]; ok {
@@ -141,7 +152,7 @@ func (m *mockStore) MarkDownloadStarted(id int64) error {
 	return nil
 }
 
-func (m *mockStore) MarkDownloadCompleted(id int64, filename string, fileSize int64) error {
+func (m *mockStore) MarkDownloadCompleted(ctx context.Context, id int64, filename string, fileSize int64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if d, ok := m.downloads[id]; ok {
@@ -152,7 +163,7 @@ func (m *mockStore) MarkDownloadCompleted(id int64, filename string, fileSize in
 	return nil
 }
 
-func (m *mockStore) MarkDownloadFailed(id int64, errMsg string) error {
+func (m *mockStore) MarkDownloadFailed(ctx context.Context, id int64, errMsg string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if d, ok := m.downloads[id]; ok {
@@ -162,7 +173,7 @@ func (m *mockStore) MarkDownloadFailed(id int64, errMsg string) error {
 	return nil
 }
 
-func (m *mockStore) MarkDownloadSkipped(id int64) error {
+func (m *mockStore) MarkDownloadSkipped(ctx context.Context, id int64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if d, ok := m.downloads[id]; ok {
@@ -171,7 +182,7 @@ func (m *mockStore) MarkDownloadSkipped(id int64) error {
 	return nil
 }
 
-func (m *mockStore) MarkDownloadPaused(id int64) error {
+func (m *mockStore) MarkDownloadPaused(ctx context.Context, id int64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if d, ok := m.downloads[id]; ok {
@@ -182,18 +193,18 @@ func (m *mockStore) MarkDownloadPaused(id int64) error {
 	return nil
 }
 
-func (m *mockStore) MarkDownloadRetry(int64, string) error {
+func (m *mockStore) MarkDownloadRetry(ctx context.Context, id int64, errMsg string) error {
 	return nil
 }
 
-func (m *mockStore) DeleteDownload(id int64) error {
+func (m *mockStore) DeleteDownload(ctx context.Context, id int64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.downloads, id)
 	return nil
 }
 
-func (m *mockStore) RetryDownload(id int64) error {
+func (m *mockStore) RetryDownload(ctx context.Context, id int64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if d, ok := m.downloads[id]; ok {
@@ -203,20 +214,20 @@ func (m *mockStore) RetryDownload(id int64) error {
 	}
 	return nil
 }
-func (m *mockStore) GetDownloadHistory(int, int, store.HistoryFilter) ([]store.DownloadRecord, int, error) {
+func (m *mockStore) GetDownloadHistory(ctx context.Context, limit int, offset int, filter store.HistoryFilter) ([]store.DownloadRecord, int, error) {
 	return nil, 0, nil
 }
 
-func (m *mockStore) GetTotalDownloadedBytes() (int64, error) { return 0, nil }
-func (m *mockStore) RecoverDownloadsOnStartup() ([]store.DownloadRecord, error) {
+func (m *mockStore) GetTotalDownloadedBytes(ctx context.Context) (int64, error) { return 0, nil }
+func (m *mockStore) RecoverDownloadsOnStartup(ctx context.Context) ([]store.DownloadRecord, error) {
 	return nil, nil
 }
 
-func (m *mockStore) RequeueDownload(id int64) error {
-	return m.RetryDownload(id)
+func (m *mockStore) RequeueDownload(ctx context.Context, id int64) error {
+	return m.RetryDownload(ctx, id)
 }
 
-func (m *mockStore) SetDownloadPriority(id int64, priority int) error {
+func (m *mockStore) SetDownloadPriority(ctx context.Context, id int64, priority int) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if d, ok := m.downloads[id]; ok {
@@ -225,27 +236,27 @@ func (m *mockStore) SetDownloadPriority(id int64, priority int) error {
 	return nil
 }
 
-func (m *mockStore) BulkActionDownloads(ids []int64, action string) (map[int64]string, error) {
+func (m *mockStore) BulkActionDownloads(ctx context.Context, ids []int64, action string) (map[int64]string, error) {
 	results := make(map[int64]string)
 	for _, id := range ids {
 		switch action {
 		case "pause":
-			_ = m.MarkDownloadPaused(id)
+			_ = m.MarkDownloadPaused(ctx, id)
 		case "resume":
-			_ = m.RetryDownload(id)
+			_ = m.RetryDownload(ctx, id)
 		case "remove":
-			_ = m.DeleteDownload(id)
+			_ = m.DeleteDownload(ctx, id)
 		}
 		results[id] = "success"
 	}
 	return results, nil
 }
 
-func (m *mockStore) FindDuplicateDownload(bot, serverAddress string, packNumber int) (*store.DownloadRecord, error) {
+func (m *mockStore) FindDuplicateDownload(ctx context.Context, bot, serverAddress string, packNumber int) (*store.DownloadRecord, error) {
 	return nil, nil
 }
 
-func (m *mockStore) GetDownloadByBotMessage(bot, packMessage string) (*store.DownloadRecord, error) {
+func (m *mockStore) GetDownloadByBotMessage(ctx context.Context, bot, packMessage string) (*store.DownloadRecord, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, d := range m.downloads {
@@ -256,7 +267,7 @@ func (m *mockStore) GetDownloadByBotMessage(bot, packMessage string) (*store.Dow
 	return nil, nil
 }
 
-func (m *mockStore) UpdateDownloadMetadata(id int64, filename string, size int64) error {
+func (m *mockStore) UpdateDownloadMetadata(ctx context.Context, id int64, filename string, size int64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if d, ok := m.downloads[id]; ok {
@@ -266,47 +277,63 @@ func (m *mockStore) UpdateDownloadMetadata(id int64, filename string, size int64
 	return nil
 }
 
-func (m *mockStore) SetSearchCache(store.SearchCacheEntry) error { return nil }
-func (m *mockStore) GetSearchCache(string, string) (*store.SearchCacheEntry, error) {
+func (m *mockStore) SetSearchCache(ctx context.Context, e store.SearchCacheEntry) error { return nil }
+func (m *mockStore) GetSearchCache(ctx context.Context, query string, provider string) (*store.SearchCacheEntry, error) {
 	return nil, nil
 }
-func (m *mockStore) GetSearchCacheByQuery(string) ([]store.SearchCacheEntry, error) {
+func (m *mockStore) GetSearchCacheByQuery(ctx context.Context, query string) ([]store.SearchCacheEntry, error) {
 	return nil, nil
 }
-func (m *mockStore) DeleteExpiredSearchCache(time.Time) error { return nil }
+func (m *mockStore) DeleteExpiredSearchCache(ctx context.Context, t time.Time) error { return nil }
 
-func (m *mockStore) AddSearchPreset(store.SearchPreset) (int64, error)  { return 1, nil }
-func (m *mockStore) GetSearchPreset(int64) (*store.SearchPreset, error) { return nil, nil }
-func (m *mockStore) ListSearchPresets() ([]store.SearchPreset, error)   { return nil, nil }
-func (m *mockStore) UpdateSearchPreset(p store.SearchPreset) error      { return nil }
-func (m *mockStore) DeleteSearchPreset(int64) error                     { return nil }
-func (m *mockStore) SetDefaultSearchPreset(int64) error                 { return nil }
-
-func (m *mockStore) AddWatchlist(store.Watchlist) (int64, error)      { return 1, nil }
-func (m *mockStore) GetWatchlist(int64) (*store.Watchlist, error)     { return nil, nil }
-func (m *mockStore) ListWatchlists() ([]store.Watchlist, error)       { return nil, nil }
-func (m *mockStore) UpdateWatchlist(store.Watchlist) error            { return nil }
-func (m *mockStore) DeleteWatchlist(int64) error                      { return nil }
-func (m *mockStore) SetWatchlistChecked(int64, string) error          { return nil }
-func (m *mockStore) SetWatchlistNotified(int64) error                 { return nil }
-func (m *mockStore) GetEnabledWatchlists() ([]store.Watchlist, error) { return nil, nil }
-
-func (m *mockStore) RecordProviderStats(store.ProviderStats) error { return nil }
-func (m *mockStore) GetProviderStats(string, time.Time) ([]store.ProviderStats, error) {
+func (m *mockStore) AddSearchPreset(ctx context.Context, p store.SearchPreset) (int64, error) {
+	return 1, nil
+}
+func (m *mockStore) GetSearchPreset(ctx context.Context, id int64) (*store.SearchPreset, error) {
 	return nil, nil
 }
-func (m *mockStore) GetAllProviderStats(time.Time) (map[string][]store.ProviderStats, error) {
+func (m *mockStore) ListSearchPresets(ctx context.Context) ([]store.SearchPreset, error) {
+	return nil, nil
+}
+func (m *mockStore) UpdateSearchPreset(ctx context.Context, p store.SearchPreset) error { return nil }
+func (m *mockStore) DeleteSearchPreset(ctx context.Context, id int64) error             { return nil }
+func (m *mockStore) SetDefaultSearchPreset(ctx context.Context, id int64) error         { return nil }
+
+func (m *mockStore) AddWatchlist(ctx context.Context, w store.Watchlist) (int64, error) {
+	return 1, nil
+}
+func (m *mockStore) GetWatchlist(ctx context.Context, id int64) (*store.Watchlist, error) {
+	return nil, nil
+}
+func (m *mockStore) ListWatchlists(ctx context.Context) ([]store.Watchlist, error)      { return nil, nil }
+func (m *mockStore) UpdateWatchlist(ctx context.Context, w store.Watchlist) error       { return nil }
+func (m *mockStore) DeleteWatchlist(ctx context.Context, id int64) error                { return nil }
+func (m *mockStore) SetWatchlistChecked(ctx context.Context, id int64, fp string) error { return nil }
+func (m *mockStore) SetWatchlistNotified(ctx context.Context, id int64) error           { return nil }
+func (m *mockStore) GetEnabledWatchlists(ctx context.Context) ([]store.Watchlist, error) {
 	return nil, nil
 }
 
-func (m *mockStore) CleanupOldDownloads(int) (int, error) { return 0, nil }
-func (m *mockStore) RunCleanup(int, time.Duration) (chan struct{}, chan struct{}, error) {
+func (m *mockStore) RecordProviderStats(ctx context.Context, s store.ProviderStats) error { return nil }
+func (m *mockStore) GetProviderStats(ctx context.Context, provider string, since time.Time) ([]store.ProviderStats, error) {
+	return nil, nil
+}
+func (m *mockStore) GetAllProviderStats(ctx context.Context, since time.Time) (map[string][]store.ProviderStats, error) {
+	return nil, nil
+}
+
+func (m *mockStore) CleanupOldDownloads(ctx context.Context, retentionDays int) (int, error) {
+	return 0, nil
+}
+func (m *mockStore) RunCleanup(ctx context.Context, retentionDays int, interval time.Duration) (chan struct{}, chan struct{}, error) {
 	return nil, nil, nil
 }
-func (m *mockStore) Vacuum() error                          { return nil }
-func (m *mockStore) ExportData() (*store.ExportData, error) { return &store.ExportData{}, nil }
-func (m *mockStore) ImportData(*store.ExportData) error     { return nil }
-func (m *mockStore) BackupDatabase(string) error            { return nil }
+func (m *mockStore) Vacuum(ctx context.Context) error { return nil }
+func (m *mockStore) ExportData(ctx context.Context) (*store.ExportData, error) {
+	return &store.ExportData{}, nil
+}
+func (m *mockStore) ImportData(ctx context.Context, data *store.ExportData) error { return nil }
+func (m *mockStore) BackupDatabase(ctx context.Context, path string) error        { return nil }
 
 // ===========================================================================
 // Test helpers
@@ -347,7 +374,7 @@ func TestEnqueue_Success(t *testing.T) {
 	// Wait a bit for the download to start (async dispatch)
 	time.Sleep(50 * time.Millisecond)
 
-	d, _ := ms.GetDownload(id)
+	d, _ := ms.GetDownload(context.Background(), id)
 	if d == nil {
 		t.Fatal("expected download in store")
 	}
@@ -373,7 +400,7 @@ func TestEnqueue_OptionalChannel(t *testing.T) {
 		t.Fatalf("Enqueue with empty channel should succeed: %v", err)
 	}
 
-	d, _ := ms.GetDownload(id)
+	d, _ := ms.GetDownload(context.Background(), id)
 	if d == nil {
 		t.Fatal("expected download in store")
 	}
@@ -393,7 +420,7 @@ func TestEnqueue_ChannelNormalization(t *testing.T) {
 		t.Fatalf("Enqueue: %v", err)
 	}
 
-	d, _ := ms.GetDownload(id)
+	d, _ := ms.GetDownload(context.Background(), id)
 	if d.Channel != "#no-hash" {
 		t.Errorf("expected normalized channel '#no-hash', got %q", d.Channel)
 	}
@@ -402,7 +429,7 @@ func TestEnqueue_ChannelNormalization(t *testing.T) {
 func TestEnqueue_DuplicateDetection(t *testing.T) {
 	qm, ms := newTestQM(t)
 
-	_, _ = ms.EnqueueDownload(store.DownloadRecord{
+	_, _ = ms.EnqueueDownload(context.Background(), store.DownloadRecord{
 		Bot: "SameBot", ServerAddress: "irc.t.net", Channel: "#x",
 		Filename: "existing.mkv", FileSize: 100, PackMessage: "xdcc send #5",
 	})
@@ -431,7 +458,7 @@ func TestEnqueue_CustomPriority(t *testing.T) {
 		t.Fatalf("Enqueue: %v", err)
 	}
 
-	d, _ := ms.GetDownload(id)
+	d, _ := ms.GetDownload(context.Background(), id)
 	if d.Priority != 5 {
 		t.Errorf("expected priority 5, got %d", d.Priority)
 	}
@@ -457,7 +484,7 @@ func TestCancelDownload_NonExistent(t *testing.T) {
 func TestPauseDownload_Success(t *testing.T) {
 	qm, ms := newTestQM(t)
 
-	id, _ := ms.EnqueueDownload(store.DownloadRecord{
+	id, _ := ms.EnqueueDownload(context.Background(), store.DownloadRecord{
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x",
 		Filename: "f.mkv", FileSize: 100,
 	})
@@ -467,7 +494,7 @@ func TestPauseDownload_Success(t *testing.T) {
 		t.Fatalf("PauseDownload: %v", err)
 	}
 
-	d, _ := ms.GetDownload(id)
+	d, _ := ms.GetDownload(context.Background(), id)
 	if d.Status != store.DownloadStatusPaused {
 		t.Errorf("expected status 'paused', got %s", d.Status)
 	}
@@ -489,18 +516,18 @@ func TestPauseDownload_NonExistent(t *testing.T) {
 func TestResumeDownload_Success(t *testing.T) {
 	qm, ms := newTestQM(t)
 
-	id, _ := ms.EnqueueDownload(store.DownloadRecord{
+	id, _ := ms.EnqueueDownload(context.Background(), store.DownloadRecord{
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x",
 		Filename: "f.mkv", FileSize: 100,
 	})
-	_ = ms.MarkDownloadPaused(id)
+	_ = ms.MarkDownloadPaused(context.Background(), id)
 
 	err := qm.ResumeDownload(id)
 	if err != nil {
 		t.Fatalf("ResumeDownload: %v", err)
 	}
 
-	d, _ := ms.GetDownload(id)
+	d, _ := ms.GetDownload(context.Background(), id)
 	// ResumeDownload calls tryDispatch() which may start the download
 	// immediately in test since there's no real IRC connection to block.
 	if d.Status != store.DownloadStatusQueued && d.Status != store.DownloadStatusDownloading {
@@ -515,7 +542,7 @@ func TestResumeDownload_Success(t *testing.T) {
 func TestRemoveDownload_Success(t *testing.T) {
 	qm, ms := newTestQM(t)
 
-	id, _ := ms.EnqueueDownload(store.DownloadRecord{
+	id, _ := ms.EnqueueDownload(context.Background(), store.DownloadRecord{
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x",
 		Filename: "f.mkv", FileSize: 100,
 	})
@@ -525,7 +552,7 @@ func TestRemoveDownload_Success(t *testing.T) {
 		t.Fatalf("RemoveDownload: %v", err)
 	}
 
-	d, _ := ms.GetDownload(id)
+	d, _ := ms.GetDownload(context.Background(), id)
 	if d != nil {
 		t.Errorf("expected download to be removed, got %+v", d)
 	}
@@ -538,10 +565,10 @@ func TestRemoveDownload_Success(t *testing.T) {
 func TestBulkAction_Pause(t *testing.T) {
 	qm, ms := newTestQM(t)
 
-	id1, _ := ms.EnqueueDownload(store.DownloadRecord{
+	id1, _ := ms.EnqueueDownload(context.Background(), store.DownloadRecord{
 		Bot: "Bot1", ServerAddress: "irc.t.net", Channel: "#a", Filename: "a.mkv", FileSize: 100,
 	})
-	id2, _ := ms.EnqueueDownload(store.DownloadRecord{
+	id2, _ := ms.EnqueueDownload(context.Background(), store.DownloadRecord{
 		Bot: "Bot2", ServerAddress: "irc.t.net", Channel: "#b", Filename: "b.mkv", FileSize: 100,
 	})
 
@@ -556,7 +583,7 @@ func TestBulkAction_Pause(t *testing.T) {
 		t.Errorf("expected success for id2, got %s", results[id2])
 	}
 
-	d1, _ := ms.GetDownload(id1)
+	d1, _ := ms.GetDownload(context.Background(), id1)
 	if d1.Status != store.DownloadStatusPaused {
 		t.Errorf("expected download %d to be paused", id1)
 	}
@@ -565,17 +592,17 @@ func TestBulkAction_Pause(t *testing.T) {
 func TestBulkAction_Resume(t *testing.T) {
 	qm, ms := newTestQM(t)
 
-	id, _ := ms.EnqueueDownload(store.DownloadRecord{
+	id, _ := ms.EnqueueDownload(context.Background(), store.DownloadRecord{
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#a", Filename: "a.mkv", FileSize: 100,
 	})
-	_ = ms.MarkDownloadPaused(id)
+	_ = ms.MarkDownloadPaused(context.Background(), id)
 
 	results, _ := qm.BulkAction([]int64{id}, "resume")
 	if results[id] != "success" {
 		t.Errorf("expected success, got %s", results[id])
 	}
 
-	d, _ := ms.GetDownload(id)
+	d, _ := ms.GetDownload(context.Background(), id)
 	// BulkAction "resume" calls ResumeDownload which may immediately
 	// dispatch the download (tryDispatch) in test, making it "downloading".
 	if d.Status != store.DownloadStatusQueued && d.Status != store.DownloadStatusDownloading {
@@ -586,7 +613,7 @@ func TestBulkAction_Resume(t *testing.T) {
 func TestBulkAction_Remove(t *testing.T) {
 	qm, ms := newTestQM(t)
 
-	id, _ := ms.EnqueueDownload(store.DownloadRecord{
+	id, _ := ms.EnqueueDownload(context.Background(), store.DownloadRecord{
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#a", Filename: "a.mkv", FileSize: 100,
 	})
 
@@ -595,7 +622,7 @@ func TestBulkAction_Remove(t *testing.T) {
 		t.Errorf("expected success, got %s", results[id])
 	}
 
-	d, _ := ms.GetDownload(id)
+	d, _ := ms.GetDownload(context.Background(), id)
 	if d != nil {
 		t.Errorf("expected download removed")
 	}
@@ -604,7 +631,7 @@ func TestBulkAction_Remove(t *testing.T) {
 func TestBulkAction_UnknownAction(t *testing.T) {
 	qm, ms := newTestQM(t)
 
-	id, _ := ms.EnqueueDownload(store.DownloadRecord{
+	id, _ := ms.EnqueueDownload(context.Background(), store.DownloadRecord{
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#a", Filename: "a.mkv", FileSize: 100,
 	})
 
@@ -669,11 +696,11 @@ func TestTryDispatch_WithQueuedItems(t *testing.T) {
 	qm, ms := newTestQM(t)
 
 	// Add queued downloads
-	_, _ = ms.EnqueueDownload(store.DownloadRecord{
+	_, _ = ms.EnqueueDownload(context.Background(), store.DownloadRecord{
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#channel1",
 		Filename: "a.mkv", FileSize: 100, PackMessage: "xdcc send #1",
 	})
-	_, _ = ms.EnqueueDownload(store.DownloadRecord{
+	_, _ = ms.EnqueueDownload(context.Background(), store.DownloadRecord{
 		Bot: "Bot2", ServerAddress: "irc.t.net", Channel: "#channel2",
 		Filename: "b.mkv", FileSize: 200, PackMessage: "xdcc send #1",
 	})
@@ -703,11 +730,11 @@ func TestTryDispatch_AtGlobalLimit(t *testing.T) {
 	t.Cleanup(func() { qm2.Stop() })
 
 	// Enqueue 2 downloads
-	_, _ = ms.EnqueueDownload(store.DownloadRecord{
+	_, _ = ms.EnqueueDownload(context.Background(), store.DownloadRecord{
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#ch1",
 		Filename: "a.mkv", FileSize: 100, PackMessage: "xdcc send #1",
 	})
-	_, _ = ms.EnqueueDownload(store.DownloadRecord{
+	_, _ = ms.EnqueueDownload(context.Background(), store.DownloadRecord{
 		Bot: "Bot2", ServerAddress: "irc.t.net", Channel: "#ch2",
 		Filename: "b.mkv", FileSize: 200, PackMessage: "xdcc send #1",
 	})
@@ -726,7 +753,7 @@ func TestTryDispatch_AtGlobalLimit(t *testing.T) {
 func TestHandleFallback_SuggestOnly(t *testing.T) {
 	_, ms := newTestQM(t)
 
-	id, _ := ms.EnqueueDownload(store.DownloadRecord{
+	id, _ := ms.EnqueueDownload(context.Background(), store.DownloadRecord{
 		Bot: "Bot", ServerAddress: "irc.t.net", Channel: "#x",
 		Filename: "f.mkv", FileSize: 100,
 	})
@@ -735,8 +762,8 @@ func TestHandleFallback_SuggestOnly(t *testing.T) {
 	// Note: we can't call qm.handleFallback directly since it accesses
 	// qm.cfg which requires the real QueueManager. With suggest_only mode,
 	// the status should remain unchanged after a failed download.
-	_ = ms.MarkDownloadFailed(id, "test error")
-	d, _ := ms.GetDownload(id)
+	_ = ms.MarkDownloadFailed(context.Background(), id, "test error")
+	d, _ := ms.GetDownload(context.Background(), id)
 	if d == nil {
 		t.Fatal("expected download to exist")
 	}

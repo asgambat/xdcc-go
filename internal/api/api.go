@@ -6,13 +6,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
+	"strconv"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/lrstanley/girc"
 	"xdcc-go/internal/config"
 	"xdcc-go/internal/ircmanager"
 	"xdcc-go/internal/logging"
+	"xdcc-go/internal/metrics"
 	"xdcc-go/internal/queue"
 	"xdcc-go/internal/searchagg"
 	"xdcc-go/internal/sse"
@@ -33,6 +37,7 @@ type API struct {
 	LogBroadcaster   *logging.LogBroadcaster
 	Config           *config.Config
 	Logger           *logging.Logger
+	Metrics          *metrics.Collector
 	StartTime        time.Time
 }
 
@@ -72,7 +77,7 @@ type QueueManager interface {
 func New(st *store.SQLiteStore, ircMgr IRCManager, queueMgr QueueManager,
 	searchAgg *searchagg.Aggregator, sseHub *sse.Hub,
 	logBroadcaster *logging.LogBroadcaster,
-	cfg *config.Config, logger *logging.Logger) *API {
+	cfg *config.Config, logger *logging.Logger, met *metrics.Collector) *API {
 	return &API{
 		Store:            st,
 		IRCManager:       ircMgr,
@@ -82,6 +87,7 @@ func New(st *store.SQLiteStore, ircMgr IRCManager, queueMgr QueueManager,
 		LogBroadcaster:   logBroadcaster,
 		Config:           cfg,
 		Logger:           logger,
+		Metrics:          met,
 		StartTime:        time.Now(),
 	}
 }
@@ -111,14 +117,18 @@ func writeError(w http.ResponseWriter, status int, code, msg string) {
 	resp := newErrorResponse(code, msg, "")
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(resp)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		log.Printf("writeError: encoding response failed (client may have disconnected): %v", err)
+	}
 }
 
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	if v != nil {
-		_ = json.NewEncoder(w).Encode(v)
+		if err := json.NewEncoder(w).Encode(v); err != nil {
+			log.Printf("writeJSON: encoding response failed (client may have disconnected): %v", err)
+		}
 	}
 }
 
@@ -182,6 +192,30 @@ func Logging(logger *logging.Logger) func(http.Handler) http.Handler {
 	}
 }
 
+// MetricsMiddleware returns middleware that tracks in-flight request count
+// per route pattern using the metrics collector.
+func MetricsMiddleware(met *metrics.Collector) func(http.Handler) http.Handler {
+	if met == nil {
+		return func(next http.Handler) http.Handler { return next }
+	}
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			routePattern := r.URL.Path // fallback
+			if rctx := chi.RouteContext(r.Context()); rctx != nil {
+				if p := rctx.RoutePattern(); p != "" {
+					routePattern = p
+				}
+			}
+			key := r.Method + " " + routePattern
+
+			met.IncEndpoint(key)
+			defer met.DecEndpoint(key)
+
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 // contextKey is used for storing values in request context to avoid
 // collisions with built-in string keys.
 type contextKey string
@@ -209,9 +243,11 @@ func RequestID(next http.Handler) http.Handler {
 
 // parseID parses an int64 from a string (URL param).
 func parseID(s string) (int64, error) {
-	var id int64
-	_, err := fmt.Sscanf(s, "%d", &id)
-	return id, err
+	n, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("parseID %q: %w", s, err)
+	}
+	return n, nil
 }
 
 // parsePageParams extracts page and pageSize from query string.
@@ -219,10 +255,14 @@ func parsePageParams(r *http.Request) (page, pageSize int) {
 	page = 1
 	pageSize = 50
 	if p := r.URL.Query().Get("page"); p != "" {
-		_, _ = fmt.Sscanf(p, "%d", &page)
+		if n, err := strconv.Atoi(p); err == nil {
+			page = n
+		}
 	}
 	if ps := r.URL.Query().Get("pageSize"); ps != "" {
-		_, _ = fmt.Sscanf(ps, "%d", &pageSize)
+		if n, err := strconv.Atoi(ps); err == nil {
+			pageSize = n
+		}
 	}
 	if page < 1 {
 		page = 1
@@ -235,16 +275,20 @@ func parsePageParams(r *http.Request) (page, pageSize int) {
 
 // parseInt parses an integer from a string.
 func parseInt(s string) (int, error) {
-	var n int
-	_, err := fmt.Sscanf(s, "%d", &n)
-	return n, err
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, fmt.Errorf("parseInt %q: %w", s, err)
+	}
+	return n, nil
 }
 
 // parseInt64 parses an int64 from a string.
 func parseInt64(s string) (int64, error) {
-	var n int64
-	_, err := fmt.Sscanf(s, "%d", &n)
-	return n, err
+	n, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("parseInt64 %q: %w", s, err)
+	}
+	return n, nil
 }
 
 // logAndError is a helper to log and write an error response.

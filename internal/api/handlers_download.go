@@ -16,7 +16,7 @@ import (
 // =========================================================================
 
 func (a *API) handleListDownloads(w http.ResponseWriter, r *http.Request) {
-	queue, err := a.Store.GetQueue()
+	queue, err := a.Store.GetQueue(r.Context())
 	if err != nil {
 		a.logAndError(w, http.StatusInternalServerError, "LIST_QUEUE_ERROR", err.Error())
 		return
@@ -35,7 +35,7 @@ func (a *API) handleListDownloads(w http.ResponseWriter, r *http.Request) {
 
 	// Include recently completed/failed/skipped downloads so the UI can show
 	// "Completed Today" counters and recent history without a separate fetch.
-	recent, _, err := a.Store.GetDownloadHistory(1, 50, store.HistoryFilter{})
+	recent, _, err := a.Store.GetDownloadHistory(r.Context(), 1, 50, store.HistoryFilter{})
 	if err != nil {
 		// Graceful degradation: log the warning but continue with the queue only.
 		// The frontend can still show active downloads even if history fails.
@@ -74,6 +74,7 @@ func (a *API) handleEnqueueDownload(w http.ResponseWriter, r *http.Request) {
 		FileSize      int64  `json:"file_size"`
 		Priority      int    `json:"priority,omitempty"`
 	}
+	defer r.Body.Close()
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "INVALID_JSON", "Invalid request body")
 		return
@@ -127,7 +128,7 @@ func (a *API) handleEnqueueDownload(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		// No queue manager — store directly
-		id, err = a.Store.EnqueueDownload(rec)
+		id, err = a.Store.EnqueueDownload(r.Context(), rec)
 		if err != nil {
 			a.logAndError(w, http.StatusInternalServerError, "ENQUEUE_ERROR", err.Error())
 			return
@@ -160,7 +161,7 @@ func (a *API) handleDownloadHistory(w http.ResponseWriter, r *http.Request) {
 		filter.StatusList = statuses
 	}
 
-	downloads, total, err := a.Store.GetDownloadHistory(page, pageSize, filter)
+	downloads, total, err := a.Store.GetDownloadHistory(r.Context(), page, pageSize, filter)
 	if err != nil {
 		a.logAndError(w, http.StatusInternalServerError, "HISTORY_ERROR", err.Error())
 		return
@@ -189,6 +190,7 @@ func (a *API) handleBulkDownloads(w http.ResponseWriter, r *http.Request) {
 		IDs    []int64 `json:"ids"`
 		Action string  `json:"action"`
 	}
+	defer r.Body.Close()
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "INVALID_JSON", "Invalid request body")
 		return
@@ -211,7 +213,7 @@ func (a *API) handleBulkDownloads(w http.ResponseWriter, r *http.Request) {
 	if a.QueueManager != nil {
 		results, err = a.QueueManager.BulkAction(body.IDs, body.Action)
 	} else {
-		results, err = a.Store.BulkActionDownloads(body.IDs, body.Action)
+		results, err = a.Store.BulkActionDownloads(r.Context(), body.IDs, body.Action)
 	}
 	if err != nil {
 		a.logAndError(w, http.StatusInternalServerError, "BULK_ERROR", err.Error())
@@ -246,7 +248,7 @@ func (a *API) handleGetDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	d, err := a.Store.GetDownload(id)
+	d, err := a.Store.GetDownload(r.Context(), id)
 	if err != nil {
 		a.logAndError(w, http.StatusInternalServerError, "GET_DOWNLOAD_ERROR", err.Error())
 		return
@@ -276,7 +278,7 @@ func (a *API) handleRemoveDownload(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		if err := a.Store.DeleteDownload(id); err != nil {
+		if err := a.Store.DeleteDownload(r.Context(), id); err != nil {
 			a.logAndError(w, http.StatusInternalServerError, "REMOVE_ERROR", err.Error())
 			return
 		}
@@ -302,7 +304,7 @@ func (a *API) handlePauseDownload(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		if err := a.Store.MarkDownloadPaused(id); err != nil {
+		if err := a.Store.MarkDownloadPaused(r.Context(), id); err != nil {
 			a.logAndError(w, http.StatusInternalServerError, "PAUSE_ERROR", err.Error())
 			return
 		}
@@ -328,7 +330,7 @@ func (a *API) handleResumeDownload(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		if err := a.Store.RetryDownload(id); err != nil {
+		if err := a.Store.RetryDownload(r.Context(), id); err != nil {
 			a.logAndError(w, http.StatusInternalServerError, "RESUME_ERROR", err.Error())
 			return
 		}
@@ -348,7 +350,7 @@ func (a *API) handleRetryDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := a.Store.RetryDownload(id); err != nil {
+	if err := a.Store.RetryDownload(r.Context(), id); err != nil {
 		a.logAndError(w, http.StatusInternalServerError, "RETRY_ERROR", err.Error())
 		return
 	}
@@ -370,6 +372,7 @@ func (a *API) handleSetDownloadPosition(w http.ResponseWriter, r *http.Request) 
 	var body struct {
 		Priority int `json:"priority"`
 	}
+	defer r.Body.Close()
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "INVALID_JSON", "Invalid request body")
 		return
@@ -379,13 +382,13 @@ func (a *API) handleSetDownloadPosition(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Verify the download exists
-	d, err := a.Store.GetDownload(id)
+	d, err := a.Store.GetDownload(r.Context(), id)
 	if err != nil || d == nil {
 		writeError(w, http.StatusNotFound, "DOWNLOAD_NOT_FOUND", fmt.Sprintf("Download %d not found", id))
 		return
 	}
 
-	if err := a.Store.SetDownloadPriority(id, body.Priority); err != nil {
+	if err := a.Store.SetDownloadPriority(r.Context(), id, body.Priority); err != nil {
 		a.logAndError(w, http.StatusInternalServerError, "SET_PRIORITY_ERROR", err.Error())
 		return
 	}

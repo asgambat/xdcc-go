@@ -86,6 +86,11 @@ type Manager struct {
 	// allowing tryDispatch to proceed. This prevents downloads from starting
 	// before IRC servers have had time to connect and join channels.
 	startupReady chan struct{}
+
+	// startupTimer tracks the delayed-start timer so Stop() can cancel it.
+	// If the shutdown happens before the timer fires, the callback won't
+	// call tryDispatch() outside the intended lifecycle.
+	startupTimer *time.Timer
 }
 
 // IRCManagerInterface defines the methods needed from ircmanager for downloads.
@@ -164,7 +169,7 @@ func (qm *Manager) Start() error {
 	if qm.cfg.Download.StartupDelayMinutes > 0 {
 		delay := time.Duration(qm.cfg.Download.StartupDelayMinutes) * time.Minute
 		qm.log.Infof("queue manager: delaying dispatch by %v to allow IRC connections to establish", delay)
-		time.AfterFunc(delay, func() {
+		qm.startupTimer = time.AfterFunc(delay, func() {
 			close(qm.startupReady)
 			qm.tryDispatch()
 		})
@@ -178,6 +183,12 @@ func (qm *Manager) Start() error {
 
 // Stop cancels all active downloads and stops the monitor.
 func (qm *Manager) Stop() {
+	// Stop the startup timer so the delayed dispatch callback doesn't fire
+	// after shutdown has begun, calling tryDispatch() outside the lifecycle.
+	if qm.startupTimer != nil {
+		qm.startupTimer.Stop()
+	}
+
 	// Stop disk monitor first and wait for goroutine to exit
 	if qm.stopDiskCheck != nil {
 		qm.stopDiskCheck()
@@ -202,7 +213,7 @@ func (qm *Manager) Stop() {
 
 	for _, id := range ids {
 		// Save progress before cancellation
-		if d, err := qm.store.GetDownload(id); err == nil && d != nil && d.ProgressBytes > 0 {
+		if d, err := qm.store.GetDownload(qm.ctx, id); err == nil && d != nil && d.ProgressBytes > 0 {
 			qm.log.Infof("shutdown: saving progress for download %d: %d/%d bytes", id, d.ProgressBytes, d.FileSize)
 		}
 		_ = qm.CancelDownload(id, "server shutting down")
@@ -280,7 +291,7 @@ func (qm *Manager) Enqueue(d store.DownloadRecord) (int64, error) {
 	d.Channel = xdccirc.NormalizeChannel(d.Channel)
 
 	// Check for duplicate by bot + pack message
-	dupByMsg, err := qm.store.GetDownloadByBotMessage(d.Bot, d.PackMessage)
+	dupByMsg, err := qm.store.GetDownloadByBotMessage(qm.ctx, d.Bot, d.PackMessage)
 	if err == nil && dupByMsg != nil && dupByMsg.Status != store.DownloadStatusCompleted {
 		return 0, fmt.Errorf("duplicate download: already %s (id=%d)", dupByMsg.Status, dupByMsg.ID)
 	}
@@ -300,7 +311,7 @@ func (qm *Manager) Enqueue(d store.DownloadRecord) (int64, error) {
 		d.Priority = 100
 	}
 
-	id, err := qm.store.EnqueueDownload(d)
+	id, err := qm.store.EnqueueDownload(qm.ctx, d)
 	if err != nil {
 		return 0, fmt.Errorf("enqueueing download: %w", err)
 	}
@@ -345,14 +356,14 @@ func (qm *Manager) CancelDownload(id int64, reason string) error {
 	}
 
 	// Update store
-	d, err := qm.store.GetDownload(id)
+	d, err := qm.store.GetDownload(qm.ctx, id)
 	if err != nil || d == nil {
 		return err
 	}
 
 	// If it was active but not yet completed, mark it as queued for retry
 	if active && d.Status == store.DownloadStatusDownloading {
-		_ = qm.store.RequeueDownload(id)
+		_ = qm.store.RequeueDownload(qm.ctx, id)
 	}
 
 	return nil
@@ -373,7 +384,7 @@ func (qm *Manager) PauseDownload(id int64) error {
 		cancelFn()
 	}
 
-	err := qm.store.MarkDownloadPaused(id)
+	err := qm.store.MarkDownloadPaused(qm.ctx, id)
 	if err != nil {
 		return err
 	}
@@ -397,7 +408,7 @@ func (qm *Manager) PauseDownload(id int64) error {
 
 // ResumeDownload resumes a paused or failed download by re-queueing it.
 func (qm *Manager) ResumeDownload(id int64) error {
-	err := qm.store.RetryDownload(id)
+	err := qm.store.RetryDownload(qm.ctx, id)
 	if err != nil {
 		return err
 	}
@@ -427,7 +438,7 @@ func (qm *Manager) RemoveDownload(id int64) error {
 		qm.releaseChannelSlot(id)
 	}
 
-	err := qm.store.DeleteDownload(id)
+	err := qm.store.DeleteDownload(qm.ctx, id)
 	if err != nil {
 		return err
 	}
@@ -557,7 +568,7 @@ func (qm *Manager) tryDispatch() {
 	}
 
 	// Get all queued downloads, ordered by priority then creation time
-	queue, err := qm.store.GetQueue()
+	queue, err := qm.store.GetQueue(qm.ctx)
 	if err != nil {
 		qm.log.Warnf("failed to get queue: %v", err)
 		return
@@ -600,7 +611,7 @@ func (qm *Manager) tryDispatch() {
 // startDownload begins a download in a new goroutine.
 func (qm *Manager) startDownload(d store.DownloadRecord) {
 	// Mark as downloading in store
-	if err := qm.store.MarkDownloadStarted(d.ID); err != nil {
+	if err := qm.store.MarkDownloadStarted(qm.ctx, d.ID); err != nil {
 		qm.log.Warnf("marking download %d as started: %v", d.ID, err)
 		return
 	}
@@ -674,7 +685,7 @@ func (qm *Manager) startDownload(d store.DownloadRecord) {
 
 			// Update store (status is NOT set here — MarkDownloadStarted
 			// already set it before this callback began).
-			_ = qm.store.UpdateDownloadProgress(d.ID, bytesReceived, int64(speedBPS))
+			_ = qm.store.UpdateDownloadProgress(qm.ctx, d.ID, bytesReceived, int64(speedBPS))
 
 			// Emit progress event
 			qm.emitEvent(Event{
@@ -689,7 +700,7 @@ func (qm *Manager) startDownload(d store.DownloadRecord) {
 			// If we discovered filename/size from the pack, update store and emit metadata event.
 			// Only emit once (when metadataEmitted is still false) to avoid redundant SSE events.
 			if !metadataEmitted && pack.Filename != "" && (d.Filename == "" || strings.HasPrefix(d.Filename, "manual_download")) {
-				_ = qm.store.UpdateDownloadMetadata(d.ID, pack.Filename, pack.Size)
+				_ = qm.store.UpdateDownloadMetadata(qm.ctx, d.ID, pack.Filename, pack.Size)
 				qm.emitEvent(Event{
 					Type:       EventDownloadMetadataUpdate,
 					DownloadID: d.ID,
@@ -721,7 +732,7 @@ func (qm *Manager) startDownload(d store.DownloadRecord) {
 			// cancelled/requeued) before we overwrite it. If the user
 			// explicitly paused, cancelled, or removed the download, respect
 			// that decision.
-			current, err := qm.store.GetDownload(d.ID)
+			current, err := qm.store.GetDownload(qm.ctx, d.ID)
 			if err == nil && current != nil {
 				if current.Status == store.DownloadStatusPaused ||
 					current.Status == store.DownloadStatusQueued {
@@ -736,7 +747,7 @@ func (qm *Manager) startDownload(d store.DownloadRecord) {
 			if result.Error != nil {
 				// Download failed
 				errStr := result.Error.Error()
-				_ = qm.store.MarkDownloadFailed(d.ID, errStr)
+				_ = qm.store.MarkDownloadFailed(qm.ctx, d.ID, errStr)
 
 				qm.log.Errorf("download %d FAILED — bot=%s server=%s channel=%q file=%q error=%s",
 					d.ID, d.Bot, d.ServerAddress, d.Channel, d.Filename, errStr)
@@ -756,7 +767,7 @@ func (qm *Manager) startDownload(d store.DownloadRecord) {
 				qm.handleFallback(d, result)
 			} else if result.Skipped {
 				// File was skipped because destination already exists
-				_ = qm.store.MarkDownloadSkipped(d.ID)
+				_ = qm.store.MarkDownloadSkipped(qm.ctx, d.ID)
 
 				// Use discovered filename if record filename was empty
 				skippedFilename := d.Filename
@@ -786,7 +797,7 @@ func (qm *Manager) startDownload(d store.DownloadRecord) {
 				if finalSize == 0 && pack.Size > 0 {
 					finalSize = pack.Size
 				}
-				_ = qm.store.MarkDownloadCompleted(d.ID, finalFilename, finalSize)
+				_ = qm.store.MarkDownloadCompleted(qm.ctx, d.ID, finalFilename, finalSize)
 
 				qm.log.Infof("download %d COMPLETED — bot=%s server=%s file=%s -> %s",
 					d.ID, d.Bot, d.ServerAddress, finalFilename, result.FilePath)
@@ -854,7 +865,7 @@ func (qm *Manager) handleFallback(original store.DownloadRecord, result workerRe
 	}
 
 	// Count existing failed attempts by checking if the record was already retried
-	current, err := qm.store.GetDownload(original.ID)
+	current, err := qm.store.GetDownload(qm.ctx, original.ID)
 	if err != nil || current == nil {
 		return
 	}
@@ -882,12 +893,12 @@ func (qm *Manager) handleFallback(original store.DownloadRecord, result workerRe
 
 	// Re-queue with incremented retry count
 	newPriority := current.Priority + 1
-	_ = qm.store.SetDownloadPriority(original.ID, newPriority)
+	_ = qm.store.SetDownloadPriority(qm.ctx, original.ID, newPriority)
 
 	qm.log.Infof("fallback: auto-retrying download %d (attempt %d/%d)",
 		original.ID, retryCount+1, maxRetries)
 
-	if err := qm.store.RetryDownload(original.ID); err != nil {
+	if err := qm.store.RetryDownload(qm.ctx, original.ID); err != nil {
 		qm.log.Errorf("fallback: retry failed for download %d: %v", original.ID, err)
 	}
 

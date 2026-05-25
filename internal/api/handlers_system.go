@@ -25,7 +25,7 @@ func (a *API) handleHealthz(w http.ResponseWriter, r *http.Request) {
 // =========================================================================
 
 func (a *API) handleReadyz(w http.ResponseWriter, r *http.Request) {
-	_, err := a.Store.CurrentSchemaVersion()
+	_, err := a.Store.CurrentSchemaVersion(r.Context())
 	if err != nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
 			"status": "not ready",
@@ -61,6 +61,7 @@ func (a *API) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	var body map[string]interface{}
+	defer r.Body.Close()
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "INVALID_JSON", "Invalid request body")
 		return
@@ -88,7 +89,7 @@ func (a *API) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 // =========================================================================
 
 func (a *API) handleStats(w http.ResponseWriter, r *http.Request) {
-	queue, _ := a.Store.GetQueue()
+	queue, _ := a.Store.GetQueue(r.Context())
 
 	queueCount := 0
 	activeCount := 0
@@ -103,11 +104,11 @@ func (a *API) handleStats(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	totalDownloadedBytes, _ := a.Store.GetTotalDownloadedBytes()
+	totalDownloadedBytes, _ := a.Store.GetTotalDownloadedBytes(r.Context())
 
-	_, totalHistory, _ := a.Store.GetDownloadHistory(1, 1, store.HistoryFilter{})
+	_, totalHistory, _ := a.Store.GetDownloadHistory(r.Context(), 1, 1, store.HistoryFilter{})
 
-	servers, _ := a.Store.ListServers()
+	servers, _ := a.Store.ListServers(r.Context())
 	serverCount := len(servers)
 
 	uptimeSeconds := int64(time.Since(a.StartTime).Seconds())
@@ -156,7 +157,7 @@ func (a *API) handleStatus(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	servers, _ := a.Store.ListServers()
+	servers, _ := a.Store.ListServers(r.Context())
 	connectedServers := 0
 	totalServers := len(servers)
 	for _, srv := range servers {
@@ -166,7 +167,7 @@ func (a *API) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	info["servers"] = map[string]int{"connected": connectedServers, "total": totalServers}
 
-	queue, _ := a.Store.GetQueue()
+	queue, _ := a.Store.GetQueue(r.Context())
 	activeDownloads := 0
 	for _, item := range queue {
 		if item.Status == "downloading" {
@@ -210,7 +211,7 @@ type diskInfo struct {
 // =========================================================================
 
 func (a *API) handleAdminExport(w http.ResponseWriter, r *http.Request) {
-	export, err := a.Store.ExportData()
+	export, err := a.Store.ExportData(r.Context())
 	if err != nil {
 		a.logAndError(w, http.StatusInternalServerError, "EXPORT_ERROR", err.Error())
 		return
@@ -259,6 +260,7 @@ func (a *API) handleAdminImport(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Data *store.ExportData `json:"data"`
 	}
+	defer r.Body.Close()
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "INVALID_JSON", "Invalid request body")
 		return
@@ -269,7 +271,7 @@ func (a *API) handleAdminImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := a.Store.ImportData(body.Data); err != nil {
+	if err := a.Store.ImportData(r.Context(), body.Data); err != nil {
 		a.logAndError(w, http.StatusInternalServerError, "IMPORT_ERROR", err.Error())
 		return
 	}
@@ -301,6 +303,7 @@ func (a *API) handleSetupBootstrap(w http.ResponseWriter, r *http.Request) {
 		DownloadDir   string `json:"download_dir"`
 		TempDir       string `json:"temp_dir"`
 	}
+	defer r.Body.Close()
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "INVALID_JSON", "Invalid request body")
 		return

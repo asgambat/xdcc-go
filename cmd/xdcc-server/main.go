@@ -20,6 +20,7 @@ import (
 	"xdcc-go/internal/config"
 	"xdcc-go/internal/ircmanager"
 	"xdcc-go/internal/logging"
+	"xdcc-go/internal/metrics"
 	"xdcc-go/internal/queue"
 	"xdcc-go/internal/search"
 	"xdcc-go/internal/searchagg"
@@ -78,6 +79,9 @@ See config.yaml in the project root for all available settings.`,
 			}
 
 			// Setup logger with configurable level
+			// Initialize runtime metrics collector
+			met := metrics.New()
+
 			logLevel, err := logging.ParseLevel(cfg.Logging.Level)
 			if err != nil {
 				logLevel = logging.LevelInfo
@@ -105,13 +109,13 @@ See config.yaml in the project root for all available settings.`,
 			defer st.Close()
 
 			// Run schema migrations
-			if err := st.Migrate(); err != nil {
+			if err := st.Migrate(context.Background()); err != nil {
 				return fmt.Errorf("running database migrations: %w", err)
 			}
 			logger.Infof("database migrations complete (schema v%d)", currentSchemaVersion(st))
 
 			// Recovery: requeue downloads stuck in 'downloading' status
-			recovered, err := st.RecoverDownloadsOnStartup()
+			recovered, err := st.RecoverDownloadsOnStartup(context.Background())
 			if err != nil {
 				logger.Warnf("download recovery failed: %v", err)
 			} else if len(recovered) > 0 {
@@ -119,7 +123,7 @@ See config.yaml in the project root for all available settings.`,
 			}
 
 			// Filesystem reconciliation
-			actions, err := st.ReconcileFileSystem(cfg.Download.TempDir, "move", "")
+			actions, err := st.ReconcileFileSystem(context.Background(), cfg.Download.TempDir, "move", "")
 			if err != nil {
 				logger.Warnf("filesystem reconciliation failed: %v", err)
 			} else {
@@ -137,7 +141,7 @@ See config.yaml in the project root for all available settings.`,
 			if err != nil {
 				retentionDays = 30
 			}
-			stopCleanup, cleanupDone, err := st.RunCleanup(retentionDays, cleanupInterval)
+			stopCleanup, cleanupDone, err := st.RunCleanup(context.Background(), retentionDays, cleanupInterval)
 			if err != nil {
 				logger.Warnf("starting cleanup goroutine failed: %v", err)
 			} else {
@@ -176,6 +180,7 @@ See config.yaml in the project root for all available settings.`,
 
 			// Start search aggregator
 			searchAgg := searchagg.New(st, &cfg.Search, logger)
+			searchAgg.SetMetrics(met)
 			if err := searchAgg.Start(context.Background()); err != nil {
 				return fmt.Errorf("starting search aggregator: %w", err)
 			}
@@ -217,7 +222,7 @@ See config.yaml in the project root for all available settings.`,
 			go eventBridge.ForwardQueueEvents(eventCtx, queueEventCh, &eventWg)
 
 			// Build REST API and wire it into the HTTP server
-			apiHandler := api.New(st, ircMgr, queueMgr, searchAgg, sseHub, logBroadcaster, cfg, logger)
+			apiHandler := api.New(st, ircMgr, queueMgr, searchAgg, sseHub, logBroadcaster, cfg, logger, met)
 			mux := apiHandler.Router()
 
 			// Create global shutdown context for request cancellation (Phase 1.1)
@@ -289,26 +294,26 @@ See config.yaml in the project root for all available settings.`,
 
 			// 4. Cancel the search aggregator context (with timeout)
 			logger.Infof("shutdown: stopping search aggregator...")
-			stopWithTimeout("search aggregator", 2*time.Second, func() {
+			stopWithTiming(met, "search_aggregator", 2*time.Second, func() {
 				searchAgg.Stop()
 			}, logger)
 
 			// 4. Cancel all active queue downloads (saves progress first, with timeout)
 			logger.Infof("shutdown: stopping queue manager...")
-			stopWithTimeout("queue manager", 10*time.Second, func() {
+			stopWithTiming(met, "queue_manager", 10*time.Second, func() {
 				queueMgr.Stop()
 			}, logger)
 
 			// 5. Disconnect all IRC servers with QUIT message (with timeout)
 			logger.Infof("shutdown: disconnecting IRC servers...")
-			stopWithTimeout("IRC manager", 5*time.Second, func() {
+			stopWithTiming(met, "irc_manager", 5*time.Second, func() {
 				ircMgr.Stop()
 			}, logger)
 
 			// 6. Run final cleanup save (with timeout)
 			logger.Infof("shutdown: running final database cleanup...")
-			stopWithTimeout("database cleanup", 3*time.Second, func() {
-				_ = st.Vacuum()
+			stopWithTiming(met, "database_cleanup", 3*time.Second, func() {
+				_ = st.Vacuum(context.Background())
 			}, logger)
 
 			logger.Infof("server stopped gracefully")
@@ -337,7 +342,7 @@ See config.yaml in the project root for all available settings.`,
 
 // currentSchemaVersion is a helper to safely get the schema version for logging.
 func currentSchemaVersion(st *store.SQLiteStore) int {
-	v, err := st.CurrentSchemaVersion()
+	v, err := st.CurrentSchemaVersion(context.Background())
 	if err != nil {
 		return 0
 	}
@@ -353,10 +358,23 @@ func stopWithTimeout(name string, timeout time.Duration, fn func(), logger *logg
 		fn()
 	}()
 
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
 	select {
 	case <-done:
 		// Completed successfully
-	case <-time.After(timeout):
+	case <-timer.C:
 		logger.Warnf("%s stop exceeded timeout (%v), forcing shutdown", name, timeout)
 	}
+}
+
+// stopWithTiming is like stopWithTimeout but records the actual duration
+// in the metrics collector.
+func stopWithTiming(met *metrics.Collector, component string, timeout time.Duration, fn func(), logger *logging.Logger) {
+	start := time.Now()
+	defer func() {
+		met.RecordShutdownTiming(component, time.Since(start))
+	}()
+	stopWithTimeout(component, timeout, fn, logger)
 }

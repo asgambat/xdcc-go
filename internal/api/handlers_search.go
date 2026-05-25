@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -59,7 +60,15 @@ func (a *API) handleSearch(w http.ResponseWriter, r *http.Request) {
 
 	result, err := a.SearchAggregator.Search(ctx, opts)
 	if err != nil {
-		a.logAndError(w, http.StatusInternalServerError, "SEARCH_ERROR", err.Error())
+		switch {
+		case errors.Is(err, context.DeadlineExceeded):
+			writeError(w, http.StatusGatewayTimeout, "SEARCH_TIMEOUT", "Search request timed out")
+		case errors.Is(err, context.Canceled):
+			// Client disconnected — write nothing, just log at debug level
+			a.Logger.Debugf("search request cancelled: %v", err)
+		default:
+			a.logAndError(w, http.StatusInternalServerError, "SEARCH_ERROR", err.Error())
+		}
 		return
 	}
 
@@ -76,7 +85,7 @@ func (a *API) handleListPresets(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	presets, err := a.SearchAggregator.ListPresets()
+	presets, err := a.SearchAggregator.ListPresets(r.Context())
 	if err != nil {
 		a.logAndError(w, http.StatusInternalServerError, "LIST_PRESETS_ERROR", err.Error())
 		return
@@ -101,6 +110,7 @@ func (a *API) handleCreatePreset(w http.ResponseWriter, r *http.Request) {
 		Filters   string `json:"filters_json"`
 		IsDefault bool   `json:"is_default"`
 	}
+	defer r.Body.Close()
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "INVALID_JSON", "Invalid request body")
 		return
@@ -114,7 +124,7 @@ func (a *API) handleCreatePreset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id, err := a.SearchAggregator.CreatePreset(body.Name, body.Query, body.Filters, body.IsDefault)
+	id, err := a.SearchAggregator.CreatePreset(r.Context(), body.Name, body.Query, body.Filters, body.IsDefault)
 	if err != nil {
 		a.logAndError(w, http.StatusInternalServerError, "CREATE_PRESET_ERROR", err.Error())
 		return
@@ -140,7 +150,7 @@ func (a *API) handleUpdatePreset(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get existing preset
-	existing, err := a.SearchAggregator.GetPreset(id)
+	existing, err := a.SearchAggregator.GetPreset(r.Context(), id)
 	if err != nil {
 		a.logAndError(w, http.StatusInternalServerError, "GET_PRESET_ERROR", err.Error())
 		return
@@ -156,6 +166,7 @@ func (a *API) handleUpdatePreset(w http.ResponseWriter, r *http.Request) {
 		Filters   string `json:"filters_json"`
 		IsDefault bool   `json:"is_default"`
 	}
+	defer r.Body.Close()
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "INVALID_JSON", "Invalid request body")
 		return
@@ -172,7 +183,7 @@ func (a *API) handleUpdatePreset(w http.ResponseWriter, r *http.Request) {
 	updated.FiltersJSON = body.Filters
 	updated.IsDefault = body.IsDefault
 
-	if err := a.SearchAggregator.UpdatePreset(updated); err != nil {
+	if err := a.SearchAggregator.UpdatePreset(r.Context(), updated); err != nil {
 		a.logAndError(w, http.StatusInternalServerError, "UPDATE_PRESET_ERROR", err.Error())
 		return
 	}
@@ -196,7 +207,7 @@ func (a *API) handleDeletePreset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := a.SearchAggregator.DeletePreset(id); err != nil {
+	if err := a.SearchAggregator.DeletePreset(r.Context(), id); err != nil {
 		a.logAndError(w, http.StatusInternalServerError, "DELETE_PRESET_ERROR", err.Error())
 		return
 	}
@@ -209,7 +220,7 @@ func (a *API) handleDeletePreset(w http.ResponseWriter, r *http.Request) {
 // =========================================================================
 
 func (a *API) handleListWatchlists(w http.ResponseWriter, r *http.Request) {
-	watchlists, err := a.Store.ListWatchlists()
+	watchlists, err := a.Store.ListWatchlists(r.Context())
 	if err != nil {
 		a.logAndError(w, http.StatusInternalServerError, "LIST_WATCHLISTS_ERROR", err.Error())
 		return
@@ -230,6 +241,7 @@ func (a *API) handleCreateWatchlist(w http.ResponseWriter, r *http.Request) {
 		Enabled     bool   `json:"enabled"`
 		AutoEnqueue bool   `json:"auto_enqueue"`
 	}
+	defer r.Body.Close()
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "INVALID_JSON", "Invalid request body")
 		return
@@ -243,7 +255,7 @@ func (a *API) handleCreateWatchlist(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id, err := a.Store.AddWatchlist(store.Watchlist{
+	id, err := a.Store.AddWatchlist(r.Context(), store.Watchlist{
 		Name:        body.Name,
 		Query:       body.Query,
 		FiltersJSON: body.FiltersJSON,
@@ -270,7 +282,7 @@ func (a *API) handleUpdateWatchlist(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get existing
-	existing, err := a.Store.GetWatchlist(id)
+	existing, err := a.Store.GetWatchlist(r.Context(), id)
 	if err != nil {
 		a.logAndError(w, http.StatusInternalServerError, "GET_WATCHLIST_ERROR", err.Error())
 		return
@@ -287,6 +299,7 @@ func (a *API) handleUpdateWatchlist(w http.ResponseWriter, r *http.Request) {
 		Enabled     bool   `json:"enabled"`
 		AutoEnqueue bool   `json:"auto_enqueue"`
 	}
+	defer r.Body.Close()
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "INVALID_JSON", "Invalid request body")
 		return
@@ -303,7 +316,7 @@ func (a *API) handleUpdateWatchlist(w http.ResponseWriter, r *http.Request) {
 	updated.Enabled = body.Enabled
 	updated.AutoEnqueue = body.AutoEnqueue
 
-	if err := a.Store.UpdateWatchlist(updated); err != nil {
+	if err := a.Store.UpdateWatchlist(r.Context(), updated); err != nil {
 		a.logAndError(w, http.StatusInternalServerError, "UPDATE_WATCHLIST_ERROR", err.Error())
 		return
 	}
@@ -322,7 +335,7 @@ func (a *API) handleDeleteWatchlist(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := a.Store.DeleteWatchlist(id); err != nil {
+	if err := a.Store.DeleteWatchlist(r.Context(), id); err != nil {
 		a.logAndError(w, http.StatusInternalServerError, "DELETE_WATCHLIST_ERROR", err.Error())
 		return
 	}
@@ -347,7 +360,7 @@ func (a *API) handleRunWatchlist(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get the watchlist
-	wl, err := a.Store.GetWatchlist(id)
+	wl, err := a.Store.GetWatchlist(r.Context(), id)
 	if err != nil {
 		a.logAndError(w, http.StatusInternalServerError, "GET_WATCHLIST_ERROR", err.Error())
 		return
@@ -362,7 +375,14 @@ func (a *API) handleRunWatchlist(w http.ResponseWriter, r *http.Request) {
 
 	result, err := a.SearchAggregator.RunWatchlist(ctx, *wl)
 	if err != nil {
-		a.logAndError(w, http.StatusInternalServerError, "RUN_WATCHLIST_ERROR", err.Error())
+		switch {
+		case errors.Is(err, context.DeadlineExceeded):
+			writeError(w, http.StatusGatewayTimeout, "WATCHLIST_TIMEOUT", "Watchlist execution timed out")
+		case errors.Is(err, context.Canceled):
+			a.Logger.Debugf("watchlist execution cancelled: %v", err)
+		default:
+			a.logAndError(w, http.StatusInternalServerError, "RUN_WATCHLIST_ERROR", err.Error())
+		}
 		return
 	}
 
@@ -380,8 +400,8 @@ func (a *API) handleGetProviders(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Return both states and insights
-	states := a.SearchAggregator.GetProviderStates()
-	insights, err := a.SearchAggregator.GetProviderInsights()
+	states := a.SearchAggregator.GetProviderStates(r.Context())
+	insights, err := a.SearchAggregator.GetProviderInsights(r.Context())
 	if err != nil {
 		// Non-fatal — just log
 		a.Logger.Warnf("getting provider insights: %v", err)
@@ -408,6 +428,7 @@ func (a *API) handlePatchProvider(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Enabled bool `json:"enabled"`
 	}
+	defer r.Body.Close()
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "INVALID_JSON", "Invalid request body")
 		return
@@ -434,6 +455,7 @@ func (a *API) handleParseXDCC(w http.ResponseWriter, r *http.Request) {
 		Command string `json:"command"`
 		Message string `json:"message"` // alternative field name (frontend compatibility)
 	}
+	defer r.Body.Close()
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "INVALID_JSON", "Invalid request body")
 		return
@@ -556,6 +578,13 @@ func findBotOnConnectedServers(ctx context.Context, ircMgr IRCManager, bot strin
 	}
 
 	const maxParallel = 10
+
+	// Derive a cancelable context so we can signal all inflight goroutines
+	// as soon as the first hit is found, instead of letting them run until
+	// the parent timeout or their internal 5s WHOIS timeout.
+	ctx2, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	resultCh := make(chan string, 1)
 	var wg sync.WaitGroup
 
@@ -569,19 +598,19 @@ func findBotOnConnectedServers(ctx context.Context, ircMgr IRCManager, bot strin
 			// Acquire semaphore slot
 			select {
 			case sem <- struct{}{}:
-			case <-ctx.Done():
+			case <-ctx2.Done():
 				return
 			}
 			defer func() { <-sem }()
 
 			// Check if context is still valid before starting WHOIS
 			select {
-			case <-ctx.Done():
+			case <-ctx2.Done():
 				return
 			default:
 			}
 
-			if whoisBotOnServer(ctx, ircMgr, serverID, bot) {
+			if whoisBotOnServer(ctx2, ircMgr, serverID, bot) {
 				// Bot found on this server — send result (non-blocking)
 				select {
 				case resultCh <- addr:
@@ -601,10 +630,12 @@ func findBotOnConnectedServers(ctx context.Context, ircMgr IRCManager, bot strin
 	select {
 	case result, ok := <-resultCh:
 		if ok && result != "" {
+			// Cancel all other inflight goroutines — we already found the bot.
+			cancel()
 			return result
 		}
 		return ""
-	case <-ctx.Done():
+	case <-ctx2.Done():
 		return ""
 	}
 }
@@ -619,7 +650,20 @@ func whoisBotOnServer(ctx context.Context, ircMgr IRCManager, serverID int64, bo
 
 	// Use a channel to receive the WHOIS result, with a timeout.
 	resultCh := make(chan string, 1)
-	gotReply := false
+
+	// sync.Once ensures exactly one callback sends the result, eliminating
+	// the data race that a bare bool would have when RPL_WHOISUSER and
+	// ERR_NOSUCHNICK fire concurrently (girc dispatches events in separate
+	// goroutines).
+	var replyOnce sync.Once
+	sendReply := func(v string) {
+		replyOnce.Do(func() {
+			select {
+			case resultCh <- v:
+			default:
+			}
+		})
+	}
 
 	// Handler for RPL_WHOISUSER — bot exists on this server
 	cuid := client.Handlers.Add(girc.RPL_WHOISUSER, func(cl *girc.Client, e girc.Event) {
@@ -629,13 +673,7 @@ func whoisBotOnServer(ctx context.Context, ircMgr IRCManager, serverID int64, bo
 		// Params: [nick, user, host, real name]
 		whoisNick := e.Params[0]
 		if strings.EqualFold(whoisNick, bot) {
-			if !gotReply {
-				gotReply = true
-				select {
-				case resultCh <- whoisNick:
-				default:
-				}
-			}
+			sendReply(whoisNick)
 		}
 	})
 	defer client.Handlers.Remove(cuid)
@@ -647,13 +685,7 @@ func whoisBotOnServer(ctx context.Context, ircMgr IRCManager, serverID int64, bo
 		}
 		// Params: [nick, "No such nick"]
 		if strings.EqualFold(e.Params[0], bot) {
-			if !gotReply {
-				gotReply = true
-				select {
-				case resultCh <- "":
-				default:
-				}
-			}
+			sendReply("")
 		}
 	})
 	defer client.Handlers.Remove(cuid2)

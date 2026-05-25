@@ -1,7 +1,10 @@
 // Package store provides persistence for the xdcc-server using SQLite.
 package store
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 // ---------------------------------------------------------------------------
 // Focused interfaces — each consumer should depend only on the methods it needs.
@@ -9,88 +12,88 @@ import "time"
 
 // ServerStore covers IRC server and channel persistence.
 type ServerStore interface {
-	AddServer(s ServerRecord) (int64, error)
-	GetServer(id int64) (*ServerRecord, error)
-	ListServers() ([]ServerRecord, error)
-	UpdateServer(s ServerRecord) error
-	DeleteServer(id int64) error
-	SetServerStatus(id int64, status string) error
-	SetServerConnected(id int64) error
-	IncrementServerRetry(id int64) error
+	AddServer(ctx context.Context, s ServerRecord) (int64, error)
+	GetServer(ctx context.Context, id int64) (*ServerRecord, error)
+	ListServers(ctx context.Context) ([]ServerRecord, error)
+	UpdateServer(ctx context.Context, s ServerRecord) error
+	DeleteServer(ctx context.Context, id int64) error
+	SetServerStatus(ctx context.Context, id int64, status string) error
+	SetServerConnected(ctx context.Context, id int64) error
+	IncrementServerRetry(ctx context.Context, id int64) error
 
-	AddChannel(c ChannelRecord) (int64, error)
-	GetChannelsByServer(serverID int64) ([]ChannelRecord, error)
-	GetChannelsByServerAndName(serverID int64, name string) (*ChannelRecord, error)
-	UpdateChannel(c ChannelRecord) error
-	DeleteChannel(id int64) error
-	SetChannelJoined(id int64, joined bool) error
-	UpdateChannelTopic(id int64, topic string) error
-	GetAutoJoinChannels() ([]ChannelRecord, error)
+	AddChannel(ctx context.Context, c ChannelRecord) (int64, error)
+	GetChannelsByServer(ctx context.Context, serverID int64) ([]ChannelRecord, error)
+	GetChannelsByServerAndName(ctx context.Context, serverID int64, name string) (*ChannelRecord, error)
+	UpdateChannel(ctx context.Context, c ChannelRecord) error
+	DeleteChannel(ctx context.Context, id int64) error
+	SetChannelJoined(ctx context.Context, id int64, joined bool) error
+	UpdateChannelTopic(ctx context.Context, id int64, topic string) error
+	GetAutoJoinChannels(ctx context.Context) ([]ChannelRecord, error)
 }
 
 // DownloadStore covers download queue and history persistence.
 type DownloadStore interface {
-	EnqueueDownload(d DownloadRecord) (int64, error)
-	GetDownload(id int64) (*DownloadRecord, error)
-	GetQueue() ([]DownloadRecord, error)
-	GetQueueByChannel(channel string) ([]DownloadRecord, error)
-	GetActiveDownloads() ([]DownloadRecord, error)
-	GetPendingByChannel(channel string) ([]DownloadRecord, error)
-	UpdateDownloadProgress(id int64, progressBytes int64, speedBPS int64) error
-	MarkDownloadStarted(id int64) error
-	MarkDownloadCompleted(id int64, filename string, fileSize int64) error
-	MarkDownloadFailed(id int64, errMsg string) error
-	MarkDownloadSkipped(id int64) error
-	MarkDownloadPaused(id int64) error
-	MarkDownloadRetry(id int64, newStatus string) error
-	DeleteDownload(id int64) error
-	RetryDownload(id int64) error
-	GetDownloadHistory(page, pageSize int, filter HistoryFilter) ([]DownloadRecord, int, error)
-	GetTotalDownloadedBytes() (int64, error)
-	RecoverDownloadsOnStartup() ([]DownloadRecord, error)
-	RequeueDownload(id int64) error
-	SetDownloadPriority(id int64, priority int) error
-	UpdateDownloadMetadata(id int64, filename string, fileSize int64) error
-	BulkActionDownloads(ids []int64, action string) (map[int64]string, error)
-	FindDuplicateDownload(bot, serverAddress string, packNumber int) (*DownloadRecord, error)
-	GetDownloadByBotMessage(bot, packMessage string) (*DownloadRecord, error)
+	EnqueueDownload(ctx context.Context, d DownloadRecord) (int64, error)
+	GetDownload(ctx context.Context, id int64) (*DownloadRecord, error)
+	GetQueue(ctx context.Context) ([]DownloadRecord, error)
+	GetQueueByChannel(ctx context.Context, channel string) ([]DownloadRecord, error)
+	GetActiveDownloads(ctx context.Context) ([]DownloadRecord, error)
+	GetPendingByChannel(ctx context.Context, channel string) ([]DownloadRecord, error)
+	UpdateDownloadProgress(ctx context.Context, id int64, progressBytes int64, speedBPS int64) error
+	MarkDownloadStarted(ctx context.Context, id int64) error
+	MarkDownloadCompleted(ctx context.Context, id int64, filename string, fileSize int64) error
+	MarkDownloadFailed(ctx context.Context, id int64, errMsg string) error
+	MarkDownloadSkipped(ctx context.Context, id int64) error
+	MarkDownloadPaused(ctx context.Context, id int64) error
+	MarkDownloadRetry(ctx context.Context, id int64, newStatus string) error
+	DeleteDownload(ctx context.Context, id int64) error
+	RetryDownload(ctx context.Context, id int64) error
+	GetDownloadHistory(ctx context.Context, page, pageSize int, filter HistoryFilter) ([]DownloadRecord, int, error)
+	GetTotalDownloadedBytes(ctx context.Context) (int64, error)
+	RecoverDownloadsOnStartup(ctx context.Context) ([]DownloadRecord, error)
+	RequeueDownload(ctx context.Context, id int64) error
+	SetDownloadPriority(ctx context.Context, id int64, priority int) error
+	UpdateDownloadMetadata(ctx context.Context, id int64, filename string, fileSize int64) error
+	BulkActionDownloads(ctx context.Context, ids []int64, action string) (map[int64]string, error)
+	FindDuplicateDownload(ctx context.Context, bot, serverAddress string, packNumber int) (*DownloadRecord, error)
+	GetDownloadByBotMessage(ctx context.Context, bot, packMessage string) (*DownloadRecord, error)
 }
 
 // SearchCacheStore covers search result caching in SQLite.
 type SearchCacheStore interface {
-	SetSearchCache(entry SearchCacheEntry) error
-	GetSearchCache(queryKey, provider string) (*SearchCacheEntry, error)
-	GetSearchCacheByQuery(queryKey string) ([]SearchCacheEntry, error)
-	DeleteExpiredSearchCache(staleBefore time.Time) error
+	SetSearchCache(ctx context.Context, entry SearchCacheEntry) error
+	GetSearchCache(ctx context.Context, queryKey, provider string) (*SearchCacheEntry, error)
+	GetSearchCacheByQuery(ctx context.Context, queryKey string) ([]SearchCacheEntry, error)
+	DeleteExpiredSearchCache(ctx context.Context, staleBefore time.Time) error
 }
 
 // SearchPresetStore covers saved search presets.
 type SearchPresetStore interface {
-	AddSearchPreset(p SearchPreset) (int64, error)
-	GetSearchPreset(id int64) (*SearchPreset, error)
-	ListSearchPresets() ([]SearchPreset, error)
-	UpdateSearchPreset(p SearchPreset) error
-	DeleteSearchPreset(id int64) error
-	SetDefaultSearchPreset(id int64) error
+	AddSearchPreset(ctx context.Context, p SearchPreset) (int64, error)
+	GetSearchPreset(ctx context.Context, id int64) (*SearchPreset, error)
+	ListSearchPresets(ctx context.Context) ([]SearchPreset, error)
+	UpdateSearchPreset(ctx context.Context, p SearchPreset) error
+	DeleteSearchPreset(ctx context.Context, id int64) error
+	SetDefaultSearchPreset(ctx context.Context, id int64) error
 }
 
 // WatchlistStore covers saved watchlists for periodic search and notification.
 type WatchlistStore interface {
-	AddWatchlist(w Watchlist) (int64, error)
-	GetWatchlist(id int64) (*Watchlist, error)
-	ListWatchlists() ([]Watchlist, error)
-	UpdateWatchlist(w Watchlist) error
-	DeleteWatchlist(id int64) error
-	SetWatchlistChecked(id int64, fingerprint string) error
-	SetWatchlistNotified(id int64) error
-	GetEnabledWatchlists() ([]Watchlist, error)
+	AddWatchlist(ctx context.Context, w Watchlist) (int64, error)
+	GetWatchlist(ctx context.Context, id int64) (*Watchlist, error)
+	ListWatchlists(ctx context.Context) ([]Watchlist, error)
+	UpdateWatchlist(ctx context.Context, w Watchlist) error
+	DeleteWatchlist(ctx context.Context, id int64) error
+	SetWatchlistChecked(ctx context.Context, id int64, fingerprint string) error
+	SetWatchlistNotified(ctx context.Context, id int64) error
+	GetEnabledWatchlists(ctx context.Context) ([]Watchlist, error)
 }
 
 // ProviderStatsStore covers search provider metrics.
 type ProviderStatsStore interface {
-	RecordProviderStats(s ProviderStats) error
-	GetProviderStats(provider string, since time.Time) ([]ProviderStats, error)
-	GetAllProviderStats(since time.Time) (map[string][]ProviderStats, error)
+	RecordProviderStats(ctx context.Context, s ProviderStats) error
+	GetProviderStats(ctx context.Context, provider string, since time.Time) ([]ProviderStats, error)
+	GetAllProviderStats(ctx context.Context, since time.Time) (map[string][]ProviderStats, error)
 }
 
 // ---------------------------------------------------------------------------
@@ -109,18 +112,18 @@ type Store interface {
 
 	// ---- Lifecycle ----
 	Close() error
-	Migrate() error
-	CurrentSchemaVersion() (int, error)
+	Migrate(ctx context.Context) error
+	CurrentSchemaVersion(ctx context.Context) (int, error)
 
 	// ---- Cleanup ----
-	CleanupOldDownloads(retentionDays int) (int, error)
-	RunCleanup(retentionDays int, cleanupInterval time.Duration) (stopCh chan struct{}, doneCh chan struct{}, err error)
-	Vacuum() error
+	CleanupOldDownloads(ctx context.Context, retentionDays int) (int, error)
+	RunCleanup(ctx context.Context, retentionDays int, cleanupInterval time.Duration) (stopCh chan struct{}, doneCh chan struct{}, err error)
+	Vacuum(ctx context.Context) error
 
 	// ---- Backup / Export / Import ----
-	ExportData() (*ExportData, error)
-	ImportData(data *ExportData) error
-	BackupDatabase(destPath string) error
+	ExportData(ctx context.Context) (*ExportData, error)
+	ImportData(ctx context.Context, data *ExportData) error
+	BackupDatabase(ctx context.Context, destPath string) error
 }
 
 // ---------------------------------------------------------------------------

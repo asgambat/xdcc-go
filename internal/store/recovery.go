@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,9 +15,9 @@ import (
 // RecoverOnStartup implements the recovery logic:
 //   - Downloads with status 'downloading' are requeued as 'queued'
 //   - Returns the list of affected downloads for the caller to act on
-func (s *SQLiteStore) RecoverDownloadsOnStartup() ([]DownloadRecord, error) {
+func (s *SQLiteStore) RecoverDownloadsOnStartup(ctx context.Context) ([]DownloadRecord, error) {
 	// Find all downloads stuck in 'downloading' status
-	rows, err := s.db.Query(
+	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, pack_message, bot, server_address, channel, filename, file_size,
 		        status, progress_bytes, speed_bps, error_message, priority,
 		        created_at, started_at, completed_at
@@ -42,7 +43,7 @@ func (s *SQLiteStore) RecoverDownloadsOnStartup() ([]DownloadRecord, error) {
 		ids = append(ids, d.ID)
 	}
 
-	if err := s.batchRequeue(ids); err != nil {
+	if err := s.batchRequeue(ctx, ids); err != nil {
 		return nil, fmt.Errorf("requeueing %d downloads: %w", len(ids), err)
 	}
 
@@ -50,14 +51,14 @@ func (s *SQLiteStore) RecoverDownloadsOnStartup() ([]DownloadRecord, error) {
 }
 
 // batchRequeue sets multiple downloads back to 'queued' with progress reset.
-func (s *SQLiteStore) batchRequeue(ids []int64) error {
-	tx, err := s.db.Begin()
+func (s *SQLiteStore) batchRequeue(ctx context.Context, ids []int64) error {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback() //nolint:errcheck // read-only in practice; rollback failure is harmless
 
-	stmt, err := tx.Prepare(
+	stmt, err := tx.PrepareContext(ctx,
 		`UPDATE downloads SET status='queued', progress_bytes=0, error_message='', speed_bps=0 WHERE id=?`,
 	)
 	if err != nil {
@@ -66,7 +67,7 @@ func (s *SQLiteStore) batchRequeue(ids []int64) error {
 	defer stmt.Close()
 
 	for _, id := range ids {
-		if _, err := stmt.Exec(id); err != nil {
+		if _, err := stmt.ExecContext(ctx, id); err != nil {
 			return fmt.Errorf("requeueing download %d: %w", id, err)
 		}
 	}
@@ -85,11 +86,11 @@ func (s *SQLiteStore) batchRequeue(ids []int64) error {
 //   - tempDir: directory where partial downloads are stored
 //   - orphanedPolicy: "delete" or "move" for orphaned temp files
 //   - orphanedDir: directory to move orphaned files to (if policy is "move")
-func (s *SQLiteStore) ReconcileFileSystem(tempDir, orphanedPolicy, orphanedDir string) ([]string, error) {
+func (s *SQLiteStore) ReconcileFileSystem(ctx context.Context, tempDir, orphanedPolicy, orphanedDir string) ([]string, error) {
 	var actions []string
 
 	// 1. Check 'downloading' records whose temp files are missing → requeue them
-	downloading, err := s.GetActiveDownloads()
+	downloading, err := s.GetActiveDownloads(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("getting active downloads for reconciliation: %w", err)
 	}
@@ -98,7 +99,7 @@ func (s *SQLiteStore) ReconcileFileSystem(tempDir, orphanedPolicy, orphanedDir s
 		tempPath := filepath.Join(tempDir, d.Filename)
 		if _, err := os.Stat(tempPath); os.IsNotExist(err) {
 			// Temp file is missing, requeue
-			if err := s.RequeueDownload(d.ID); err != nil {
+			if err := s.RequeueDownload(ctx, d.ID); err != nil {
 				actions = append(actions, fmt.Sprintf("ERROR requeueing download %d: %v", d.ID, err))
 			} else {
 				actions = append(actions, fmt.Sprintf("REQUEUED download %d (temp file missing: %s)", d.ID, tempPath))
@@ -108,7 +109,7 @@ func (s *SQLiteStore) ReconcileFileSystem(tempDir, orphanedPolicy, orphanedDir s
 
 	// 2. Find orphaned temp files (files in tempDir not associated with any active/queued download)
 	// Build a set of filenames from active/paused/queued downloads
-	queue, err := s.GetQueue()
+	queue, err := s.GetQueue(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("getting queue for reconciliation: %w", err)
 	}
@@ -166,8 +167,8 @@ func (s *SQLiteStore) ReconcileFileSystem(tempDir, orphanedPolicy, orphanedDir s
 // ---------------------------------------------------------------------------
 
 // Vacuum reclaims disk space by running SQLite VACUUM.
-func (s *SQLiteStore) Vacuum() error {
-	_, err := s.db.Exec("VACUUM")
+func (s *SQLiteStore) Vacuum(ctx context.Context) error {
+	_, err := s.db.ExecContext(ctx, "VACUUM")
 	if err != nil {
 		return fmt.Errorf("running VACUUM: %w", err)
 	}
@@ -180,8 +181,8 @@ func (s *SQLiteStore) Vacuum() error {
 
 // CleanupOldDownloads deletes completed/failed downloads older than retentionDays.
 // Returns the number of deleted records.
-func (s *SQLiteStore) CleanupOldDownloads(retentionDays int) (int, error) {
-	result, err := s.db.Exec(
+func (s *SQLiteStore) CleanupOldDownloads(ctx context.Context, retentionDays int) (int, error) {
+	result, err := s.db.ExecContext(ctx,
 		`DELETE FROM downloads
 		 WHERE status IN ('completed', 'failed', 'skipped_existing')
 		   AND completed_at IS NOT NULL
@@ -203,7 +204,7 @@ func (s *SQLiteStore) CleanupOldDownloads(retentionDays int) (int, error) {
 // Returns two channels:
 // - stopCh: close this to signal the goroutine to stop
 // - doneCh: closed when the goroutine has completely stopped
-func (s *SQLiteStore) RunCleanup(retentionDays int, cleanupInterval time.Duration) (stopCh, doneCh chan struct{}, err error) {
+func (s *SQLiteStore) RunCleanup(ctx context.Context, retentionDays int, cleanupInterval time.Duration) (stopCh, doneCh chan struct{}, err error) {
 	stopCh = make(chan struct{})
 	doneCh = make(chan struct{})
 
@@ -217,16 +218,18 @@ func (s *SQLiteStore) RunCleanup(retentionDays int, cleanupInterval time.Duratio
 			select {
 			case <-stopCh:
 				return
+			case <-ctx.Done():
+				return
 			case <-time.After(cleanupInterval):
 				// Cleanup old downloads
-				_, _ = s.CleanupOldDownloads(retentionDays)
+				_, _ = s.CleanupOldDownloads(ctx, retentionDays)
 
 				// Cleanup expired search cache (entries older than stale TTL)
-				_ = s.DeleteExpiredSearchCache(time.Now().Add(-24 * time.Hour))
+				_ = s.DeleteExpiredSearchCache(ctx, time.Now().Add(-24*time.Hour))
 
 				// VACUUM once a week
 				if time.Since(lastVacuum) >= 7*24*time.Hour {
-					if err := s.Vacuum(); err == nil {
+					if err := s.Vacuum(ctx); err == nil {
 						lastVacuum = time.Now()
 					}
 				}

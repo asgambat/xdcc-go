@@ -16,6 +16,7 @@ func (a *API) Router() http.Handler {
 	r.Use(RequestID)
 	r.Use(Logging(a.Logger))
 	r.Use(chimw.Recoverer)
+	r.Use(MetricsMiddleware(a.Metrics))
 
 	// =====================================================================
 	// Health / readiness / version
@@ -115,6 +116,11 @@ func (a *API) Router() http.Handler {
 	// SSE events stream (Fase 7.1)
 	// =====================================================================
 	r.Get("/api/events", a.handleEvents) // GET /api/events
+
+	// =====================================================================
+	// Runtime metrics
+	// =====================================================================
+	r.Get("/api/metrics", a.handleMetrics) // GET /api/metrics
 
 	// =====================================================================
 	// Debug endpoints (goroutine profiling)

@@ -74,7 +74,7 @@ func (m *Manager) Start() error {
 		}
 
 		// Check if already stored in DB
-		servers, err := m.store.ListServers()
+		servers, err := m.store.ListServers(m.ctx)
 		if err != nil {
 			m.logger.Warnf("listing servers failed: %v", err)
 			continue
@@ -92,7 +92,7 @@ func (m *Manager) Start() error {
 
 		if !found {
 			// Add to DB
-			id, err := m.store.AddServer(store.ServerRecord{
+			id, err := m.store.AddServer(m.ctx, store.ServerRecord{
 				Address:     sc.Address,
 				Port:        sc.Port,
 				AutoConnect: true,
@@ -106,7 +106,7 @@ func (m *Manager) Start() error {
 
 			// Add channels to DB
 			for _, cc := range sc.Channels {
-				_, err := m.store.AddChannel(store.ChannelRecord{
+				_, err := m.store.AddChannel(m.ctx, store.ChannelRecord{
 					ServerID: existingID,
 					Name:     cc.Name,
 					AutoJoin: cc.AutoJoin,
@@ -125,7 +125,7 @@ func (m *Manager) Start() error {
 	}
 
 	// Also connect any DB servers marked auto_connect that aren't in config
-	servers, err := m.store.ListServers()
+	servers, err := m.store.ListServers(m.ctx)
 	if err != nil {
 		return fmt.Errorf("listing servers: %w", err)
 	}
@@ -198,7 +198,7 @@ func (m *Manager) emitEvent(evt Event) {
 // ConnectServerByID connects to an IRC server using its database ID.
 // It loads server details from the store, including auto-join channels.
 func (m *Manager) ConnectServerByID(serverID int64) error {
-	srv, err := m.store.GetServer(serverID)
+	srv, err := m.store.GetServer(m.ctx, serverID)
 	if err != nil {
 		return fmt.Errorf("fetching server %d: %w", serverID, err)
 	}
@@ -264,7 +264,7 @@ func (m *Manager) ConnectServer(srv *store.ServerRecord) error {
 	}
 
 	// Load auto-join channels from DB
-	channels, err := m.store.GetChannelsByServer(srv.ID)
+	channels, err := m.store.GetChannelsByServer(m.ctx, srv.ID)
 	if err == nil {
 		for _, ch := range channels {
 			if ch.AutoJoin {
@@ -280,7 +280,7 @@ func (m *Manager) ConnectServer(srv *store.ServerRecord) error {
 	m.mu.Unlock()
 
 	// Update DB status to 'connecting' (not 'connected' yet)
-	if err := m.store.SetServerStatus(srv.ID, "connecting"); err != nil {
+	if err := m.store.SetServerStatus(m.ctx, srv.ID, "connecting"); err != nil {
 		m.logger.Warnf("updating server status in DB failed: %v", err)
 	}
 
@@ -309,7 +309,7 @@ func (m *Manager) DisconnectServer(serverID int64) error {
 		// by a concurrent request, by Stop(), or never connected at all.
 		// The desired state (disconnected) is already achieved, so ensure
 		// the DB reflects reality and return nil.
-		if err := m.store.SetServerStatus(serverID, "disconnected"); err != nil {
+		if err := m.store.SetServerStatus(m.ctx, serverID, "disconnected"); err != nil {
 			m.logger.Warnf("updating server %d status to 'disconnected' in DB failed: %v", serverID, err)
 		}
 		return nil
@@ -344,7 +344,7 @@ func (m *Manager) DisconnectServer(serverID int64) error {
 		return fmt.Errorf("server %d shutdown timeout after 15s", serverID)
 	}
 
-	if err := m.store.SetServerStatus(serverID, "disconnected"); err != nil {
+	if err := m.store.SetServerStatus(m.ctx, serverID, "disconnected"); err != nil {
 		m.logger.Warnf("updating server status in DB failed: %v", err)
 	}
 	return nil
@@ -392,7 +392,7 @@ func (m *Manager) GetServers() []store.ServerRecord {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	servers, err := m.store.ListServers()
+	servers, err := m.store.ListServers(m.ctx)
 	if err != nil {
 		m.logger.Warnf("listing servers failed: %v", err)
 		return nil
@@ -409,7 +409,7 @@ func (m *Manager) GetServers() []store.ServerRecord {
 
 // GetChannels returns the list of channels for a specific server.
 func (m *Manager) GetChannels(serverID int64) []store.ChannelRecord {
-	channels, err := m.store.GetChannelsByServer(serverID)
+	channels, err := m.store.GetChannelsByServer(m.ctx, serverID)
 	if err != nil {
 		m.logger.Warnf("listing channels for server %d failed: %v", serverID, err)
 		return nil
@@ -583,7 +583,7 @@ func (m *Manager) ensureConnection(address string, port int) (int64, *managedCon
 	m.logger.Infof("Creating new persistent connection to %s:%d", address, port)
 
 	// Check if server exists in database
-	servers, err := m.store.ListServers()
+	servers, err := m.store.ListServers(m.ctx)
 	if err != nil {
 		return 0, nil, fmt.Errorf("listing servers: %w", err)
 	}
@@ -600,7 +600,7 @@ func (m *Manager) ensureConnection(address string, port int) (int64, *managedCon
 
 	if !found {
 		// Add server to database
-		serverID, err = m.store.AddServer(store.ServerRecord{
+		serverID, err = m.store.AddServer(m.ctx, store.ServerRecord{
 			Address:     address,
 			Port:        port,
 			AutoConnect: false, // Don't auto-connect on restart
@@ -729,7 +729,7 @@ func (mc *managedConnection) run() {
 		if r := recover(); r != nil {
 			mc.manager.logger.Errorf("PANIC in run() for server %d: %v\n%s", mc.id, r, debug.Stack())
 			mc.setStatus("error")
-			_ = mc.manager.store.SetServerStatus(mc.id, "error")
+			_ = mc.manager.store.SetServerStatus(mc.ctx, mc.id, "error")
 
 			// Clean up IRC client resources to prevent goroutine/channel
 			// leaks. If the panic happened inside connect(), there may be
@@ -746,9 +746,7 @@ func (mc *managedConnection) run() {
 	for {
 		result := mc.connect()
 		if mc.ctx.Err() != nil {
-			// Context cancelled — server was explicitly disconnected
-			mc.setStatus("disconnected")
-			_ = mc.manager.store.SetServerStatus(mc.id, "disconnected")
+			_ = mc.manager.store.SetServerStatus(mc.ctx, mc.id, "disconnected")
 			mc.manager.emitEvent(Event{
 				Type:       EventServerDisconnected,
 				ServerID:   mc.id,
@@ -760,9 +758,7 @@ func (mc *managedConnection) run() {
 		// Handle result based on disconnect reason
 		switch result {
 		case connectResultExplicitCancel:
-			// User explicitly disconnected — stop reconnecting
-			mc.setStatus("disconnected")
-			_ = mc.manager.store.SetServerStatus(mc.id, "disconnected")
+			_ = mc.manager.store.SetServerStatus(mc.ctx, mc.id, "disconnected")
 			mc.manager.emitEvent(Event{
 				Type:       EventServerDisconnected,
 				ServerID:   mc.id,
@@ -842,7 +838,7 @@ func (mc *managedConnection) connect() connectResult {
 		mc.manager.logger.Infof("connected to %s:%d", mc.address, mc.port)
 
 		// Update DB
-		if err := mc.manager.store.SetServerConnected(mc.id); err != nil {
+		if err := mc.manager.store.SetServerConnected(mc.ctx, mc.id); err != nil {
 			mc.manager.logger.Warnf("updating server %d status failed: %v", mc.id, err)
 		}
 
@@ -873,11 +869,11 @@ func (mc *managedConnection) connect() connectResult {
 
 		// Update DB: mark existing channel as joined, or create it if it was
 		// joined automatically (e.g. via WHOIS during a download).
-		channels, err := mc.manager.store.GetChannelsByServerAndName(mc.id, ch)
+		channels, err := mc.manager.store.GetChannelsByServerAndName(mc.ctx, mc.id, ch)
 		if err == nil && channels != nil {
-			_ = mc.manager.store.SetChannelJoined(channels.ID, true)
+			_ = mc.manager.store.SetChannelJoined(mc.ctx, channels.ID, true)
 		} else if err == nil {
-			_, err = mc.manager.store.AddChannel(store.ChannelRecord{
+			_, err = mc.manager.store.AddChannel(mc.ctx, store.ChannelRecord{
 				ServerID: mc.id,
 				Name:     ch,
 				AutoJoin: false,
@@ -911,9 +907,9 @@ func (mc *managedConnection) connect() connectResult {
 		delete(mc.joinedChs, ch)
 		mc.mu.Unlock()
 
-		channels, err := mc.manager.store.GetChannelsByServerAndName(mc.id, ch)
+		channels, err := mc.manager.store.GetChannelsByServerAndName(mc.ctx, mc.id, ch)
 		if err == nil && channels != nil {
-			_ = mc.manager.store.SetChannelJoined(channels.ID, false)
+			_ = mc.manager.store.SetChannelJoined(mc.ctx, channels.ID, false)
 		}
 
 		mc.manager.emitEvent(Event{
@@ -934,9 +930,9 @@ func (mc *managedConnection) connect() connectResult {
 		delete(mc.joinedChs, ch)
 		mc.mu.Unlock()
 
-		channels, err := mc.manager.store.GetChannelsByServerAndName(mc.id, ch)
+		channels, err := mc.manager.store.GetChannelsByServerAndName(mc.ctx, mc.id, ch)
 		if err == nil && channels != nil {
-			_ = mc.manager.store.SetChannelJoined(channels.ID, false)
+			_ = mc.manager.store.SetChannelJoined(mc.ctx, channels.ID, false)
 		}
 
 		mc.manager.emitEvent(Event{
@@ -957,9 +953,9 @@ func (mc *managedConnection) connect() connectResult {
 		mc.joinedChs[ch] = topic
 		mc.mu.Unlock()
 
-		channels, err := mc.manager.store.GetChannelsByServerAndName(mc.id, ch)
+		channels, err := mc.manager.store.GetChannelsByServerAndName(mc.ctx, mc.id, ch)
 		if err == nil && channels != nil {
-			_ = mc.manager.store.UpdateChannelTopic(channels.ID, topic)
+			_ = mc.manager.store.UpdateChannelTopic(mc.ctx, channels.ID, topic)
 		}
 
 		mc.manager.emitEvent(Event{
@@ -1013,7 +1009,7 @@ func (mc *managedConnection) connect() connectResult {
 	case err := <-disconnected:
 		// Connection failed on first attempt
 		mc.manager.logger.Errorf("connection to %s failed: %v", mc.address, err)
-		_ = mc.manager.store.IncrementServerRetry(mc.id)
+		_ = mc.manager.store.IncrementServerRetry(mc.ctx, mc.id)
 		return connectResultInitialFailure
 	}
 
@@ -1051,7 +1047,7 @@ func (mc *managedConnection) reconnectBackoff() bool {
 	mc.mu.Unlock()
 
 	// Notify the manager to update DB
-	_ = mc.manager.store.SetServerStatus(mc.id, "reconnecting")
+	_ = mc.manager.store.SetServerStatus(mc.ctx, mc.id, "reconnecting")
 
 	mc.manager.emitEvent(Event{
 		Type:       EventServerReconnecting,
@@ -1129,10 +1125,10 @@ func (mc *managedConnection) joinChannel(channel string) error {
 	channel = xdccirc.NormalizeChannel(channel)
 
 	// Persist to DB: create or update channel record
-	existingCh, err := mc.manager.store.GetChannelsByServerAndName(mc.id, channel)
+	existingCh, err := mc.manager.store.GetChannelsByServerAndName(mc.ctx, mc.id, channel)
 	if err != nil || existingCh == nil {
 		// Channel doesn't exist — create it
-		_, err = mc.manager.store.AddChannel(store.ChannelRecord{
+		_, err = mc.manager.store.AddChannel(mc.ctx, store.ChannelRecord{
 			ServerID: mc.id,
 			Name:     channel,
 			AutoJoin: true,
@@ -1144,7 +1140,7 @@ func (mc *managedConnection) joinChannel(channel string) error {
 	} else {
 		// Channel exists — update auto_join to true
 		existingCh.AutoJoin = true
-		if err := mc.manager.store.UpdateChannel(*existingCh); err != nil {
+		if err := mc.manager.store.UpdateChannel(mc.ctx, *existingCh); err != nil {
 			mc.manager.logger.Warnf("failed to update channel %s in DB: %v", channel, err)
 		}
 	}
@@ -1190,11 +1186,11 @@ func (mc *managedConnection) leaveChannel(channel string) error {
 	mc.mu.Unlock()
 
 	// Update DB: set auto_join=false and joined=false
-	existingCh, err := mc.manager.store.GetChannelsByServerAndName(mc.id, channel)
+	existingCh, err := mc.manager.store.GetChannelsByServerAndName(mc.ctx, mc.id, channel)
 	if err == nil && existingCh != nil {
 		existingCh.AutoJoin = false
 		existingCh.Joined = false
-		if err := mc.manager.store.UpdateChannel(*existingCh); err != nil {
+		if err := mc.manager.store.UpdateChannel(mc.ctx, *existingCh); err != nil {
 			mc.manager.logger.Warnf("failed to update channel %s in DB: %v", channel, err)
 		}
 	}

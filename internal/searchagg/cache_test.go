@@ -1,6 +1,7 @@
 package searchagg
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -15,9 +16,9 @@ func TestCacheGetSet(t *testing.T) {
 	c := newSearchCache(nil, true, 5*time.Minute, 30*time.Minute)
 
 	packs := []*entities.XDCCPack{mkPack("test.mkv", 100, "Bot")}
-	c.set("query1", "provider1", packs)
+	c.set(context.Background(), "query1", "provider1", packs)
 
-	got := c.get("query1", "provider1")
+	got := c.get(context.Background(), "query1", "provider1")
 	if got == nil {
 		t.Fatal("expected non-nil cache entry")
 	}
@@ -35,7 +36,7 @@ func TestCacheGetSet(t *testing.T) {
 func TestCacheGet_Missing(t *testing.T) {
 	c := newSearchCache(nil, true, 5*time.Minute, 30*time.Minute)
 
-	got := c.get("nonexistent", "provider1")
+	got := c.get(context.Background(), "nonexistent", "provider1")
 	if got != nil {
 		t.Errorf("expected nil for missing entry, got %+v", got)
 	}
@@ -44,8 +45,8 @@ func TestCacheGet_Missing(t *testing.T) {
 func TestCacheGet_DifferentQuery(t *testing.T) {
 	c := newSearchCache(nil, true, 5*time.Minute, 30*time.Minute)
 
-	c.set("query1", "p1", []*entities.XDCCPack{mkPack("a.mkv", 100, "Bot")})
-	got := c.get("query2", "p1")
+	c.set(context.Background(), "query1", "p1", []*entities.XDCCPack{mkPack("a.mkv", 100, "Bot")})
+	got := c.get(context.Background(), "query2", "p1")
 	if got != nil {
 		t.Errorf("expected nil for different query, got %+v", got)
 	}
@@ -54,8 +55,8 @@ func TestCacheGet_DifferentQuery(t *testing.T) {
 func TestCacheGet_DifferentProvider(t *testing.T) {
 	c := newSearchCache(nil, true, 5*time.Minute, 30*time.Minute)
 
-	c.set("query1", "p1", []*entities.XDCCPack{mkPack("a.mkv", 100, "Bot")})
-	got := c.get("query1", "p2")
+	c.set(context.Background(), "query1", "p1", []*entities.XDCCPack{mkPack("a.mkv", 100, "Bot")})
+	got := c.get(context.Background(), "query1", "p2")
 	if got != nil {
 		t.Errorf("expected nil for different provider, got %+v", got)
 	}
@@ -65,11 +66,11 @@ func TestCacheGetFresh(t *testing.T) {
 	c := newSearchCache(nil, true, 10*time.Minute, 1*time.Hour)
 
 	// Set two providers for same query, one provider for another query
-	c.set("q1", "p1", []*entities.XDCCPack{mkPack("a.mkv", 100, "Bot")})
-	c.set("q1", "p2", []*entities.XDCCPack{mkPack("b.mkv", 200, "Bot")})
-	c.set("q2", "p1", []*entities.XDCCPack{mkPack("c.mkv", 300, "Bot")})
+	c.set(context.Background(), "q1", "p1", []*entities.XDCCPack{mkPack("a.mkv", 100, "Bot")})
+	c.set(context.Background(), "q1", "p2", []*entities.XDCCPack{mkPack("b.mkv", 200, "Bot")})
+	c.set(context.Background(), "q2", "p1", []*entities.XDCCPack{mkPack("c.mkv", 300, "Bot")})
 
-	fresh := c.getFresh("q1")
+	fresh := c.getFresh(context.Background(), "q1")
 	if fresh == nil {
 		t.Fatal("expected fresh entries for q1")
 	}
@@ -77,7 +78,7 @@ func TestCacheGetFresh(t *testing.T) {
 		t.Errorf("expected 2 fresh entries for q1, got %d", len(fresh))
 	}
 
-	freshQ2 := c.getFresh("q2")
+	freshQ2 := c.getFresh(context.Background(), "q2")
 	if freshQ2 == nil {
 		t.Fatal("expected fresh entries for q2")
 	}
@@ -85,7 +86,7 @@ func TestCacheGetFresh(t *testing.T) {
 		t.Errorf("expected 1 fresh entry for q2, got %d", len(freshQ2))
 	}
 
-	freshMissing := c.getFresh("nonexistent")
+	freshMissing := c.getFresh(context.Background(), "nonexistent")
 	if freshMissing != nil {
 		t.Errorf("expected nil for nonexistent query, got %+v", freshMissing)
 	}
@@ -124,6 +125,39 @@ func TestCacheKeyCaseInsensitive(t *testing.T) {
 	}
 }
 
+func TestCacheKeyUnicode(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		// Unicode characters (Japanese, Chinese, accented, etc.)
+		{"アニメ", "アニメ"},
+		{"café", "café"},
+		{"中文测试", "中文测试"},
+		{"Anime アニメ Show", "anime アニメ show"},
+		// Emoji and special characters
+		{"anime 🔥 show", "anime 🔥 show"},
+		{"🔥🔥🔥", "🔥🔥🔥"},
+		// Mixed case with Unicode
+		{"日本語UPPERCASE", "日本語uppercase"},
+		{"Über cool", "über cool"},
+		// Whitespace normalization with Unicode
+		{"  日本語  test  ", "日本語 test"},
+		{"  café   du   monde  ", "café du monde"},
+		// Edge cases
+		{"", ""},
+		{" ", ""},
+		{"\t\n", ""},
+	}
+
+	for _, tt := range tests {
+		got := cacheKey(tt.input)
+		if got != tt.expected {
+			t.Errorf("cacheKey(%q) = %q, want %q", tt.input, got, tt.expected)
+		}
+	}
+}
+
 // ===========================================================================
 // Concurrent access
 // ===========================================================================
@@ -135,8 +169,8 @@ func TestCacheConcurrentAccess(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		go func(n int) {
 			query := "test"
-			c.set(query, "p", []*entities.XDCCPack{mkPack("f.mkv", int64(n), "Bot")})
-			c.get(query, "p")
+			c.set(context.Background(), query, "p", []*entities.XDCCPack{mkPack("f.mkv", int64(n), "Bot")})
+			c.get(context.Background(), query, "p")
 			done <- struct{}{}
 		}(i)
 	}
@@ -171,10 +205,10 @@ func TestCacheExpiresStale(t *testing.T) {
 	// Use a very short TTL to test expiry
 	c := newSearchCache(nil, true, 1*time.Nanosecond, 1*time.Millisecond)
 
-	c.set("test", "p1", []*entities.XDCCPack{mkPack("a.mkv", 100, "Bot")})
+	c.set(context.Background(), "test", "p1", []*entities.XDCCPack{mkPack("a.mkv", 100, "Bot")})
 
 	// Immediately after set, it should be fresh (but with 1ns TTL it might already be stale)
-	got := c.get("test", "p1")
+	got := c.get(context.Background(), "test", "p1")
 	if got != nil && !got.isFresh() && !got.isStale() {
 		t.Log("cache entry is fully expired — cache should not return expired entries")
 	}

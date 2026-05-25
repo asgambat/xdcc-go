@@ -10,6 +10,7 @@ import (
 	"xdcc-go/internal/config"
 	"xdcc-go/internal/entities"
 	"xdcc-go/internal/logging"
+	"xdcc-go/internal/metrics"
 	srch "xdcc-go/internal/search"
 	"xdcc-go/internal/store"
 )
@@ -17,6 +18,15 @@ import (
 // ---------------------------------------------------------------------------
 // Aggregator
 // ---------------------------------------------------------------------------
+
+const (
+	// statsChBuffer is the capacity of the asynchronous provider-stats channel.
+	statsChBuffer = 200
+	// statsFlushInterval controls how often buffered stats are flushed to DB.
+	statsFlushInterval = 5 * time.Second
+	// statsBatchSize triggers an early flush when this many records accumulate.
+	statsBatchSize = 50
+)
 
 // Aggregator runs parallel searches across multiple XDCC providers, caches
 // results, applies filters, and returns paginated, deduplicated results.
@@ -28,11 +38,18 @@ type Aggregator struct {
 	disabled       map[string]bool // runtime-disabled providers
 	runtimeEnabled map[string]bool // runtime-enabled providers (overrides config allowlist)
 	mu             sync.RWMutex
+	metrics        *metrics.Collector // optional runtime metrics collector
 
 	// Cleanup goroutine lifecycle
 	ctx    context.Context
 	cancel context.CancelFunc
 	done   chan struct{}
+
+	// Asynchronous provider-stats writer. Each search result enqueues a stat
+	// record into statsCh; a background goroutine flushes them periodically
+	// to SQLite, removing DB write latency from the search hot path.
+	statsCh        chan store.ProviderStats
+	statsFlushDone chan struct{}
 }
 
 // New creates a new search Aggregator.
@@ -48,18 +65,37 @@ func New(st store.Store, cfg *config.SearchConfig, logger *logging.Logger) *Aggr
 	}
 }
 
-// Start begins the cache cleanup goroutine.
+// SetMetrics attaches a metrics collector to the aggregator for provider
+// timeout and request tracking.
+func (a *Aggregator) SetMetrics(met *metrics.Collector) {
+	a.metrics = met
+}
+
+// Start begins the cache cleanup and stats-flush goroutines.
 func (a *Aggregator) Start(ctx context.Context) error {
 	a.ctx, a.cancel = context.WithCancel(ctx)
+	a.statsCh = make(chan store.ProviderStats, statsChBuffer)
+	a.statsFlushDone = make(chan struct{})
+
+	// Wire stats channel depth into metrics collector.
+	if a.metrics != nil {
+		a.metrics.SetStatsQueueDepthFn(func() int {
+			return len(a.statsCh)
+		})
+	}
+
 	go a.cleanupLoop()
+	go a.statsFlushLoop()
 	return nil
 }
 
-// Stop stops the cache cleanup goroutine.
+// Stop stops the cache cleanup and stats-flush goroutines.
 func (a *Aggregator) Stop() {
 	if a.cancel != nil {
 		a.cancel()
-		<-a.done
+		<-a.done           // wait for cleanupLoop
+		close(a.statsCh)   // signal statsFlushLoop to drain and exit
+		<-a.statsFlushDone // wait for final flush
 	}
 }
 
@@ -103,7 +139,7 @@ func (a *Aggregator) cleanupStaleEntries() {
 	if a.cache.enabled && a.cache.st != nil {
 		// Type-assert to SQLiteStore to access CleanupSearchCache method
 		if sqlStore, ok := a.store.(*store.SQLiteStore); ok {
-			deleted, err := sqlStore.CleanupSearchCache()
+			deleted, err := sqlStore.CleanupSearchCache(a.ctx)
 			if err != nil {
 				a.log.Warnf("cache cleanup failed: %v", err)
 			} else if deleted > 0 {
@@ -165,7 +201,7 @@ func (a *Aggregator) DisableProvider(name string) {
 }
 
 // GetProviderStates returns the current state of all known providers.
-func (a *Aggregator) GetProviderStates() []ProviderStatus {
+func (a *Aggregator) GetProviderStates(ctx context.Context) []ProviderStatus {
 	engines := srch.AvailableEngines()
 	result := make([]ProviderStatus, 0, len(engines))
 	for _, name := range engines {
@@ -187,7 +223,7 @@ func (a *Aggregator) GetProviderStates() []ProviderStatus {
 		}
 		// Get stats from store
 		if a.store != nil {
-			stats, err := a.store.GetProviderStats(name, time.Now().Add(-24*time.Hour))
+			stats, err := a.store.GetProviderStats(ctx, name, time.Now().Add(-24*time.Hour))
 			if err == nil && len(stats) > 0 {
 				latest := stats[0]
 				ps.LatencyMs = int64(latest.AvgLatencyMs)
@@ -213,7 +249,7 @@ func (a *Aggregator) Search(ctx context.Context, opts SearchOptions) (*SearchRes
 	if query == "" {
 		return &SearchResult{
 			Packs:      []*entities.XDCCPack{},
-			Providers:  a.GetProviderStates(),
+			Providers:  a.GetProviderStates(ctx),
 			Provenance: ProvenanceLive,
 		}, nil
 	}
@@ -221,7 +257,7 @@ func (a *Aggregator) Search(ctx context.Context, opts SearchOptions) (*SearchRes
 	// Check cache first
 	if a.cfg.Cache.Enabled {
 		key := cacheKey(query)
-		freshEntries := a.cache.getFresh(key)
+		freshEntries := a.cache.getFresh(ctx, key)
 		if freshEntries != nil {
 			// All providers have fresh cache — return combined results
 			return a.buildResultFromCache(freshEntries, opts, ProvenanceCacheFresh, key), nil
@@ -233,7 +269,7 @@ func (a *Aggregator) Search(ctx context.Context, opts SearchOptions) (*SearchRes
 	if !hadSuccess {
 		// All providers failed — try stale cache (all providers)
 		key := cacheKey(query)
-		staleEntries := a.cache.getStale(key)
+		staleEntries := a.cache.getStale(ctx, key)
 		if staleEntries != nil {
 			return a.buildResultFromCache(staleEntries, opts, ProvenanceCacheStale, key), nil
 		}
@@ -241,7 +277,7 @@ func (a *Aggregator) Search(ctx context.Context, opts SearchOptions) (*SearchRes
 		// No stale cache either
 		return &SearchResult{
 			Packs:      []*entities.XDCCPack{},
-			Providers:  a.GetProviderStates(),
+			Providers:  a.GetProviderStates(ctx),
 			Provenance: ProvenanceLive,
 			Warnings:   []string{"All providers failed and no cached data available"},
 		}, nil
@@ -304,7 +340,7 @@ func (a *Aggregator) searchLive(ctx context.Context, query string, providers []s
 			// Check in-memory fresh cache first
 			if a.cfg.Cache.Enabled {
 				key := cacheKey(query)
-				entry := a.cache.get(key, name)
+				entry := a.cache.get(ctx, key, name)
 				if entry != nil && entry.isFresh() {
 					results <- engineResult{
 						name:    name,
@@ -315,41 +351,26 @@ func (a *Aggregator) searchLive(ctx context.Context, query string, providers []s
 				}
 			}
 
-			// Run with timeout using context for proper cancellation
-			searchCtx, searchCancel := context.WithTimeout(ctx, timeout)
-			defer searchCancel()
+			// Run with timeout using context for proper cancellation.
+			// The engine.Search call respects context cancellation, so we call
+			// it directly in this goroutine rather than spawning a second one.
+			searchCtx, cancel := context.WithTimeout(ctx, timeout)
+			defer cancel()
 
 			start := time.Now()
-			done := make(chan struct{})
+			packs, err := engine.Search(searchCtx, query)
+			latency := time.Since(start)
 
-			var packs []*entities.XDCCPack
-			var err error
-
-			go func() {
-				packs, err = engine.Search(searchCtx, query)
-				close(done)
-			}()
-
-			select {
-			case <-done:
-				latency := time.Since(start)
-				if err != nil {
-					results <- engineResult{name: name, err: err, latency: latency}
-				} else {
-					// Cache results
-					if a.cfg.Cache.Enabled {
-						a.cache.set(cacheKey(query), name, packs)
-					}
-					results <- engineResult{name: name, packs: packs, latency: latency}
-				}
-
-			case <-searchCtx.Done():
-				results <- engineResult{
-					name:    name,
-					err:     fmt.Errorf("timeout after %v", timeout),
-					latency: time.Since(start),
-				}
+			if err != nil {
+				results <- engineResult{name: name, err: err, latency: latency}
+				return
 			}
+
+			// Cache results
+			if a.cfg.Cache.Enabled {
+				a.cache.set(ctx, cacheKey(query), name, packs)
+			}
+			results <- engineResult{name: name, packs: packs, latency: latency}
 		}(engName)
 	}
 
@@ -369,10 +390,18 @@ func (a *Aggregator) searchLive(ctx context.Context, query string, providers []s
 
 		if r.err != nil {
 			errStr := r.err.Error()
-			if strings.Contains(errStr, "timeout") {
+			isTimeout := strings.Contains(errStr, "timeout")
+			if isTimeout {
 				ps.Status = ProviderStatusTimeout
+				if a.metrics != nil {
+					a.metrics.RecordProviderTimeout(r.name)
+				}
 			} else {
 				ps.Status = ProviderStatusFailed
+				// Non-timeout failures counter is separate from timeouts.
+				if a.metrics != nil {
+					a.metrics.RecordProviderFailure(r.name)
+				}
 			}
 			ps.Error = errStr
 
@@ -386,6 +415,10 @@ func (a *Aggregator) searchLive(ctx context.Context, query string, providers []s
 
 			// Record success in store
 			a.recordProviderResult(r.name, true, r.latency)
+		}
+
+		if a.metrics != nil {
+			a.metrics.RecordProviderRequest(r.name)
 		}
 
 		providerStatuses = append(providerStatuses, ps)
@@ -489,9 +522,12 @@ func (a *Aggregator) buildResultFromCache(
 }
 
 // ---------------------------------------------------------------------------
-// Provider stats recording
+// Provider stats recording (asynchronous, batched)
 // ---------------------------------------------------------------------------
 
+// recordProviderResult enqueues a provider stat for batch writing.
+// The actual DB write happens in a background goroutine, so this method
+// returns immediately and does not add latency to the search hot path.
 func (a *Aggregator) recordProviderResult(name string, success bool, latency time.Duration) {
 	if a.store == nil {
 		return
@@ -513,5 +549,58 @@ func (a *Aggregator) recordProviderResult(name string, success bool, latency tim
 	} else {
 		stats.Failures = 1
 	}
-	_ = a.store.RecordProviderStats(stats)
+
+	// Non-blocking send; drop the stat if the buffer is full to avoid
+	// blocking the search path during a burst of results.
+	select {
+	case a.statsCh <- stats:
+	default:
+		a.log.Debugf("dropping provider stat for %s (channel full)", name)
+	}
+}
+
+// statsFlushLoop reads stats from the channel and writes them to SQLite
+// in batches. It flushes periodically or when a batch threshold is reached.
+func (a *Aggregator) statsFlushLoop() {
+	defer close(a.statsFlushDone)
+
+	ticker := time.NewTicker(statsFlushInterval)
+	defer ticker.Stop()
+
+	var pending []store.ProviderStats
+
+	flush := func() {
+		if len(pending) == 0 {
+			return
+		}
+		for _, s := range pending {
+			_ = a.store.RecordProviderStats(a.ctx, s)
+		}
+		pending = pending[:0]
+	}
+
+	for {
+		select {
+		case <-a.ctx.Done():
+			// Drain all remaining stats before exiting
+			for s := range a.statsCh {
+				pending = append(pending, s)
+			}
+			flush()
+			return
+
+		case <-ticker.C:
+			flush()
+
+		case s, ok := <-a.statsCh:
+			if !ok {
+				flush()
+				return
+			}
+			pending = append(pending, s)
+			if len(pending) >= statsBatchSize {
+				flush()
+			}
+		}
+	}
 }

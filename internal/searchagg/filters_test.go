@@ -428,10 +428,10 @@ func TestCacheKey(t *testing.T) {
 		expected string
 	}{
 		{"Anime Show", "anime show"},
-		{"  Multiple   Spaces  ", " multiple spaces "},
+		{"  Multiple   Spaces  ", "multiple spaces"},
 		{"UPPERCASE", "uppercase"},
 		{"Mixed CASE", "mixed case"},
-		{"  trim  ", " trim "},
+		{"  trim  ", "trim"},
 		{"", ""},
 	}
 

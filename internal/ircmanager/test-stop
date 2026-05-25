@@ -168,3 +168,13 @@
 2026-05-25T19:27:22+02:00 [INFO] server 2 disconnected cleanly 
 2026-05-25T19:27:22+02:00 [INFO] connecting to irc.test.net:6667 as 'xdcc-user1qk' 
 2026-05-25T19:27:27+02:00 [WARN] client.Close() for irc.test.net did not complete within 5s 
+2026-05-25T20:49:23+02:00 [INFO] connecting to irc.test.net:6669 as 'xdcc-userYEV' 
+2026-05-25T20:49:23+02:00 [INFO] connecting to irc.test.net:6667 as 'xdcc-userFhm' 
+2026-05-25T20:49:23+02:00 [INFO] connecting to irc.test.net:6668 as 'xdcc-userk3K' 
+2026-05-25T20:49:23+02:00 [ERROR] connection to irc.test.net failed: dial tcp 85.13.137.190:6669: connect: connection refused 
+2026-05-25T20:49:23+02:00 [INFO] IRC connection to irc.test.net lost, reconnecting... 
+2026-05-25T20:49:23+02:00 [INFO] reconnecting to irc.test.net in 5s (attempt 1) 
+2026-05-25T20:49:23+02:00 [INFO] server 3 disconnected cleanly 
+2026-05-25T20:49:24+02:00 [INFO] server 1 disconnected cleanly 
+2026-05-25T20:49:26+02:00 [INFO] server 2 disconnected cleanly 
+2026-05-25T20:49:26+02:00 [INFO] connecting to irc.test.net:6667 as 'xdcc-userjTe' 

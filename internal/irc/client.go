@@ -93,6 +93,12 @@ type Client struct {
 	// stall detection: unix nanoseconds of last received byte
 	lastActivity atomic.Int64
 
+	// whoisFallbackTimer is a reusable timer for the WHOIS→JOIN fallback.
+	// Instead of spawning a new timer (via time.After) on each WHOIS response
+	// — which can accumulate goroutines in burst scenarios — we reuse a single
+	// timer per Client. The timer is stopped and drained in resetForPack().
+	whoisFallbackTimer *time.Timer
+
 	logger Logger
 }
 
@@ -410,6 +416,22 @@ func (c *Client) currentPack() *entities.XDCCPack {
 	return c.packs[c.packIdxVal.Load()]
 }
 
+// stopWhoisFallbackTimer safely stops the reusable WHOIS fallback timer and
+// drains its channel so the next reset does not immediately read a stale value.
+// This is safe to call even if the timer has never been created or has already
+// fired. It is called from resetForPack() between packs.
+func (c *Client) stopWhoisFallbackTimer() {
+	if c.whoisFallbackTimer == nil {
+		return
+	}
+	if !c.whoisFallbackTimer.Stop() {
+		select {
+		case <-c.whoisFallbackTimer.C:
+		default:
+		}
+	}
+}
+
 func (c *Client) resetForPack() {
 	c.mu.Lock()
 	c.peerAddr = ""
@@ -452,6 +474,10 @@ func (c *Client) resetForPack() {
 	c.downloadStarted = make(chan struct{})
 	c.downloadStartedOnce = &sync.Once{}
 	c.ackQueue = make(chan []byte, ackQueueBufSize)
+
+	// Stop the WHOIS fallback timer from the previous pack and drain its
+	// channel so it can be safely reused in the next pack.
+	c.stopWhoisFallbackTimer()
 }
 
 func (c *Client) downloadPackAtIndex(idx, retryCount int) PackResult {
