@@ -140,3 +140,9 @@
 2026-05-25T22:52:44+02:00 [INFO] server 3 disconnected cleanly 
 2026-05-25T22:52:47+02:00 [INFO] server 1 disconnected cleanly 
 2026-05-25T22:52:47+02:00 [INFO] connecting to irc.test.net:6667 as 'xdcc-usera3Q' 
+2026-05-25T22:53:34+02:00 [INFO] connecting to irc.test.net:6669 as 'xdcc-userwuO' 
+2026-05-25T22:53:35+02:00 [INFO] connecting to irc.test.net:6667 as 'xdcc-userGnW' 
+2026-05-25T22:53:35+02:00 [INFO] connecting to irc.test.net:6668 as 'xdcc-user9Js' 
+2026-05-25T22:53:37+02:00 [INFO] server 3 disconnected cleanly 
+2026-05-25T22:53:38+02:00 [INFO] server 1 disconnected cleanly 
+2026-05-25T22:53:39+02:00 [INFO] server 2 disconnected cleanly 
