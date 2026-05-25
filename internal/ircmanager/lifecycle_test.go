@@ -1,13 +1,12 @@
 package ircmanager
 
 import (
-	"log"
-	"os"
 	"sync"
 	"testing"
 	"time"
 
 	"xdcc-go/internal/config"
+	"xdcc-go/internal/logging"
 )
 
 // ===========================================================================
@@ -20,7 +19,7 @@ func TestConnectionLifecycle_NoDuplicateRun(t *testing.T) {
 
 	ms := newMockStore()
 	cfg := config.DefaultConfig()
-	logger := log.New(os.Stderr, "[test-lifecycle] ", log.LstdFlags)
+	logger := logging.New(logging.LevelDebug, "[test-lifecycle] ", 0)
 
 	mgr := New(ms, cfg, logger)
 	defer mgr.Stop()
@@ -78,7 +77,7 @@ func TestConnectionLifecycle_CleanShutdown(t *testing.T) {
 	srvID := ms.addServer("irc.test.net", 6667, false)
 
 	cfg := config.DefaultConfig()
-	logger := log.New(os.Stderr, "[test-lifecycle] ", log.LstdFlags)
+	logger := logging.New(logging.LevelDebug, "[test-lifecycle] ", 0)
 
 	mgr := New(ms, cfg, logger)
 	defer mgr.Stop()
@@ -110,7 +109,7 @@ func TestConnectionLifecycle_ConcurrentShutdown(t *testing.T) {
 
 	ms := newMockStore()
 	cfg := config.DefaultConfig()
-	logger := log.New(os.Stderr, "[test-concurrent] ", log.LstdFlags)
+	logger := logging.New(logging.LevelDebug, "[test-concurrent] ", 0)
 
 	mgr := New(ms, cfg, logger)
 	defer mgr.Stop()
@@ -159,7 +158,7 @@ func TestConnectionLifecycle_ManagerStopWaitsForAll(t *testing.T) {
 
 	ms := newMockStore()
 	cfg := config.DefaultConfig()
-	logger := log.New(os.Stderr, "[test-stop] ", log.LstdFlags)
+	logger := logging.New(logging.LevelDebug, "[test-stop] ", 0)
 
 	mgr := New(ms, cfg, logger)
 
@@ -198,7 +197,7 @@ func TestConnectionLifecycle_NoRaceOnStatusChecks(t *testing.T) {
 	srvID := ms.addServer("irc.test.net", 6667, false)
 
 	cfg := config.DefaultConfig()
-	logger := log.New(os.Stderr, "[test-race] ", log.LstdFlags)
+	logger := logging.New(logging.LevelDebug, "[test-race] ", 0)
 
 	mgr := New(ms, cfg, logger)
 	defer mgr.Stop()

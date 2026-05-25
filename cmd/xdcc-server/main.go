@@ -5,7 +5,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"net"
 	"net/http"
 	"os"
@@ -86,11 +85,6 @@ See config.yaml in the project root for all available settings.`,
 			defer logger.Close()
 			logger.Infof("starting xdcc-server on port %d", cfg.HTTP.Port)
 
-			// Create a stdlib *log.Logger adapter at INFO level for components
-			// that still use the old interface (ircmanager, queue, searchagg).
-			// This ensures those components' logs are also level-filtered.
-			stdLogger := log.New(logger.Writer(logging.LevelInfo), "", 0)
-
 			// Ensure download directories exist
 			for _, dir := range []string{cfg.Download.TempDir, cfg.Download.DestDir} {
 				if err := os.MkdirAll(dir, 0755); err != nil {
@@ -158,7 +152,7 @@ See config.yaml in the project root for all available settings.`,
 			}
 
 			// Start IRC connection manager
-			ircMgr := ircmanager.New(st, cfg, stdLogger)
+			ircMgr := ircmanager.New(st, cfg, logger)
 			if err := ircMgr.Start(); err != nil {
 				return fmt.Errorf("starting IRC manager: %w", err)
 			}
@@ -166,7 +160,7 @@ See config.yaml in the project root for all available settings.`,
 			logger.Infof("IRC manager started with %d default server(s)", len(cfg.IRC.DefaultServers))
 
 			// Start download queue manager
-			queueMgr := queue.New(st, cfg, stdLogger)
+			queueMgr := queue.New(st, cfg, logger)
 			queueMgr.SetIRCManager(ircMgr) // Connect IRC Manager for persistent connections
 			if err := queueMgr.Start(); err != nil {
 				return fmt.Errorf("starting queue manager: %w", err)
@@ -180,7 +174,7 @@ See config.yaml in the project root for all available settings.`,
 			}
 
 			// Start search aggregator
-			searchAgg := searchagg.New(st, &cfg.Search, stdLogger)
+			searchAgg := searchagg.New(st, &cfg.Search, logger)
 			if err := searchAgg.Start(context.Background()); err != nil {
 				return fmt.Errorf("starting search aggregator: %w", err)
 			}

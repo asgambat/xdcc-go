@@ -153,6 +153,14 @@ func (l *Logger) Error(msg string, kv ...interface{}) {
 	l.log(LevelError, msg, kv...)
 }
 
+// Printf logs a formatted message at INFO level.
+// This method satisfies the xdccirc.Logger interface, making
+// *logging.Logger a drop-in replacement for *log.Logger in all
+// components that expect a Printf-based logger.
+func (l *Logger) Printf(format string, args ...interface{}) {
+	l.log(LevelInfo, fmt.Sprintf(format, args...))
+}
+
 // Debugf logs a formatted debug message.
 func (l *Logger) Debugf(format string, args ...interface{}) {
 	l.log(LevelDebug, fmt.Sprintf(format, args...))

@@ -3,13 +3,13 @@ package searchagg
 import (
 	"context"
 	"fmt"
-	"log"
 	"strings"
 	"sync"
 	"time"
 
 	"xdcc-go/internal/config"
 	"xdcc-go/internal/entities"
+	"xdcc-go/internal/logging"
 	srch "xdcc-go/internal/search"
 	"xdcc-go/internal/store"
 )
@@ -23,7 +23,7 @@ import (
 type Aggregator struct {
 	store          store.Store
 	cfg            *config.SearchConfig
-	log            *log.Logger
+	log            *logging.Logger
 	cache          *searchCache
 	disabled       map[string]bool // runtime-disabled providers
 	runtimeEnabled map[string]bool // runtime-enabled providers (overrides config allowlist)
@@ -36,7 +36,7 @@ type Aggregator struct {
 }
 
 // New creates a new search Aggregator.
-func New(st store.Store, cfg *config.SearchConfig, logger *log.Logger) *Aggregator {
+func New(st store.Store, cfg *config.SearchConfig, logger *logging.Logger) *Aggregator {
 	return &Aggregator{
 		store:          st,
 		cfg:            cfg,
@@ -105,9 +105,9 @@ func (a *Aggregator) cleanupStaleEntries() {
 		if sqlStore, ok := a.store.(*store.SQLiteStore); ok {
 			deleted, err := sqlStore.CleanupSearchCache()
 			if err != nil {
-				a.log.Printf("WARNING: cache cleanup failed: %v", err)
+				a.log.Warnf("cache cleanup failed: %v", err)
 			} else if deleted > 0 {
-				a.log.Printf("cache cleanup: removed %d stale entries", deleted)
+				a.log.Infof("cache cleanup: removed %d stale entries", deleted)
 			}
 		}
 	}
@@ -151,7 +151,7 @@ func (a *Aggregator) EnableProvider(name string) {
 	delete(a.disabled, name)
 	a.runtimeEnabled[name] = true
 	a.mu.Unlock()
-	a.log.Printf("search provider %q enabled", name)
+	a.log.Infof("search provider %q enabled", name)
 }
 
 // DisableProvider disables a provider at runtime.
@@ -161,7 +161,7 @@ func (a *Aggregator) DisableProvider(name string) {
 	delete(a.runtimeEnabled, name)
 	a.disabled[name] = true
 	a.mu.Unlock()
-	a.log.Printf("search provider %q disabled", name)
+	a.log.Infof("search provider %q disabled", name)
 }
 
 // GetProviderStates returns the current state of all known providers.

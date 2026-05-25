@@ -3,7 +3,6 @@ package queue
 import (
 	"context"
 	"fmt"
-	"log"
 	"strings"
 	"sync"
 	"time"
@@ -12,6 +11,7 @@ import (
 	"xdcc-go/internal/diskmon"
 	"xdcc-go/internal/entities"
 	xdccirc "xdcc-go/internal/irc"
+	"xdcc-go/internal/logging"
 	"xdcc-go/internal/pubsub"
 	"xdcc-go/internal/store"
 )
@@ -46,7 +46,7 @@ func slotKey(serverAddr, channel, bot string) string {
 type QueueManager struct {
 	store store.Store
 	cfg   *config.Config
-	log   *log.Logger
+	log   *logging.Logger
 
 	// IRCManager for persistent connections (optional - if nil, uses temporary connections)
 	ircMgr IRCManagerInterface
@@ -97,7 +97,7 @@ type IRCManagerInterface interface {
 
 // New creates a new QueueManager.
 // ircMgr is optional - if nil, downloads will use temporary IRC connections.
-func New(st store.Store, cfg *config.Config, logger *log.Logger) *QueueManager {
+func New(st store.Store, cfg *config.Config, logger *logging.Logger) *QueueManager {
 	ctx, cancel := context.WithCancel(context.Background())
 	qm := &QueueManager{
 		store:        st,
@@ -121,12 +121,12 @@ func New(st store.Store, cfg *config.Config, logger *log.Logger) *QueueManager {
 			qm.diskLow = low
 			qm.mu.Unlock()
 			if low {
-				logger.Printf("DISK LOW: queue paused until disk space recovers")
+				logger.Warnf("DISK LOW: queue paused until disk space recovers")
 				qm.emitEvent(Event{
 					Type: EventDiskSpaceLow,
 				})
 			} else {
-				logger.Printf("DISK OK: space recovered, resuming queue")
+				logger.Infof("DISK OK: space recovered, resuming queue")
 				qm.emitEvent(Event{
 					Type: EventDiskSpaceOK,
 				})
@@ -144,7 +144,7 @@ func (qm *QueueManager) SetIRCManager(ircMgr IRCManagerInterface) {
 	qm.mu.Lock()
 	defer qm.mu.Unlock()
 	qm.ircMgr = ircMgr
-	qm.log.Printf("IRC Manager attached to Queue Manager - downloads will use persistent connections")
+	qm.log.Infof("IRC Manager attached to Queue Manager - downloads will use persistent connections")
 }
 
 // ---------------------------------------------------------------------------
@@ -163,7 +163,7 @@ func (qm *QueueManager) Start() error {
 
 	if qm.cfg.Download.StartupDelayMinutes > 0 {
 		delay := time.Duration(qm.cfg.Download.StartupDelayMinutes) * time.Minute
-		qm.log.Printf("queue manager: delaying dispatch by %v to allow IRC connections to establish", delay)
+		qm.log.Infof("queue manager: delaying dispatch by %v to allow IRC connections to establish", delay)
 		time.AfterFunc(delay, func() {
 			close(qm.startupReady)
 			qm.tryDispatch()
@@ -203,7 +203,7 @@ func (qm *QueueManager) Stop() {
 	for _, id := range ids {
 		// Save progress before cancellation
 		if d, err := qm.store.GetDownload(id); err == nil && d != nil && d.ProgressBytes > 0 {
-			qm.log.Printf("shutdown: saving progress for download %d: %d/%d bytes", id, d.ProgressBytes, d.FileSize)
+			qm.log.Infof("shutdown: saving progress for download %d: %d/%d bytes", id, d.ProgressBytes, d.FileSize)
 		}
 		_ = qm.CancelDownload(id, "server shutting down")
 	}
@@ -217,9 +217,9 @@ func (qm *QueueManager) Stop() {
 
 	select {
 	case <-downloadsDone:
-		qm.log.Printf("all download workers stopped cleanly")
+		qm.log.Infof("all download workers stopped cleanly")
 	case <-time.After(10 * time.Second):
-		qm.log.Printf("WARNING: download workers did not stop within 10s")
+		qm.log.Warnf("download workers did not stop within 10s")
 	}
 }
 
@@ -306,7 +306,7 @@ func (qm *QueueManager) Enqueue(d store.DownloadRecord) (int64, error) {
 	}
 	d.ID = id
 
-	qm.log.Printf("enqueued download %d: %s from %s on %s/%s",
+	qm.log.Infof("enqueued download %d: %s from %s on %s/%s",
 		id, d.Filename, d.Bot, d.ServerAddress, d.Channel)
 
 	// Emit event
@@ -341,7 +341,7 @@ func (qm *QueueManager) CancelDownload(id int64, reason string) error {
 	if active {
 		cancelFn()
 		qm.releaseChannelSlot(id)
-		qm.log.Printf("cancelled active download %d: %s", id, reason)
+		qm.log.Infof("cancelled active download %d: %s", id, reason)
 	}
 
 	// Update store
@@ -402,7 +402,7 @@ func (qm *QueueManager) ResumeDownload(id int64) error {
 		return err
 	}
 
-	qm.log.Printf("resumed download %d", id)
+	qm.log.Infof("resumed download %d", id)
 	qm.tryDispatch()
 	return nil
 }
@@ -559,7 +559,7 @@ func (qm *QueueManager) tryDispatch() {
 	// Get all queued downloads, ordered by priority then creation time
 	queue, err := qm.store.GetQueue()
 	if err != nil {
-		qm.log.Printf("WARNING: failed to get queue: %v", err)
+		qm.log.Warnf("failed to get queue: %v", err)
 		return
 	}
 
@@ -581,12 +581,12 @@ func (qm *QueueManager) tryDispatch() {
 		qm.mu.RUnlock()
 
 		if channelBusy {
-			qm.log.Printf("dispatch: slot [%s] BUSY — download %d (%s/%s bot=%s) waiting",
+			qm.log.Debugf("dispatch: slot [%s] BUSY — download %d (%s/%s bot=%s) waiting",
 				sk, d.ID, d.ServerAddress, d.Channel, d.Bot)
 			continue // This (server, channel) pair already has an active download
 		}
 
-		qm.log.Printf("dispatch: slot [%s] FREE — starting download %d (%s/%s bot=%s)",
+		qm.log.Debugf("dispatch: slot [%s] FREE — starting download %d (%s/%s bot=%s)",
 			sk, d.ID, d.ServerAddress, d.Channel, d.Bot)
 
 		// Start this download
@@ -601,7 +601,7 @@ func (qm *QueueManager) tryDispatch() {
 func (qm *QueueManager) startDownload(d store.DownloadRecord) {
 	// Mark as downloading in store
 	if err := qm.store.MarkDownloadStarted(d.ID); err != nil {
-		qm.log.Printf("WARNING: marking download %d as started: %v", d.ID, err)
+		qm.log.Warnf("marking download %d as started: %v", d.ID, err)
 		return
 	}
 
@@ -617,7 +617,7 @@ func (qm *QueueManager) startDownload(d store.DownloadRecord) {
 	qm.globalCount++
 	qm.mu.Unlock()
 
-	qm.log.Printf("started download %d: slot [%s] acquired — %s from %s on %s/%s",
+	qm.log.Infof("started download %d: slot [%s] acquired — %s from %s on %s/%s",
 		d.ID, sk, d.Filename, d.Bot, d.ServerAddress, d.Channel)
 
 	qm.emitEvent(Event{
@@ -652,7 +652,7 @@ func (qm *QueueManager) startDownload(d store.DownloadRecord) {
 		MaxRateBPS:       qm.cfg.Download.MaxRateBPS,
 		Nickname:         qm.cfg.IRC.Nickname,
 		ChannelJoinDelay: qm.cfg.Download.ChannelJoinDelay, // from config: -1=random, 0=no delay, >0=fixed
-		Logger:           xdccirc.LoggerFunc(qm.log.Printf),
+		Logger:           qm.log,
 		IRCManager:       qm.ircMgr, // Pass IRC Manager for persistent connections
 	}
 
@@ -738,7 +738,7 @@ func (qm *QueueManager) startDownload(d store.DownloadRecord) {
 				errStr := result.Error.Error()
 				_ = qm.store.MarkDownloadFailed(d.ID, errStr)
 
-				qm.log.Printf("✗ download %d FAILED — bot=%s server=%s channel=%q file=%q error=%s",
+				qm.log.Errorf("download %d FAILED — bot=%s server=%s channel=%q file=%q error=%s",
 					d.ID, d.Bot, d.ServerAddress, d.Channel, d.Filename, errStr)
 
 				// Emit failure event
@@ -764,7 +764,7 @@ func (qm *QueueManager) startDownload(d store.DownloadRecord) {
 					skippedFilename = pack.Filename
 				}
 
-				qm.log.Printf("download %d skipped: %s already exists at %s", d.ID, skippedFilename, result.FilePath)
+				qm.log.Infof("download %d skipped: %s already exists at %s", d.ID, skippedFilename, result.FilePath)
 
 				qm.emitEvent(Event{
 					Type:          EventDownloadSkipped,
@@ -788,7 +788,7 @@ func (qm *QueueManager) startDownload(d store.DownloadRecord) {
 				}
 				_ = qm.store.MarkDownloadCompleted(d.ID, finalFilename, finalSize)
 
-				qm.log.Printf("✓ download %d COMPLETED — bot=%s server=%s file=%s -> %s",
+				qm.log.Infof("download %d COMPLETED — bot=%s server=%s file=%s -> %s",
 					d.ID, d.Bot, d.ServerAddress, finalFilename, result.FilePath)
 
 				// Emit completion event with discovered filename
@@ -842,7 +842,7 @@ func (qm *QueueManager) handleFallback(original store.DownloadRecord, result wor
 	mode := qm.cfg.Download.FailFallback
 	if mode != "auto_retry_best" {
 		// In "suggest_only" mode, log a suggestion but don't auto-start
-		qm.log.Printf("fallback: download %d failed, mode is %q (no auto-retry); suggestion: consider alternative pack for %q",
+		qm.log.Errorf("fallback: download %d failed, mode is %q (no auto-retry); suggestion: consider alternative pack for %q",
 			original.ID, mode, original.Filename)
 		return
 	}
@@ -866,7 +866,7 @@ func (qm *QueueManager) handleFallback(original store.DownloadRecord, result wor
 	}
 
 	if retryCount >= maxRetries {
-		qm.log.Printf("fallback: download %d failed permanently after %d retries (max %d)",
+		qm.log.Errorf("fallback: download %d failed permanently after %d retries (max %d)",
 			original.ID, retryCount, maxRetries)
 		qm.emitEvent(Event{
 			Type:          EventDownloadFailed,
@@ -884,11 +884,11 @@ func (qm *QueueManager) handleFallback(original store.DownloadRecord, result wor
 	newPriority := current.Priority + 1
 	_ = qm.store.SetDownloadPriority(original.ID, newPriority)
 
-	qm.log.Printf("fallback: auto-retrying download %d (attempt %d/%d)",
+	qm.log.Infof("fallback: auto-retrying download %d (attempt %d/%d)",
 		original.ID, retryCount+1, maxRetries)
 
 	if err := qm.store.RetryDownload(original.ID); err != nil {
-		qm.log.Printf("fallback: retry failed for download %d: %v", original.ID, err)
+		qm.log.Errorf("fallback: retry failed for download %d: %v", original.ID, err)
 	}
 
 	qm.emitEvent(Event{

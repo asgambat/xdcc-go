@@ -3,7 +3,6 @@ package ircmanager
 import (
 	"context"
 	"fmt"
-	"log"
 	"runtime/debug"
 	"sync"
 	"time"
@@ -12,6 +11,7 @@ import (
 	"xdcc-go/internal/config"
 	"xdcc-go/internal/entities"
 	xdccirc "xdcc-go/internal/irc"
+	"xdcc-go/internal/logging"
 	"xdcc-go/internal/pubsub"
 	"xdcc-go/internal/store"
 )
@@ -34,7 +34,7 @@ type Manager struct {
 	mu     sync.RWMutex
 	store  store.Store
 	cfg    *config.Config
-	logger *log.Logger
+	logger *logging.Logger
 
 	conns      map[int64]*managedConnection
 	connecting map[int64]struct{} // servers currently being connected
@@ -45,7 +45,7 @@ type Manager struct {
 }
 
 // New creates a new IRC connection manager.
-func New(st store.Store, cfg *config.Config, logger *log.Logger) *Manager {
+func New(st store.Store, cfg *config.Config, logger *logging.Logger) *Manager {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Manager{
 		store:      st,
@@ -76,7 +76,7 @@ func (m *Manager) Start() error {
 		// Check if already stored in DB
 		servers, err := m.store.ListServers()
 		if err != nil {
-			m.logger.Printf("WARNING: listing servers failed: %v", err)
+			m.logger.Warnf("listing servers failed: %v", err)
 			continue
 		}
 
@@ -99,7 +99,7 @@ func (m *Manager) Start() error {
 				Status:      "disconnected",
 			})
 			if err != nil {
-				m.logger.Printf("WARNING: adding server %s to DB failed: %v", sc.Address, err)
+				m.logger.Warnf("adding server %s to DB failed: %v", sc.Address, err)
 				continue
 			}
 			existingID = id
@@ -113,14 +113,14 @@ func (m *Manager) Start() error {
 					Joined:   false,
 				})
 				if err != nil {
-					m.logger.Printf("WARNING: adding channel %s to DB failed: %v", cc.Name, err)
+					m.logger.Warnf("adding channel %s to DB failed: %v", cc.Name, err)
 				}
 			}
 		}
 
 		// Connect this server
 		if err := m.ConnectServerByID(existingID); err != nil {
-			m.logger.Printf("WARNING: connecting to %s failed: %v", sc.Address, err)
+			m.logger.Warnf("connecting to %s failed: %v", sc.Address, err)
 		}
 	}
 
@@ -136,7 +136,7 @@ func (m *Manager) Start() error {
 			if _, exists := m.conns[s.ID]; !exists {
 				m.mu.RUnlock()
 				if err := m.ConnectServerByID(s.ID); err != nil {
-					m.logger.Printf("WARNING: connecting to server %s (id=%d) failed: %v", s.Address, s.ID, err)
+					m.logger.Warnf("connecting to server %s (id=%d) failed: %v", s.Address, s.ID, err)
 				}
 				m.mu.RLock()
 			}
@@ -281,7 +281,7 @@ func (m *Manager) ConnectServer(srv *store.ServerRecord) error {
 
 	// Update DB status to 'connecting' (not 'connected' yet)
 	if err := m.store.SetServerStatus(srv.ID, "connecting"); err != nil {
-		m.logger.Printf("WARNING: updating server status in DB failed: %v", err)
+		m.logger.Warnf("updating server status in DB failed: %v", err)
 	}
 
 	// Start connection in background
@@ -310,7 +310,7 @@ func (m *Manager) DisconnectServer(serverID int64) error {
 		// The desired state (disconnected) is already achieved, so ensure
 		// the DB reflects reality and return nil.
 		if err := m.store.SetServerStatus(serverID, "disconnected"); err != nil {
-			m.logger.Printf("WARNING: updating server %d status to 'disconnected' in DB failed: %v", serverID, err)
+			m.logger.Warnf("updating server %d status to 'disconnected' in DB failed: %v", serverID, err)
 		}
 		return nil
 	}
@@ -329,23 +329,23 @@ func (m *Manager) DisconnectServer(serverID int64) error {
 	// Use select with timeout for visibility
 	select {
 	case <-done:
-		m.logger.Printf("server %d disconnected cleanly", serverID)
+		m.logger.Infof("server %d disconnected cleanly", serverID)
 		return nil
 	case <-time.After(5 * time.Second):
-		m.logger.Printf("WARNING: server %d shutdown taking longer than expected, still waiting...", serverID)
+		m.logger.Warnf("server %d shutdown taking longer than expected, still waiting...", serverID)
 	}
 
 	// Second phase: wait up to 10 more seconds (15s total)
 	select {
 	case <-done:
-		m.logger.Printf("server %d shutdown completed after delay", serverID)
+		m.logger.Infof("server %d shutdown completed after delay", serverID)
 	case <-time.After(10 * time.Second):
-		m.logger.Printf("ERROR: server %d shutdown exceeded 15s, giving up (goroutine leak likely)", serverID)
+		m.logger.Errorf("server %d shutdown exceeded 15s, giving up (goroutine leak likely)", serverID)
 		return fmt.Errorf("server %d shutdown timeout after 15s", serverID)
 	}
 
 	if err := m.store.SetServerStatus(serverID, "disconnected"); err != nil {
-		m.logger.Printf("WARNING: updating server status in DB failed: %v", err)
+		m.logger.Warnf("updating server status in DB failed: %v", err)
 	}
 	return nil
 }
@@ -394,7 +394,7 @@ func (m *Manager) GetServers() []store.ServerRecord {
 
 	servers, err := m.store.ListServers()
 	if err != nil {
-		m.logger.Printf("WARNING: listing servers failed: %v", err)
+		m.logger.Warnf("listing servers failed: %v", err)
 		return nil
 	}
 
@@ -411,7 +411,7 @@ func (m *Manager) GetServers() []store.ServerRecord {
 func (m *Manager) GetChannels(serverID int64) []store.ChannelRecord {
 	channels, err := m.store.GetChannelsByServer(serverID)
 	if err != nil {
-		m.logger.Printf("WARNING: listing channels for server %d failed: %v", serverID, err)
+		m.logger.Warnf("listing channels for server %d failed: %v", serverID, err)
 		return nil
 	}
 
@@ -473,7 +473,7 @@ func (m *Manager) GetChannelTopic(serverID int64, channel string) (string, error
 // 6. Handles DCC transfer with progress callback
 // 7. Maintains the connection after download (channels remain joined)
 func (m *Manager) DownloadPack(ctx context.Context, pack *entities.XDCCPack, channel string, progressFn func(bytesReceived, totalBytes int64, speedBPS float64)) (string, error) {
-	m.logger.Printf("DownloadPack: starting download for %s from bot %s on %s", pack.Filename, pack.Bot, pack.Server.Address)
+	m.logger.Infof("DownloadPack: starting download for %s from bot %s on %s", pack.Filename, pack.Bot, pack.Server.Address)
 
 	// Find or create persistent connection for this server
 	_, conn, err := m.ensureConnection(pack.Server.Address, pack.Server.Port)
@@ -493,7 +493,7 @@ func (m *Manager) DownloadPack(ctx context.Context, pack *entities.XDCCPack, cha
 		return "", fmt.Errorf("persistent connection to %s has no IRC client", pack.Server.Address)
 	}
 
-	m.logger.Printf("Using persistent IRC connection for download on %s", pack.Server.Address)
+	m.logger.Infof("Using persistent IRC connection for download on %s", pack.Server.Address)
 
 	// Configure download options
 	opts := xdccirc.DownloadOptions{
@@ -502,9 +502,8 @@ func (m *Manager) DownloadPack(ctx context.Context, pack *entities.XDCCPack, cha
 		FallbackChannel:  channel,
 		ThrottleBytes:    0, // Use unlimited for now, can make configurable
 		WaitTime:         1,
-		ChannelJoinDelay: m.cfg.Download.ChannelJoinDelay, // from config: -1=random, 0=no delay, >0=fixed
-		Username:         m.cfg.IRC.Nickname,
-		Logger:           xdccirc.LoggerFunc(m.logger.Printf),
+		ChannelJoinDelay: m.cfg.Download.ChannelJoinDelay,                                 // from config: -1=random, 0=no delay, >0=fixed
+		Username:         m.cfg.IRC.Nickname, Logger: xdccirc.LoggerFunc(m.logger.Printf), // *logging.Logger has Printf, so this works
 		ProgressCallback: progressFn,
 		// When the persistent connection drops and reconnects, the xdccirc.Client
 		// calls this to get the new girc.Client and re-bind its handlers.
@@ -528,19 +527,19 @@ func (m *Manager) DownloadPack(ctx context.Context, pack *entities.XDCCPack, cha
 		client.SetAlreadyJoinedChannels(joinedChs)
 	}
 
-	m.logger.Printf("DownloadPack: WHOIS → JOIN → XDCC for bot %s on %s (channel=%q, pack=%d)",
+	m.logger.Infof("DownloadPack: WHOIS → JOIN → XDCC for bot %s on %s (channel=%q, pack=%d)",
 		pack.Bot, pack.Server.Address, channel, pack.PackNumber)
 	results := client.DownloadAll()
 
 	if len(results) == 0 {
-		m.logger.Printf("DownloadPack: ERROR — no result from download client for bot %s on %s",
+		m.logger.Errorf("DownloadPack: no result from download client for bot %s on %s",
 			pack.Bot, pack.Server.Address)
 		return "", fmt.Errorf("no result from download client")
 	}
 
 	r := results[0]
 	if r.Error != nil {
-		m.logger.Printf("DownloadPack: FAILED for bot %s on %s — %v",
+		m.logger.Errorf("DownloadPack: FAILED for bot %s on %s — %v",
 			pack.Bot, pack.Server.Address, r.Error)
 		return "", r.Error
 	}
@@ -551,7 +550,7 @@ func (m *Manager) DownloadPack(ctx context.Context, pack *entities.XDCCPack, cha
 		filePath = r.FilePath
 	}
 
-	m.logger.Printf("DownloadPack: SUCCESS for bot %s on %s — %s",
+	m.logger.Infof("DownloadPack: SUCCESS for bot %s on %s — %s",
 		pack.Bot, pack.Server.Address, filePath)
 	return filePath, nil
 }
@@ -566,13 +565,13 @@ func (m *Manager) ensureConnection(address string, port int) (int64, *managedCon
 			m.mu.RUnlock()
 			// Connection exists
 			if conn.Status() == "connected" {
-				m.logger.Printf("Reusing existing connection to %s:%d", address, port)
+				m.logger.Infof("Reusing existing connection to %s:%d", address, port)
 				return id, conn, nil
 			}
 			// Connection exists but not connected yet — wait efficiently
 			// using the connectedCh notification channel when available,
 			// with a short polling fallback.
-			m.logger.Printf("Waiting for connection to %s:%d to establish...", address, port)
+			m.logger.Infof("Waiting for connection to %s:%d to establish...", address, port)
 			if !conn.waitConnected(defaultConnectionTimeout) {
 				return 0, nil, fmt.Errorf("connection to %s:%d did not establish in time", address, port)
 			}
@@ -582,7 +581,7 @@ func (m *Manager) ensureConnection(address string, port int) (int64, *managedCon
 	m.mu.RUnlock()
 
 	// No connection exists - create one
-	m.logger.Printf("Creating new persistent connection to %s:%d", address, port)
+	m.logger.Infof("Creating new persistent connection to %s:%d", address, port)
 
 	// Check if server exists in database
 	servers, err := m.store.ListServers()
@@ -611,7 +610,7 @@ func (m *Manager) ensureConnection(address string, port int) (int64, *managedCon
 		if err != nil {
 			return 0, nil, fmt.Errorf("adding server to database: %w", err)
 		}
-		m.logger.Printf("Added new server %s:%d to database (ID: %d)", address, port, serverID)
+		m.logger.Infof("Added new server %s:%d to database (ID: %d)", address, port, serverID)
 	}
 
 	// Connect to the server
@@ -623,7 +622,7 @@ func (m *Manager) ensureConnection(address string, port int) (int64, *managedCon
 	// Re-acquire lock to fetch the connection safely: ConnectServerByID
 	// inserted it into m.conns, but a concurrent DisconnectServer could
 	// have removed it before we acquire the lock.
-	m.logger.Printf("Waiting for connection to %s:%d to establish...", address, port)
+	m.logger.Infof("Waiting for connection to %s:%d to establish...", address, port)
 	m.mu.RLock()
 	conn, ok := m.conns[serverID]
 	m.mu.RUnlock()
@@ -636,7 +635,7 @@ func (m *Manager) ensureConnection(address string, port int) (int64, *managedCon
 		return 0, nil, fmt.Errorf("connection to %s:%d did not establish in time", address, port)
 	}
 
-	m.logger.Printf("Connection to %s:%d established successfully", address, port)
+	m.logger.Infof("Connection to %s:%d established successfully", address, port)
 	return serverID, conn, nil
 }
 
@@ -712,7 +711,7 @@ func (mc *managedConnection) run() {
 	// Prevent duplicate run() calls - critical for lifecycle safety
 	mc.runningMu.Lock()
 	if mc.isRunning {
-		mc.manager.logger.Printf("WARNING: run() already active for server %d, skipping duplicate call", mc.id)
+		mc.manager.logger.Warnf("run() already active for server %d, skipping duplicate call", mc.id)
 		mc.runningMu.Unlock()
 		return
 	}
@@ -729,7 +728,7 @@ func (mc *managedConnection) run() {
 
 		// Panic recovery to prevent goroutine crash
 		if r := recover(); r != nil {
-			mc.manager.logger.Printf("PANIC in run() for server %d: %v\n%s", mc.id, r, debug.Stack())
+			mc.manager.logger.Errorf("PANIC in run() for server %d: %v\n%s", mc.id, r, debug.Stack())
 			mc.setStatus("error")
 			_ = mc.manager.store.SetServerStatus(mc.id, "error")
 
@@ -738,7 +737,7 @@ func (mc *managedConnection) run() {
 			// a girc.Client with active handlers and spawned goroutines.
 			mc.mu.RLock()
 			if mc.irc != nil {
-				mc.manager.logger.Printf("closing IRC client for server %d after panic", mc.id)
+				mc.manager.logger.Infof("closing IRC client for server %d after panic", mc.id)
 				mc.irc.Close()
 			}
 			mc.mu.RUnlock()
@@ -773,7 +772,7 @@ func (mc *managedConnection) run() {
 			return
 		case connectResultInitialFailure, connectResultDropped:
 			// Automatic reconnect for failures and drops
-			mc.manager.logger.Printf("IRC connection to %s lost, reconnecting...", mc.address)
+			mc.manager.logger.Infof("IRC connection to %s lost, reconnecting...", mc.address)
 			mc.manager.emitEvent(Event{
 				Type:       EventServerDisconnected,
 				ServerID:   mc.id,
@@ -797,7 +796,7 @@ func (mc *managedConnection) connect() connectResult {
 	nick := mc.nickname + randomSuffix(3)
 	mc.setStatus("connecting")
 
-	mc.manager.logger.Printf("connecting to %s:%d as '%s'", mc.address, mc.port, nick)
+	mc.manager.logger.Infof("connecting to %s:%d as '%s'", mc.address, mc.port, nick)
 
 	client := girc.New(girc.Config{
 		Server:      mc.address,
@@ -841,11 +840,11 @@ func (mc *managedConnection) connect() connectResult {
 		mc.irc = cl
 		mc.mu.Unlock()
 
-		mc.manager.logger.Printf("connected to %s:%d", mc.address, mc.port)
+		mc.manager.logger.Infof("connected to %s:%d", mc.address, mc.port)
 
 		// Update DB
 		if err := mc.manager.store.SetServerConnected(mc.id); err != nil {
-			mc.manager.logger.Printf("WARNING: updating server %d status failed: %v", mc.id, err)
+			mc.manager.logger.Warnf("updating server %d status failed: %v", mc.id, err)
 		}
 
 		// Emit event
@@ -868,7 +867,7 @@ func (mc *managedConnection) connect() connectResult {
 			return
 		}
 		ch := xdccirc.NormalizeChannel(e.Params[0])
-		mc.manager.logger.Printf("joined channel %s on %s", ch, mc.address)
+		mc.manager.logger.Infof("joined channel %s on %s", ch, mc.address)
 		mc.mu.Lock()
 		mc.joinedChs[ch] = "" // topic will be updated by TOPIC event
 		mc.mu.Unlock()
@@ -886,10 +885,10 @@ func (mc *managedConnection) connect() connectResult {
 				Joined:   true,
 			})
 			if err != nil {
-				mc.manager.logger.Printf("WARNING: failed to add joined channel %s to DB: %v", ch, err)
+				mc.manager.logger.Warnf("failed to add joined channel %s to DB: %v", ch, err)
 			}
 		} else {
-			mc.manager.logger.Printf("WARNING: looking up channel %s in DB failed: %v", ch, err)
+			mc.manager.logger.Warnf("looking up channel %s in DB failed: %v", ch, err)
 		}
 
 		mc.manager.emitEvent(Event{
@@ -908,7 +907,7 @@ func (mc *managedConnection) connect() connectResult {
 			return
 		}
 		ch := xdccirc.NormalizeChannel(e.Params[0])
-		mc.manager.logger.Printf("kicked from channel %s on %s", ch, mc.address)
+		mc.manager.logger.Infof("kicked from channel %s on %s", ch, mc.address)
 		mc.mu.Lock()
 		delete(mc.joinedChs, ch)
 		mc.mu.Unlock()
@@ -931,7 +930,7 @@ func (mc *managedConnection) connect() connectResult {
 			return
 		}
 		ch := xdccirc.NormalizeChannel(e.Params[0])
-		mc.manager.logger.Printf("left channel %s on %s", ch, mc.address)
+		mc.manager.logger.Infof("left channel %s on %s", ch, mc.address)
 		mc.mu.Lock()
 		delete(mc.joinedChs, ch)
 		mc.mu.Unlock()
@@ -985,7 +984,7 @@ func (mc *managedConnection) connect() connectResult {
 	})
 
 	client.Handlers.Add(girc.ERROR, func(cl *girc.Client, e girc.Event) {
-		mc.manager.logger.Printf("IRC error on %s: %s", mc.address, e.Last())
+		mc.manager.logger.Warnf("IRC error on %s: %s", mc.address, e.Last())
 	})
 
 	// Start connection in a goroutine; when irc.Connect() returns,
@@ -1007,14 +1006,14 @@ func (mc *managedConnection) connect() connectResult {
 		select {
 		case <-disconnected:
 		case <-time.After(5 * time.Second):
-			mc.manager.logger.Printf("WARNING: client.Close() for %s did not complete within 5s", mc.address)
+			mc.manager.logger.Warnf("client.Close() for %s did not complete within 5s", mc.address)
 		}
 		return connectResultExplicitCancel
 	case <-connected:
 		// Connected successfully — proceed to Phase 2
 	case err := <-disconnected:
 		// Connection failed on first attempt
-		mc.manager.logger.Printf("connection to %s failed: %v", mc.address, err)
+		mc.manager.logger.Errorf("connection to %s failed: %v", mc.address, err)
 		_ = mc.manager.store.IncrementServerRetry(mc.id)
 		return connectResultInitialFailure
 	}
@@ -1028,13 +1027,13 @@ func (mc *managedConnection) connect() connectResult {
 		select {
 		case <-disconnected:
 		case <-time.After(5 * time.Second):
-			mc.manager.logger.Printf("WARNING: client.Close() for %s did not complete within 5s (phase 2)", mc.address)
+			mc.manager.logger.Warnf("client.Close() for %s did not complete within 5s (phase 2)", mc.address)
 		}
 		return connectResultExplicitCancel
 	case err := <-disconnected:
 		// Connection dropped — will trigger reconnect in run()
 		if err != nil {
-			mc.manager.logger.Printf("connection to %s lost: %v", mc.address, err)
+			mc.manager.logger.Infof("connection to %s lost: %v", mc.address, err)
 		}
 		return connectResultDropped
 	}
@@ -1070,7 +1069,7 @@ func (mc *managedConnection) reconnectBackoff() bool {
 		delay = 1 * time.Hour // after 5 failures, retry every hour
 	}
 
-	mc.manager.logger.Printf("reconnecting to %s in %v (attempt %d)", mc.address, delay, mc.retryCount)
+	mc.manager.logger.Infof("reconnecting to %s in %v (attempt %d)", mc.address, delay, mc.retryCount)
 
 	select {
 	case <-mc.ctx.Done():
@@ -1141,18 +1140,18 @@ func (mc *managedConnection) joinChannel(channel string) error {
 			Joined:   false, // Will be set to true by JOIN handler
 		})
 		if err != nil {
-			mc.manager.logger.Printf("WARNING: failed to add channel %s to DB: %v", channel, err)
+			mc.manager.logger.Warnf("failed to add channel %s to DB: %v", channel, err)
 		}
 	} else {
 		// Channel exists — update auto_join to true
 		existingCh.AutoJoin = true
 		if err := mc.manager.store.UpdateChannel(*existingCh); err != nil {
-			mc.manager.logger.Printf("WARNING: failed to update channel %s in DB: %v", channel, err)
+			mc.manager.logger.Warnf("failed to update channel %s in DB: %v", channel, err)
 		}
 	}
 
 	// Send JOIN command to IRC
-	mc.manager.logger.Printf("joining channel %s on %s (server_id=%d)", channel, mc.address, mc.id)
+	mc.manager.logger.Infof("joining channel %s on %s (server_id=%d)", channel, mc.address, mc.id)
 	client.Cmd.Join(channel)
 
 	// Add to auto-join for reconnection (in-memory)
@@ -1197,12 +1196,12 @@ func (mc *managedConnection) leaveChannel(channel string) error {
 		existingCh.AutoJoin = false
 		existingCh.Joined = false
 		if err := mc.manager.store.UpdateChannel(*existingCh); err != nil {
-			mc.manager.logger.Printf("WARNING: failed to update channel %s in DB: %v", channel, err)
+			mc.manager.logger.Warnf("failed to update channel %s in DB: %v", channel, err)
 		}
 	}
 
 	// Send PART command to IRC
-	mc.manager.logger.Printf("leaving channel %s on %s (server_id=%d)", channel, mc.address, mc.id)
+	mc.manager.logger.Infof("leaving channel %s on %s (server_id=%d)", channel, mc.address, mc.id)
 	client.Cmd.Part(channel)
 
 	// Remove from auto-join list (in-memory)

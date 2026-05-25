@@ -4,9 +4,10 @@ package diskmon
 
 import (
 	"fmt"
-	"log"
 	"sync"
 	"time"
+
+	"xdcc-go/internal/logging"
 )
 
 // ---------------------------------------------------------------------------
@@ -29,7 +30,7 @@ type Monitor struct {
 	lastChecked time.Time
 	interval    time.Duration
 
-	logger *log.Logger
+	logger *logging.Logger
 }
 
 // New creates a new disk space monitor.
@@ -37,7 +38,7 @@ type Monitor struct {
 //   - threshold: minimum free bytes (e.g. 1 GB = 1073741824)
 //   - checkFn: function to check available disk space; if nil, uses getDiskInfo
 //   - logger: for status messages
-func New(path string, threshold int64, checkFn func(string) (int64, int64, error), logger *log.Logger) *Monitor {
+func New(path string, threshold int64, checkFn func(string) (int64, int64, error), logger *logging.Logger) *Monitor {
 	if checkFn == nil {
 		checkFn = getDiskFree
 	}
@@ -135,7 +136,7 @@ func (m *Monitor) StartPeriodicCheck(onChange func(lowSpace bool, available int6
 				// Check() updates m.lowSpace to NEW value
 				available, _, low, err := m.Check()
 				if err != nil {
-					m.logger.Printf("WARNING: disk space check failed: %v", err)
+					m.logger.Warnf("disk space check failed: %v", err)
 					continue
 				}
 
@@ -145,7 +146,7 @@ func (m *Monitor) StartPeriodicCheck(onChange func(lowSpace bool, available int6
 				}
 
 				if low {
-					m.logger.Printf("WARNING: low disk space: %d bytes available (threshold: %d)", available, m.threshold)
+					m.logger.Warnf("low disk space: %d bytes available (threshold: %d)", available, m.threshold)
 				}
 			}
 		}

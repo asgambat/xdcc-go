@@ -162,17 +162,41 @@ api.writeError(w, http.StatusBadRequest, "invalid_input", "pack number must be p
 
 ### Logging
 
+**Rule: Always use `*logging.Logger` — never `*log.Logger` or `log.Printf`.**
+
+The project provides a single structured logger (`internal/logging`) that supports levels,
+file rotation, and broadcasting log lines to SSE clients. All components MUST use it.
+
+The `xdccirc.Logger` interface (used by `irc.Client`) is satisfied by `*logging.Logger`
+via its `Printf` method. No other logger type should be used.
+
 **DO:**
 ```go
-// Use the logging.Logger instance
-logger.Info("download started", "pack_id", packID, "filename", filename)
-logger.Error("IRC connection failed", "error", err)
+// Use the logging.Logger instance with level-specific methods
+logger.Infof("download started: %s", filename)
+logger.Warnf("retrying download %d: %v", id, err)
+logger.Errorf("IRC connection failed: %v", err)
+
+// For compatibility with xdccirc.Logger (used by irc.Client)
+logger.Printf("download progress: %d/%d", progress, total)
+
+// To create a logger
+logger := logging.New(level, filePath, rotateMB)
+
+// To attach a log broadcaster (SSE)
+logger.AddWriter(logBroadcaster)
 ```
 
 **DON'T:**
 ```go
 // Never use stdlib log package directly
-log.Println("something happened")  // Bypasses structured logging!
+log.Println("something happened")       // Bypasses structured logging!
+log.New(os.Stderr, "[tag] ", log.LstdFlags) // No levels, no broadcast!
+log.Printf("download %d completed", id) // No level context!
+
+// Never create *log.Logger wrappers
+// Wrong: log.New(logger.Writer(logging.LevelInfo), "", 0)
+// Right: use logger directly
 ```
 
 **Levels:**
@@ -180,6 +204,11 @@ log.Println("something happened")  // Bypasses structured logging!
 - **INFO**: Normal operational events (download started, completed)
 - **WARN**: Recoverable issues (retry attempt, stalled transfer)
 - **ERROR**: Unrecoverable errors (connection failed, file write error)
+
+**Constructor Signature:** `logging.New(level Level, filePath string, rotateMB int) *Logger`
+- `level`: `logging.LevelDebug`, `logging.LevelInfo`, `logging.LevelWarn`, `logging.LevelError`
+- `filePath`: Path to log file, or `""` for stderr-only
+- `rotateMB`: Max file size in MB before rotation (0 = no rotation)
 
 ### Database Access
 
@@ -572,7 +601,8 @@ type Engine interface {
 ### DON'T
 
 ❌ **Never** use CGO (all builds must be `CGO_ENABLED=0`)  
-❌ **Never** use `log.Println` directly (bypasses structured logging)  
+❌ **Never** use `log.Println`, `log.Printf`, or `*log.Logger` (use `*logging.Logger` everywhere)  
+❌ **Never** pass a `*log.Logger` adapter to any constructor — all constructors accept `*logging.Logger`  
 ❌ **Never** swallow errors without wrapping  
 ❌ **Never** access database outside `store.SQLiteStore`  
 ❌ **Never** use shared global state in tests  

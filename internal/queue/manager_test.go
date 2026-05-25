@@ -1,14 +1,13 @@
 package queue
 
 import (
-	"log"
-	"os"
 	"sync"
 	"testing"
 	"time"
 
 	"xdcc-go/internal/config"
 	xdccirc "xdcc-go/internal/irc"
+	"xdcc-go/internal/logging"
 	"xdcc-go/internal/store"
 )
 
@@ -318,7 +317,7 @@ func newTestQM(t *testing.T) (*QueueManager, *mockStore) {
 	ms := newMockStore()
 	cfg := config.DefaultConfig()
 	cfg.Download.MinDiskSpace = 0 // disable disk monitoring
-	logger := log.New(os.Stderr, "[queue-test] ", log.LstdFlags)
+	logger := logging.New(logging.LevelInfo, "", 0)
 	qm := New(ms, cfg, logger)
 	_ = qm.Start() // start monitorLoop goroutine so Stop() doesn't deadlock
 	t.Cleanup(func() {
@@ -698,7 +697,7 @@ func TestTryDispatch_AtGlobalLimit(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.Download.MaxParallelTotal = 1
 	cfg.Download.MinDiskSpace = 0
-	logger := log.New(os.Stderr, "[queue-test-limit] ", log.LstdFlags)
+	logger := logging.New(logging.LevelInfo, "", 0)
 	qm2 := New(ms, cfg, logger)
 	_ = qm2.Start()
 	t.Cleanup(func() { qm2.Stop() })

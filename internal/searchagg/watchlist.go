@@ -85,7 +85,7 @@ func (a *Aggregator) RunWatchlist(ctx context.Context, w store.Watchlist) (*Watc
 	if wr.HasChanges && w.AutoEnqueue && len(wr.NewPacks) > 0 {
 		enqueued, err := a.enqueueNewPacks(wr.NewPacks)
 		if err != nil {
-			a.log.Printf("watchlist %d: auto-enqueue error: %v", w.ID, err)
+			a.log.Warnf("watchlist %d: auto-enqueue error: %v", w.ID, err)
 		}
 		wr.Enqueued = enqueued
 	}
@@ -111,7 +111,7 @@ func (a *Aggregator) RunAllWatchlists(ctx context.Context) ([]*WatchlistRunResul
 	for _, w := range watchlists {
 		r, err := a.RunWatchlist(ctx, w)
 		if err != nil {
-			a.log.Printf("watchlist %d (%s) failed: %v", w.ID, w.Name, err)
+			a.log.Warnf("watchlist %d (%s) failed: %v", w.ID, w.Name, err)
 			continue
 		}
 		results = append(results, r)

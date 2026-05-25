@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"log"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -49,12 +48,9 @@ func newTestAPI(t *testing.T) *testAPI {
 
 	hub := sse.NewHub(50)
 
-	// For legacy components that still expect *log.Logger, create a stdlib adapter
-	stdLogger := log.New(apiLogger.Writer(logging.LevelInfo), "", 0)
-
 	// Create a real searchagg.Aggregator so preset/watchlist CRUD handlers
 	// don't return 503. This uses the same store, so CRUD operations work.
-	agg := searchagg.New(st, &cfg.Search, stdLogger)
+	agg := searchagg.New(st, &cfg.Search, apiLogger)
 
 	api := New(st, nil, nil, agg, hub, nil, cfg, apiLogger)
 

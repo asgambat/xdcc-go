@@ -1,14 +1,13 @@
 package ircmanager
 
 import (
-	"log"
-	"os"
 	"sync"
 	"testing"
 	"time"
 
 	"xdcc-go/internal/config"
 	xdccirc "xdcc-go/internal/irc"
+	"xdcc-go/internal/logging"
 	"xdcc-go/internal/store"
 )
 
@@ -302,7 +301,7 @@ func newTestManager(t *testing.T) (*Manager, *mockStore) {
 	t.Helper()
 	ms := newMockStore()
 	cfg := config.DefaultConfig()
-	logger := log.New(os.Stderr, "[ircmanager-test] ", log.LstdFlags)
+	logger := logging.New(logging.LevelInfo, "", 0)
 	mgr := New(ms, cfg, logger)
 	t.Cleanup(func() {
 		mgr.Stop()

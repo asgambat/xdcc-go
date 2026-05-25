@@ -1,16 +1,16 @@
 package diskmon
 
 import (
-	"log"
-	"os"
 	"testing"
 	"time"
+
+	"xdcc-go/internal/logging"
 )
 
 // TestStopMultipleCalls ensures the stop function can be called multiple times
 // without causing a panic (double-close of channel).
 func TestStopMultipleCalls(t *testing.T) {
-	logger := log.New(os.Stdout, "[diskmon-test] ", log.LstdFlags)
+	logger := logging.New(logging.LevelDebug, "", 0)
 	mon := New(".", 1024*1024*10, nil, logger)
 
 	callCount := 0
@@ -36,7 +36,7 @@ func TestStopMultipleCalls(t *testing.T) {
 
 // TestStopWithoutWait ensures stop can be called without waiting on done channel.
 func TestStopWithoutWait(t *testing.T) {
-	logger := log.New(os.Stdout, "[diskmon-test] ", log.LstdFlags)
+	logger := logging.New(logging.LevelDebug, "", 0)
 	mon := New(".", 1024*1024*10, nil, logger)
 
 	stop, done := mon.StartPeriodicCheck(nil)

@@ -1,0 +1,5 @@
+2026-05-25T16:04:11+02:00 [INFO] connecting to irc.test.net:6667 as 'xdcc-usergYh' 
+2026-05-25T16:04:12+02:00 [INFO] server 1 disconnected cleanly 
+2026-05-25T16:08:19+02:00 [INFO] connecting to irc.test.net:6667 as 'xdcc-userWz1' 
+2026-05-25T16:08:24+02:00 [WARN] server 1 shutdown taking longer than expected, still waiting... 
+2026-05-25T16:08:24+02:00 [INFO] server 1 shutdown completed after delay 

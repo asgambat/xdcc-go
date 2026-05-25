@@ -41,7 +41,7 @@ func (a *Aggregator) GetProviderInsights() ([]ProviderInsight, error) {
 	allStats, err := a.store.GetAllProviderStats(since)
 	if err != nil {
 		// Non-fatal: return insights without stats data
-		a.log.Printf("WARNING: GetProviderInsights: GetAllProviderStats failed: %v", err)
+		a.log.Warnf("GetProviderInsights: GetAllProviderStats failed: %v", err)
 	}
 
 	engines := []string{"nibl", "xdcc-eu", "subsplease"}
