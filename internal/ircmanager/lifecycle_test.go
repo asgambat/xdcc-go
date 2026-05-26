@@ -19,7 +19,7 @@ func TestConnectionLifecycle_NoDuplicateRun(t *testing.T) {
 
 	ms := newMockStore()
 	cfg := config.DefaultConfig()
-	logger := logging.New(logging.LevelDebug, "[test-lifecycle] ", 0)
+	logger := logging.New(logging.LevelDebug, "", 0)
 
 	mgr := New(ms, cfg, logger)
 	defer mgr.Stop()
@@ -77,7 +77,7 @@ func TestConnectionLifecycle_NoRaceOnStatusChecks(t *testing.T) {
 	srvID := ms.addServer("irc.test.net", 6667, false)
 
 	cfg := config.DefaultConfig()
-	logger := logging.New(logging.LevelDebug, "[test-race] ", 0)
+	logger := logging.New(logging.LevelDebug, "", 0)
 
 	mgr := New(ms, cfg, logger)
 	defer mgr.Stop()
