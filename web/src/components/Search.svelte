@@ -158,9 +158,27 @@
     return sortDirection === 'asc' ? '▲' : '▼';
   }
 
+  // Parse query params from URL hash (e.g., #search?q=ubuntu&min=100MB)
+  function loadFromHash() {
+    const hash = window.location.hash;
+    if (!hash || !hash.includes('?')) return;
+    const viewPart = hash.split('?')[0];
+    if (!viewPart.replace('#', '').startsWith('search')) return;
+    const params = new URLSearchParams(hash.split('?')[1]);
+    const q = params.get('q');
+    if (q) query = decodeURIComponent(q);
+    const min = params.get('min');
+    if (min) minSize = decodeURIComponent(min);
+    const max = params.get('max');
+    if (max) maxSize = decodeURIComponent(max);
+    if (q) doSearch();
+  }
+
   onMount(async () => {
     loadHistory();
     await loadProviders();
+    // Auto-search if we landed here with query params from a preset
+    loadFromHash();
   });
 
   async function loadProviders() {

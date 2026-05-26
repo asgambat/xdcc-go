@@ -235,11 +235,12 @@ func (a *API) handleListWatchlists(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) handleCreateWatchlist(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Name        string `json:"name"`
-		Query       string `json:"query"`
-		FiltersJSON string `json:"filters_json"`
-		Enabled     bool   `json:"enabled"`
-		AutoEnqueue bool   `json:"auto_enqueue"`
+		Name            string `json:"name"`
+		Query           string `json:"query"`
+		IntervalMinutes int    `json:"interval_minutes"`
+		FiltersJSON     string `json:"filters_json"`
+		Enabled         *bool  `json:"enabled"`
+		AutoEnqueue     *bool  `json:"auto_enqueue"`
 	}
 	defer r.Body.Close()
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -254,13 +255,28 @@ func (a *API) handleCreateWatchlist(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "MISSING_QUERY", "query is required")
 		return
 	}
+	interval := body.IntervalMinutes
+	if interval < 5 {
+		interval = 60 // default to 60 minutes, minimum 5
+	}
+
+	// Default enabled to true if not provided
+	enabled := true
+	if body.Enabled != nil {
+		enabled = *body.Enabled
+	}
+	autoEnqueue := false
+	if body.AutoEnqueue != nil {
+		autoEnqueue = *body.AutoEnqueue
+	}
 
 	id, err := a.Store.AddWatchlist(r.Context(), store.Watchlist{
-		Name:        body.Name,
-		Query:       body.Query,
-		FiltersJSON: body.FiltersJSON,
-		Enabled:     body.Enabled,
-		AutoEnqueue: body.AutoEnqueue,
+		Name:            body.Name,
+		Query:           body.Query,
+		IntervalMinutes: interval,
+		FiltersJSON:     body.FiltersJSON,
+		Enabled:         enabled,
+		AutoEnqueue:     autoEnqueue,
 	})
 	if err != nil {
 		a.logAndError(w, http.StatusInternalServerError, "CREATE_WATCHLIST_ERROR", err.Error())
@@ -293,11 +309,12 @@ func (a *API) handleUpdateWatchlist(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		Name        string `json:"name"`
-		Query       string `json:"query"`
-		FiltersJSON string `json:"filters_json"`
-		Enabled     bool   `json:"enabled"`
-		AutoEnqueue bool   `json:"auto_enqueue"`
+		Name            string `json:"name"`
+		Query           string `json:"query"`
+		IntervalMinutes int    `json:"interval_minutes"`
+		FiltersJSON     string `json:"filters_json"`
+		Enabled         *bool  `json:"enabled"`
+		AutoEnqueue     *bool  `json:"auto_enqueue"`
 	}
 	defer r.Body.Close()
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -312,9 +329,20 @@ func (a *API) handleUpdateWatchlist(w http.ResponseWriter, r *http.Request) {
 	if body.Query != "" {
 		updated.Query = body.Query
 	}
-	updated.FiltersJSON = body.FiltersJSON
-	updated.Enabled = body.Enabled
-	updated.AutoEnqueue = body.AutoEnqueue
+	if body.IntervalMinutes >= 5 {
+		updated.IntervalMinutes = body.IntervalMinutes
+	}
+	// Only update fields explicitly provided in JSON
+	// (not sent = nil pointer → keep existing value)
+	if body.Enabled != nil {
+		updated.Enabled = *body.Enabled
+	}
+	if body.AutoEnqueue != nil {
+		updated.AutoEnqueue = *body.AutoEnqueue
+	}
+	if body.FiltersJSON != "" {
+		updated.FiltersJSON = body.FiltersJSON
+	}
 
 	if err := a.Store.UpdateWatchlist(r.Context(), updated); err != nil {
 		a.logAndError(w, http.StatusInternalServerError, "UPDATE_WATCHLIST_ERROR", err.Error())

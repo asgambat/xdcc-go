@@ -252,6 +252,29 @@ func (m *mockStore) BulkActionDownloads(ctx context.Context, ids []int64, action
 	return results, nil
 }
 
+func (m *mockStore) FilenamesExist(ctx context.Context, filenames []string) (map[string]bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	result := make(map[string]bool, len(filenames))
+	for _, fn := range filenames {
+		result[fn] = false
+	}
+	for _, d := range m.downloads {
+		if result[d.Filename] {
+			continue // already found
+		}
+		switch d.Status {
+		case store.DownloadStatusCompleted, store.DownloadStatusFailed,
+			store.DownloadStatusSkipped, store.DownloadStatusQueued,
+			store.DownloadStatusDownloading, store.DownloadStatusPaused:
+			if _, ok := result[d.Filename]; ok {
+				result[d.Filename] = true
+			}
+		}
+	}
+	return result, nil
+}
+
 func (m *mockStore) FindDuplicateDownload(ctx context.Context, bot, serverAddress string, packNumber int) (*store.DownloadRecord, error) {
 	return nil, nil
 }
@@ -305,11 +328,13 @@ func (m *mockStore) AddWatchlist(ctx context.Context, w store.Watchlist) (int64,
 func (m *mockStore) GetWatchlist(ctx context.Context, id int64) (*store.Watchlist, error) {
 	return nil, nil
 }
-func (m *mockStore) ListWatchlists(ctx context.Context) ([]store.Watchlist, error)      { return nil, nil }
-func (m *mockStore) UpdateWatchlist(ctx context.Context, w store.Watchlist) error       { return nil }
-func (m *mockStore) DeleteWatchlist(ctx context.Context, id int64) error                { return nil }
-func (m *mockStore) SetWatchlistChecked(ctx context.Context, id int64, fp string) error { return nil }
-func (m *mockStore) SetWatchlistNotified(ctx context.Context, id int64) error           { return nil }
+func (m *mockStore) ListWatchlists(ctx context.Context) ([]store.Watchlist, error) { return nil, nil }
+func (m *mockStore) UpdateWatchlist(ctx context.Context, w store.Watchlist) error  { return nil }
+func (m *mockStore) DeleteWatchlist(ctx context.Context, id int64) error           { return nil }
+func (m *mockStore) SetWatchlistChecked(ctx context.Context, id int64, fp string, resultsJSON string) error {
+	return nil
+}
+func (m *mockStore) SetWatchlistNotified(ctx context.Context, id int64) error { return nil }
 func (m *mockStore) GetEnabledWatchlists(ctx context.Context) ([]store.Watchlist, error) {
 	return nil, nil
 }

@@ -243,7 +243,7 @@
     {:else if $currentView === 'search'}
       <Search {openModal} />
     {:else if $currentView === 'presets'}
-      <Presets />
+      <Presets {openModal} />
     {:else if $currentView === 'watchlists'}
       <Watchlists {openModal} />
     {:else if $currentView === 'providers'}

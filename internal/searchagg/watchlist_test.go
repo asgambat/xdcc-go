@@ -1,10 +1,94 @@
 package searchagg
 
 import (
+	"context"
 	"testing"
 
 	"xdcc-go/internal/entities"
+	"xdcc-go/internal/store"
 )
+
+// ===========================================================================
+// Mock store for testing filterNewPacks
+// ===========================================================================
+
+type mockDownloadStore struct {
+	existingFilenames map[string]bool
+}
+
+func (m *mockDownloadStore) FilenamesExist(ctx context.Context, filenames []string) (map[string]bool, error) {
+	result := make(map[string]bool, len(filenames))
+	for _, fn := range filenames {
+		if m.existingFilenames[fn] {
+			result[fn] = true
+		} else {
+			result[fn] = false
+		}
+	}
+	return result, nil
+}
+
+// Stub methods to satisfy the DownloadStore interface
+func (m *mockDownloadStore) EnqueueDownload(ctx context.Context, d store.DownloadRecord) (int64, error) {
+	return 1, nil
+}
+func (m *mockDownloadStore) GetDownload(ctx context.Context, id int64) (*store.DownloadRecord, error) {
+	return nil, nil
+}
+func (m *mockDownloadStore) GetQueue(ctx context.Context) ([]store.DownloadRecord, error) {
+	return nil, nil
+}
+func (m *mockDownloadStore) GetQueueByChannel(ctx context.Context, channel string) ([]store.DownloadRecord, error) {
+	return nil, nil
+}
+func (m *mockDownloadStore) GetActiveDownloads(ctx context.Context) ([]store.DownloadRecord, error) {
+	return nil, nil
+}
+func (m *mockDownloadStore) GetPendingByChannel(ctx context.Context, channel string) ([]store.DownloadRecord, error) {
+	return nil, nil
+}
+func (m *mockDownloadStore) UpdateDownloadProgress(ctx context.Context, id int64, progressBytes int64, speedBPS int64) error {
+	return nil
+}
+func (m *mockDownloadStore) MarkDownloadStarted(ctx context.Context, id int64) error { return nil }
+func (m *mockDownloadStore) MarkDownloadCompleted(ctx context.Context, id int64, filename string, fileSize int64) error {
+	return nil
+}
+func (m *mockDownloadStore) MarkDownloadFailed(ctx context.Context, id int64, errMsg string) error {
+	return nil
+}
+func (m *mockDownloadStore) MarkDownloadSkipped(ctx context.Context, id int64) error { return nil }
+func (m *mockDownloadStore) MarkDownloadPaused(ctx context.Context, id int64) error  { return nil }
+func (m *mockDownloadStore) MarkDownloadRetry(ctx context.Context, id int64, newStatus string) error {
+	return nil
+}
+func (m *mockDownloadStore) DeleteDownload(ctx context.Context, id int64) error { return nil }
+func (m *mockDownloadStore) RetryDownload(ctx context.Context, id int64) error  { return nil }
+func (m *mockDownloadStore) GetDownloadHistory(ctx context.Context, _, _ int, _ store.HistoryFilter) ([]store.DownloadRecord, int, error) {
+	return nil, 0, nil
+}
+func (m *mockDownloadStore) GetTotalDownloadedBytes(ctx context.Context) (int64, error) {
+	return 0, nil
+}
+func (m *mockDownloadStore) RecoverDownloadsOnStartup(ctx context.Context) ([]store.DownloadRecord, error) {
+	return nil, nil
+}
+func (m *mockDownloadStore) RequeueDownload(ctx context.Context, id int64) error { return nil }
+func (m *mockDownloadStore) SetDownloadPriority(ctx context.Context, id int64, priority int) error {
+	return nil
+}
+func (m *mockDownloadStore) UpdateDownloadMetadata(ctx context.Context, id int64, filename string, fileSize int64) error {
+	return nil
+}
+func (m *mockDownloadStore) BulkActionDownloads(ctx context.Context, ids []int64, action string) (map[int64]string, error) {
+	return nil, nil
+}
+func (m *mockDownloadStore) FindDuplicateDownload(ctx context.Context, bot, serverAddress string, packNumber int) (*store.DownloadRecord, error) {
+	return nil, nil
+}
+func (m *mockDownloadStore) GetDownloadByBotMessage(ctx context.Context, bot, packMessage string) (*store.DownloadRecord, error) {
+	return nil, nil
+}
 
 // ===========================================================================
 // computeFingerprint
@@ -87,45 +171,75 @@ func TestComputeFingerprint_MultiplePacks(t *testing.T) {
 }
 
 // ===========================================================================
-// findNewPacks
+// filterNewPacks
 // ===========================================================================
 
-func TestFindNewPacks_NoChange(t *testing.T) {
-	packs := []*entities.XDCCPack{
-		mkPackWithBot("a.mkv", 100, "Bot", 1),
-	}
-	fp := computeFingerprint(packs)
-
-	newPacks := findNewPacks(packs, fp)
-	if newPacks != nil {
-		t.Errorf("expected nil (no changes) when fingerprint matches, got %d packs", len(newPacks))
-	}
-}
-
-func TestFindNewPacks_Change(t *testing.T) {
-	packs := []*entities.XDCCPack{
-		mkPackWithBot("a.mkv", 100, "Bot", 1),
+func TestFilterNewPacks_EmptyPacks(t *testing.T) {
+	ms := &mockDownloadStore{}
+	packs := filterNewPacks(context.Background(), ms, nil)
+	if packs != nil {
+		t.Errorf("expected nil for nil packs, got %d packs", len(packs))
 	}
 
-	newPacks := findNewPacks(packs, "different_fingerprint")
-	if newPacks == nil {
-		t.Errorf("expected non-nil when fingerprint differs")
-	} else if len(newPacks) != 1 {
-		t.Errorf("expected 1 pack when fingerprint differs, got %d", len(newPacks))
+	packs = filterNewPacks(context.Background(), ms, []*entities.XDCCPack{})
+	if packs != nil {
+		t.Errorf("expected nil for empty packs, got %d packs", len(packs))
 	}
 }
 
-func TestFindNewPacks_EmptyPrevFingerprint(t *testing.T) {
+func TestFilterNewPacks_AllNew(t *testing.T) {
+	ms := &mockDownloadStore{existingFilenames: map[string]bool{}}
 	packs := []*entities.XDCCPack{
 		mkPackWithBot("a.mkv", 100, "Bot", 1),
+		mkPackWithBot("b.mkv", 200, "Bot", 2),
 	}
 
-	newPacks := findNewPacks(packs, "")
-	// Empty previous fingerprint means first run — should return all packs
-	if newPacks == nil {
-		t.Errorf("expected all packs when prev fingerprint is empty")
-	} else if len(newPacks) != 1 {
-		t.Errorf("expected 1 pack, got %d", len(newPacks))
+	newPacks := filterNewPacks(context.Background(), ms, packs)
+	if len(newPacks) != 2 {
+		t.Errorf("expected 2 new packs, got %d", len(newPacks))
+	}
+}
+
+func TestFilterNewPacks_SomeAlreadyDownloaded(t *testing.T) {
+	ms := &mockDownloadStore{existingFilenames: map[string]bool{"a.mkv": true}}
+	packs := []*entities.XDCCPack{
+		mkPackWithBot("a.mkv", 100, "Bot", 1),
+		mkPackWithBot("b.mkv", 200, "Bot", 2),
+	}
+
+	newPacks := filterNewPacks(context.Background(), ms, packs)
+	if len(newPacks) != 1 {
+		t.Errorf("expected 1 new pack (b.mkv), got %d", len(newPacks))
+	}
+	if newPacks[0].Filename != "b.mkv" {
+		t.Errorf("expected b.mkv as new pack, got %s", newPacks[0].Filename)
+	}
+}
+
+func TestFilterNewPacks_AllAlreadyDownloaded(t *testing.T) {
+	ms := &mockDownloadStore{existingFilenames: map[string]bool{"a.mkv": true, "b.mkv": true}}
+	packs := []*entities.XDCCPack{
+		mkPackWithBot("a.mkv", 100, "Bot", 1),
+		mkPackWithBot("b.mkv", 200, "Bot", 2),
+	}
+
+	newPacks := filterNewPacks(context.Background(), ms, packs)
+	if len(newPacks) != 0 {
+		t.Errorf("expected 0 new packs, got %d", len(newPacks))
+	}
+}
+
+func TestFilterNewPacks_CaseInsensitive(t *testing.T) {
+	ms := &mockDownloadStore{existingFilenames: map[string]bool{"a.mkv": true}}
+	packs := []*entities.XDCCPack{
+		mkPackWithBot("A.MKV", 100, "Bot", 1), // different case
+	}
+
+	// The mock store uses exact match (not LOWER), but the real SQLite uses LOWER()
+	// The filterNewPacks function lowercases internally, so it will match
+	newPacks := filterNewPacks(context.Background(), ms, packs)
+	if len(newPacks) != 0 {
+		t.Errorf("expected 0 new packs (case-insensitive match), got %d", len(newPacks))
 	}
 }
 
@@ -134,7 +248,6 @@ func TestFindNewPacks_EmptyPrevFingerprint(t *testing.T) {
 // ===========================================================================
 
 func TestWatchlistRunResult_HasChanges(t *testing.T) {
-	// Verify the HasChanges field behavior
 	result := &WatchlistRunResult{
 		HasChanges: true,
 		NewPacks: []*entities.XDCCPack{

@@ -57,6 +57,7 @@ type DownloadStore interface {
 	BulkActionDownloads(ctx context.Context, ids []int64, action string) (map[int64]string, error)
 	FindDuplicateDownload(ctx context.Context, bot, serverAddress string, packNumber int) (*DownloadRecord, error)
 	GetDownloadByBotMessage(ctx context.Context, bot, packMessage string) (*DownloadRecord, error)
+	FilenamesExist(ctx context.Context, filenames []string) (map[string]bool, error)
 }
 
 // SearchCacheStore covers search result caching in SQLite.
@@ -84,7 +85,7 @@ type WatchlistStore interface {
 	ListWatchlists(ctx context.Context) ([]Watchlist, error)
 	UpdateWatchlist(ctx context.Context, w Watchlist) error
 	DeleteWatchlist(ctx context.Context, id int64) error
-	SetWatchlistChecked(ctx context.Context, id int64, fingerprint string) error
+	SetWatchlistChecked(ctx context.Context, id int64, fingerprint string, resultsJSON string) error
 	SetWatchlistNotified(ctx context.Context, id int64) error
 	GetEnabledWatchlists(ctx context.Context) ([]Watchlist, error)
 }

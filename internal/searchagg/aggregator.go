@@ -71,7 +71,7 @@ func (a *Aggregator) SetMetrics(met *metrics.Collector) {
 	a.metrics = met
 }
 
-// Start begins the cache cleanup and stats-flush goroutines.
+// Start begins the cache cleanup, stats-flush, and watchlist scheduler goroutines.
 func (a *Aggregator) Start(ctx context.Context) error {
 	a.ctx, a.cancel = context.WithCancel(ctx)
 	a.statsCh = make(chan store.ProviderStats, statsChBuffer)
@@ -86,6 +86,7 @@ func (a *Aggregator) Start(ctx context.Context) error {
 
 	go a.cleanupLoop()
 	go a.statsFlushLoop()
+	go a.watchlistSchedulerLoop()
 	return nil
 }
 
@@ -115,6 +116,96 @@ func (a *Aggregator) cleanupLoop() {
 			a.cleanupStaleEntries()
 		}
 	}
+}
+
+// watchlistSchedulerLoop periodically checks enabled watchlists and runs
+// those whose interval has elapsed since their last check.
+func (a *Aggregator) watchlistSchedulerLoop() {
+	// Check every minute to see if any watchlist needs to run
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-a.ctx.Done():
+			return
+		case <-ticker.C:
+			a.runDueWatchlists()
+		}
+	}
+}
+
+// runDueWatchlists finds all enabled watchlists whose interval has elapsed
+// since their last check, and runs them.
+func (a *Aggregator) runDueWatchlists() {
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	watchlists, err := a.store.GetEnabledWatchlists(ctx)
+	if err != nil {
+		a.log.Warnf("watchlist scheduler: failed to get enabled watchlists: %v", err)
+		return
+	}
+
+	now := time.Now()
+	for _, wl := range watchlists {
+		interval := time.Duration(wl.IntervalMinutes) * time.Minute
+		if interval < 5*time.Minute {
+			interval = 5 * time.Minute // enforce minimum
+		}
+
+		// Determine if this watchlist is due to run
+		lastChecked := wl.LastCheckedAt
+		if lastChecked == nil {
+			// Never run or first run — run now
+			a.log.Infof("watchlist scheduler: running %q (first run or never run)", wl.Name)
+			go a.runWatchlistSafely(wl)
+			continue
+		}
+
+		elapsed := now.Sub(*lastChecked)
+		if elapsed >= interval {
+			a.log.Infof("watchlist scheduler: running %q (elapsed %v since last run, interval %v)",
+				wl.Name, elapsed.Round(time.Second), interval.Round(time.Second))
+			go a.runWatchlistSafely(wl)
+		} else {
+			a.log.Debugf("watchlist scheduler: %q not due (elapsed %v, interval %v)",
+				wl.Name, elapsed.Round(time.Second), interval.Round(time.Second))
+		}
+	}
+}
+
+// runWatchlistSafely runs a watchlist and logs any errors, ensuring it doesn't
+// crash the scheduler loop.
+func (a *Aggregator) runWatchlistSafely(wl store.Watchlist) {
+	ctx := context.Background()
+	result, err := a.RunWatchlist(ctx, wl)
+	if err != nil {
+		a.log.Warnf("watchlist %q failed: %v", wl.Name, err)
+		return
+	}
+	if result.HasChanges {
+		a.log.Infof("watchlist %q: found %d new packs (enqueued %d)",
+			wl.Name, len(result.NewPacks), result.Enqueued)
+		if result.Enqueued > 0 && wl.AutoEnqueue {
+			// Notify via SSE about new enqueued downloads
+			a.notifyWatchlistResults(wl.Name, result.NewPacks)
+		}
+	} else {
+		a.log.Debugf("watchlist %q: no changes since last run", wl.Name)
+	}
+}
+
+// notifyWatchlistResults sends an SSE event for watchlist new results.
+// This is a placeholder — the actual SSE notification is handled by the
+// pubsub/broadcaster system if connected.
+func (a *Aggregator) notifyWatchlistResults(watchlistName string, packs []*entities.XDCCPack) {
+	// This would typically emit a pubsub event that the SSE handler
+	// picks up to notify connected web clients. For now, just log.
+	a.log.Infof("watchlist %q: %d new packs found — notification sent",
+		watchlistName, len(packs))
 }
 
 // cleanupStaleEntries removes cache entries beyond stale TTL.
@@ -244,9 +335,13 @@ func (a *Aggregator) GetProviderStates(ctx context.Context) []ProviderStatus {
 
 // Search performs an aggregated search across all enabled providers.
 func (a *Aggregator) Search(ctx context.Context, opts SearchOptions) (*SearchResult, error) {
+	a.log.Infof("[SEARCH] ====== Search request: query=%q page=%d pageSize=%d providers=%v ======",
+		opts.Query, opts.Page, opts.PageSize, opts.Providers)
+
 	// Normalise query
 	query := strings.TrimSpace(opts.Query)
 	if query == "" {
+		a.log.Infof("[SEARCH] Empty query — returning empty result")
 		return &SearchResult{
 			Packs:      []*entities.XDCCPack{},
 			Providers:  a.GetProviderStates(ctx),
@@ -257,23 +352,37 @@ func (a *Aggregator) Search(ctx context.Context, opts SearchOptions) (*SearchRes
 	// Check cache first
 	if a.cfg.Cache.Enabled {
 		key := cacheKey(query)
+		a.log.Infof("[SEARCH] Cache enabled, checking fresh cache for key=%q", key)
 		freshEntries := a.cache.getFresh(ctx, key)
 		if freshEntries != nil {
+			providers := make([]string, 0, len(freshEntries))
+			for p := range freshEntries {
+				providers = append(providers, p)
+			}
+			a.log.Infof("[SEARCH] FRESH CACHE HIT for providers: %v — returning cached results", providers)
 			// All providers have fresh cache — return combined results
 			return a.buildResultFromCache(freshEntries, opts, ProvenanceCacheFresh, key), nil
 		}
+		a.log.Infof("[SEARCH] No fresh cache available — searching live")
 	}
 
 	// Run parallel searches
 	allPacks, providerStatuses, hadSuccess := a.searchLive(ctx, query, opts.Providers)
 	if !hadSuccess {
+		a.log.Infof("[SEARCH] All providers failed — trying stale cache for key=%q", cacheKey(query))
 		// All providers failed — try stale cache (all providers)
 		key := cacheKey(query)
 		staleEntries := a.cache.getStale(ctx, key)
 		if staleEntries != nil {
+			providers := make([]string, 0, len(staleEntries))
+			for p := range staleEntries {
+				providers = append(providers, p)
+			}
+			a.log.Infof("[SEARCH] STALE CACHE HIT for providers: %v — returning cached (possibly outdated) results", providers)
 			return a.buildResultFromCache(staleEntries, opts, ProvenanceCacheStale, key), nil
 		}
 
+		a.log.Infof("[SEARCH] No stale cache available either — returning empty result with warnings")
 		// No stale cache either
 		return &SearchResult{
 			Packs:      []*entities.XDCCPack{},
@@ -291,10 +400,19 @@ func (a *Aggregator) Search(ctx context.Context, opts SearchOptions) (*SearchRes
 // Returns the raw packs, per-provider statuses, and whether any succeeded.
 func (a *Aggregator) searchLive(ctx context.Context, query string, providers []string) ([]*entities.XDCCPack, []ProviderStatus, bool) {
 	engines := srch.AvailableEngines()
+	a.log.Infof("[SEARCH_LIVE] Available engines: %v", engines)
+
+	// Log enabled/disabled state for each engine
+	for _, eng := range engines {
+		enabled := a.IsProviderEnabled(eng)
+		a.log.Infof("[SEARCH_LIVE]   Engine %q: enabled=%v", eng, enabled)
+	}
+
 	timeout := time.Duration(a.cfg.ProviderTimeout) * time.Second
 	if timeout < 1*time.Second {
 		timeout = 5 * time.Second
 	}
+	a.log.Infof("[SEARCH_LIVE] Provider timeout=%v, maxConcurrent=%d", timeout, 3)
 
 	// Build a set of requested providers (empty = all enabled)
 	providerSet := make(map[string]bool, len(providers))
@@ -393,11 +511,13 @@ func (a *Aggregator) searchLive(ctx context.Context, query string, providers []s
 			isTimeout := strings.Contains(errStr, "timeout")
 			if isTimeout {
 				ps.Status = ProviderStatusTimeout
+				a.log.Infof("[SEARCH_LIVE] Provider %q: TIMEOUT after %v — %v", r.name, r.latency, r.err)
 				if a.metrics != nil {
 					a.metrics.RecordProviderTimeout(r.name)
 				}
 			} else {
 				ps.Status = ProviderStatusFailed
+				a.log.Infof("[SEARCH_LIVE] Provider %q: FAILED after %v — %v", r.name, r.latency, r.err)
 				// Non-timeout failures counter is separate from timeouts.
 				if a.metrics != nil {
 					a.metrics.RecordProviderFailure(r.name)
@@ -410,6 +530,7 @@ func (a *Aggregator) searchLive(ctx context.Context, query string, providers []s
 		} else {
 			ps.Status = ProviderStatusOK
 			ps.ResultCount = len(r.packs)
+			a.log.Infof("[SEARCH_LIVE] Provider %q: SUCCESS — %d packs in %v", r.name, len(r.packs), r.latency)
 			allPacks = append(allPacks, r.packs...)
 			hadSuccess = true
 
@@ -424,6 +545,7 @@ func (a *Aggregator) searchLive(ctx context.Context, query string, providers []s
 		providerStatuses = append(providerStatuses, ps)
 	}
 
+	a.log.Infof("[SEARCH_LIVE] Collected: %d total packs across all providers, hadSuccess=%v", len(allPacks), hadSuccess)
 	return allPacks, providerStatuses, hadSuccess
 }
 

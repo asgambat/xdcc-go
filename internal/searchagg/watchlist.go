@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -48,19 +49,39 @@ type WatchlistRunResult struct {
 // results with the previous run's fingerprint, and optionally auto-enqueues
 // new matches.
 func (a *Aggregator) RunWatchlist(ctx context.Context, w store.Watchlist) (*WatchlistRunResult, error) {
+	a.log.Infof("[WATCHLIST_RUN] ====== Starting run for watchlist %q (id=%d) ======", w.Name, w.ID)
+	a.log.Infof("[WATCHLIST_RUN] Watchlist config: query=%q, interval=%dm, enabled=%v, auto_enqueue=%v",
+		w.Query, w.IntervalMinutes, w.Enabled, w.AutoEnqueue)
+	a.log.Infof("[WATCHLIST_RUN] Previous fingerprint: %q", w.LastMatchFingerprint)
+
 	opts := SearchOptions{
 		Query:    w.Query,
 		PageSize: 500, // get many results for fingerprint comparison
 	}
 
+	a.log.Infof("[WATCHLIST_RUN] Calling Aggregator.Search with PageSize=%d", opts.PageSize)
 	result, err := a.Search(ctx, opts)
 	if err != nil {
+		a.log.Infof("[WATCHLIST_RUN] Search FAILED: %v", err)
 		return nil, fmt.Errorf("watchlist search failed: %w", err)
+	}
+
+	a.log.Infof("[WATCHLIST_RUN] Search returned %d packs total (provenance: %s)", len(result.Packs), result.Provenance)
+	for i, p := range result.Packs {
+		a.log.Infof("[WATCHLIST_RUN]   Pack %d: bot=%q filename=%q size=%d pack#=%d",
+			i+1, p.Bot, p.Filename, p.Size, p.PackNumber)
+	}
+
+	// Log provider statuses
+	for _, ps := range result.Providers {
+		a.log.Infof("[WATCHLIST_RUN] Provider %q: status=%s results=%d latency=%dms err=%q",
+			ps.Name, ps.Status, ps.ResultCount, ps.LatencyMs, ps.Error)
 	}
 
 	// Build fingerprint from all results
 	fingerprint := computeFingerprint(result.Packs)
 	prevFingerprint := w.LastMatchFingerprint
+	a.log.Infof("[WATCHLIST_RUN] Fingerprint: previous=%q new=%q", prevFingerprint, fingerprint)
 
 	wr := &WatchlistRunResult{
 		WatchlistID:         w.ID,
@@ -72,31 +93,51 @@ func (a *Aggregator) RunWatchlist(ctx context.Context, w store.Watchlist) (*Watc
 
 	// Determine new packs
 	if prevFingerprint == "" {
-		// First run — no previous data to compare
+		// First run — no previous data to compare, but still filter against download history
 		wr.HasChanges = true
-		wr.NewPacks = result.Packs
+		wr.NewPacks = filterNewPacks(ctx, a.store, result.Packs)
+		a.log.Infof("[WATCHLIST_RUN] First run — %d packs after deduplication against download history", len(wr.NewPacks))
 	} else if fingerprint != prevFingerprint {
 		wr.HasChanges = true
-		// Find packs that are new (not in previous fingerprint)
-		wr.NewPacks = findNewPacks(result.Packs, prevFingerprint)
+		a.log.Infof("[WATCHLIST_RUN] Fingerprint changed (was %q → %q) — deduplicating against download history (%d packs)",
+			prevFingerprint, fingerprint, len(result.Packs))
+		// Filter packs against download history to find truly new ones
+		wr.NewPacks = filterNewPacks(ctx, a.store, result.Packs)
+	} else {
+		a.log.Infof("[WATCHLIST_RUN] Fingerprint unchanged (%q) — no new packs, HasChanges stays false", fingerprint)
 	}
+
+	a.log.Infof("[WATCHLIST_RUN] HasChanges=%v | NewPacks count=%d | AllPacks count=%d",
+		wr.HasChanges, len(wr.NewPacks), len(wr.AllPacks))
 
 	// Auto-enqueue new packs
 	if wr.HasChanges && w.AutoEnqueue && len(wr.NewPacks) > 0 {
+		a.log.Infof("[WATCHLIST_RUN] Auto-enqueue enabled, enqueueing %d new packs", len(wr.NewPacks))
 		enqueued, err := a.enqueueNewPacks(ctx, wr.NewPacks)
 		if err != nil {
 			a.log.Warnf("watchlist %d: auto-enqueue error: %v", w.ID, err)
 		}
 		wr.Enqueued = enqueued
+		a.log.Infof("[WATCHLIST_RUN] Auto-enqueued %d packs", enqueued)
+	} else {
+		a.log.Infof("[WATCHLIST_RUN] Auto-enqueue skipped: hasChanges=%v autoEnqueue=%v newPacks=%d",
+			wr.HasChanges, w.AutoEnqueue, len(wr.NewPacks))
 	}
 
+	// Persist last run results as JSON
+	resultsJSON := serializeWatchlistResults(wr.NewPacks)
+	a.log.Infof("[WATCHLIST_RUN] Serialized %d new packs to results JSON (%d bytes)", len(wr.NewPacks), len(resultsJSON))
+
 	// Update the watchlist in the store
-	_ = a.store.SetWatchlistChecked(ctx, w.ID, fingerprint)
+	a.log.Infof("[WATCHLIST_RUN] Updating watchlist store: SetWatchlistChecked(id=%d, fingerprint=%q)", w.ID, fingerprint)
+	_ = a.store.SetWatchlistChecked(ctx, w.ID, fingerprint, resultsJSON)
 	if wr.HasChanges && !w.AutoEnqueue {
 		// Mark as needing notification
+		a.log.Infof("[WATCHLIST_RUN] Marking watchlist as needing notification")
 		_ = a.store.SetWatchlistNotified(ctx, w.ID)
 	}
 
+	a.log.Infof("[WATCHLIST_RUN] ====== Run complete for %q — %d new packs ======", w.Name, len(wr.NewPacks))
 	return wr, nil
 }
 
@@ -152,28 +193,85 @@ func computeFingerprint(packs []*entities.XDCCPack) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// findNewPacks identifies packs that are new compared to the previous fingerprint.
-// Since we can't reverse a hash, we compare by building a set of the previous
-// entries (bot|pack_number|filename|server) — but we don't have the previous packs.
-// Instead, we compute the fingerprint of the previous results and compare.
-// For new pack detection, we look at packs that are different from the previous
-// fingerprint by doing a coarse comparison: if the fingerprint changed, all
-// packs with a different (bot, pack_number, server) combination are considered "new".
-//
-// A more precise approach would store the previous result set, but for now
-// we flag everything as new when the fingerprint changes.
-func findNewPacks(packs []*entities.XDCCPack, prevFingerprint string) []*entities.XDCCPack {
-	// Compute fingerprint of current packs
-	currentFp := computeFingerprint(packs)
-	if currentFp == prevFingerprint {
+// ---------------------------------------------------------------------------
+// Watchlist result persistence
+// ---------------------------------------------------------------------------
+
+// WatchlistResultItem is a lightweight representation of a watchlist result pack
+// for storage and display. It contains only the fields needed to display results
+// and enqueue downloads.
+type WatchlistResultItem struct {
+	Bot           string `json:"bot"`
+	PackNumber    int    `json:"pack_number"`
+	PackMessage   string `json:"pack_message"`
+	ServerAddress string `json:"server_address"`
+	Channel       string `json:"channel,omitempty"`
+	Filename      string `json:"filename"`
+	Size          int64  `json:"size"`
+}
+
+// serializeWatchlistResults converts packs to a JSON string for persistence.
+// Returns "[]" if there are no packs.
+func serializeWatchlistResults(packs []*entities.XDCCPack) string {
+	if len(packs) == 0 {
+		return "[]"
+	}
+	items := make([]WatchlistResultItem, 0, len(packs))
+	for _, p := range packs {
+		item := WatchlistResultItem{
+			Bot:           p.Bot,
+			PackNumber:    p.PackNumber,
+			PackMessage:   fmt.Sprintf("xdcc send #%d", p.PackNumber),
+			ServerAddress: p.Server.Address,
+			Channel:       p.Channel,
+			Filename:      p.Filename,
+			Size:          p.Size,
+		}
+		items = append(items, item)
+	}
+	b, err := json.Marshal(items)
+	if err != nil {
+		return "[]"
+	}
+	return string(b)
+}
+
+// filterNewPacks filters packs by deduplicating against already-downloaded (or in-progress) filenames.
+// It queries the store for filenames that either exist in download history (completed/failed/skipped)
+// or are currently in the queue (queued/downloading/paused). Only packs with filenames NOT
+// found in any of those states are returned as "new".
+func filterNewPacks(ctx context.Context, st store.DownloadStore, packs []*entities.XDCCPack) []*entities.XDCCPack {
+	if len(packs) == 0 {
 		return nil
 	}
 
-	// Since we can't reverse the hash, return all packs when fingerprint changed.
-	// The caller can decide based on WatchlistRunResult.HasChanges.
-	// For a more refined implementation, we'd store the previous pack list or
-	// use a bloom filter. For now, return all.
-	return packs
+	// Collect unique filenames
+	filenames := make([]string, 0, len(packs))
+	seen := make(map[string]struct{}, len(packs))
+	for _, p := range packs {
+		fn := strings.ToLower(p.Filename)
+		if _, ok := seen[fn]; !ok {
+			seen[fn] = struct{}{}
+			filenames = append(filenames, fn)
+		}
+	}
+
+	// Check which filenames already exist in the store
+	existing, err := st.FilenamesExist(ctx, filenames)
+	if err != nil {
+		// If the DB query fails, fall back to returning all packs (safe default)
+		return packs
+	}
+
+	// Filter: keep packs whose filename is NOT already downloaded/in-queue
+	var newPacks []*entities.XDCCPack
+	for _, p := range packs {
+		if !existing[strings.ToLower(p.Filename)] {
+			newPacks = append(newPacks, p)
+		}
+	}
+
+	return newPacks
 }
 
 // ---------------------------------------------------------------------------

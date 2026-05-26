@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -617,6 +618,66 @@ func (s *SQLiteStore) FindDuplicateDownload(ctx context.Context, bot, serverAddr
 	return scanDownload(row)
 }
 
+func (s *SQLiteStore) FilenamesExist(ctx context.Context, filenames []string) (map[string]bool, error) {
+	if len(filenames) == 0 {
+		return map[string]bool{}, nil
+	}
+
+	// Deduplicate input filenames
+	unique := make([]string, 0, len(filenames))
+	seen := make(map[string]struct{}, len(filenames))
+	for _, fn := range filenames {
+		if _, ok := seen[fn]; !ok {
+			seen[fn] = struct{}{}
+			unique = append(unique, fn)
+		}
+	}
+
+	// Build placeholders for IN clause
+	placeholders := make([]string, len(unique))
+	args := make([]any, len(unique))
+	for i, fn := range unique {
+		placeholders[i] = "?"
+		args[i] = fn
+	}
+
+	// Check both history (completed/failed/skipped) and active (queued/downloading/paused) downloads.
+	// Use LOWER() for case-insensitive comparison — consistent with computeFingerprint.
+	lowerPlaceholders := make([]string, len(unique))
+	for i := range unique {
+		lowerPlaceholders[i] = "LOWER(?) = LOWER(filename)"
+	}
+	//nolint:gosec // lowerPlaceholders are hardcoded literals, not user input
+	query := fmt.Sprintf(
+		`SELECT DISTINCT LOWER(filename) FROM downloads
+		 WHERE (%s)
+		   AND status IN ('completed', 'failed', 'skipped_existing', 'queued', 'downloading', 'paused')`,
+		strings.Join(lowerPlaceholders, " OR "),
+	)
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("checking existing filenames: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[string]bool, len(unique))
+	// Default all to false (not existing)
+	for _, fn := range unique {
+		result[fn] = false
+	}
+
+	for rows.Next() {
+		var fn string
+		if err := rows.Scan(&fn); err != nil {
+			return nil, fmt.Errorf("scanning existing filename: %w", err)
+		}
+		result[fn] = true
+	}
+
+	return result, rows.Err()
+}
+
 func (s *SQLiteStore) GetDownloadByBotMessage(ctx context.Context, bot, packMessage string) (*DownloadRecord, error) {
 	row := s.db.QueryRowContext(ctx,
 		`SELECT id, pack_message, bot, server_address, channel, filename, file_size,
@@ -820,10 +881,18 @@ func (s *SQLiteStore) SetDefaultSearchPreset(ctx context.Context, id int64) erro
 // =========================================================================
 
 func (s *SQLiteStore) AddWatchlist(ctx context.Context, w Watchlist) (int64, error) {
+	interval := w.IntervalMinutes
+	if interval < 5 {
+		interval = 60 // default to 60 minutes, minimum 5
+	}
+	resultsStr := ""
+	if len(w.LastResultsJSON) > 0 {
+		resultsStr = string(w.LastResultsJSON)
+	}
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO watchlists (name, query, filters_json, enabled, auto_enqueue)
-		 VALUES (?, ?, ?, ?, ?)`,
-		w.Name, w.Query, w.FiltersJSON, boolToInt(w.Enabled), boolToInt(w.AutoEnqueue),
+		`INSERT INTO watchlists (name, query, interval_minutes, filters_json, enabled, auto_enqueue, last_results_json)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		w.Name, w.Query, interval, w.FiltersJSON, boolToInt(w.Enabled), boolToInt(w.AutoEnqueue), resultsStr,
 	)
 	if err != nil {
 		return 0, fmt.Errorf("adding watchlist: %w", err)
@@ -833,8 +902,8 @@ func (s *SQLiteStore) AddWatchlist(ctx context.Context, w Watchlist) (int64, err
 
 func (s *SQLiteStore) GetWatchlist(ctx context.Context, id int64) (*Watchlist, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT id, name, query, filters_json, enabled, auto_enqueue,
-		        last_checked_at, last_match_fingerprint, last_notified_at,
+		`SELECT id, name, query, interval_minutes, filters_json, enabled, auto_enqueue,
+		        last_checked_at, last_match_fingerprint, last_notified_at, last_results_json,
 		        created_at, updated_at
 		 FROM watchlists WHERE id = ?`, id,
 	)
@@ -843,8 +912,8 @@ func (s *SQLiteStore) GetWatchlist(ctx context.Context, id int64) (*Watchlist, e
 
 func (s *SQLiteStore) ListWatchlists(ctx context.Context) ([]Watchlist, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, name, query, filters_json, enabled, auto_enqueue,
-		        last_checked_at, last_match_fingerprint, last_notified_at,
+		`SELECT id, name, query, interval_minutes, filters_json, enabled, auto_enqueue,
+		        last_checked_at, last_match_fingerprint, last_notified_at, last_results_json,
 		        created_at, updated_at
 		 FROM watchlists ORDER BY name ASC`,
 	)
@@ -868,9 +937,13 @@ func (s *SQLiteStore) ListWatchlists(ctx context.Context) ([]Watchlist, error) {
 }
 
 func (s *SQLiteStore) UpdateWatchlist(ctx context.Context, w Watchlist) error {
+	interval := w.IntervalMinutes
+	if interval < 5 {
+		interval = 60
+	}
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE watchlists SET name=?, query=?, filters_json=?, enabled=?, auto_enqueue=?, updated_at=datetime('now') WHERE id=?`,
-		w.Name, w.Query, w.FiltersJSON, boolToInt(w.Enabled), boolToInt(w.AutoEnqueue), w.ID,
+		`UPDATE watchlists SET name=?, query=?, interval_minutes=?, filters_json=?, enabled=?, auto_enqueue=?, updated_at=datetime('now') WHERE id=?`,
+		w.Name, w.Query, interval, w.FiltersJSON, boolToInt(w.Enabled), boolToInt(w.AutoEnqueue), w.ID,
 	)
 	return err
 }
@@ -880,10 +953,10 @@ func (s *SQLiteStore) DeleteWatchlist(ctx context.Context, id int64) error {
 	return err
 }
 
-func (s *SQLiteStore) SetWatchlistChecked(ctx context.Context, id int64, fingerprint string) error {
+func (s *SQLiteStore) SetWatchlistChecked(ctx context.Context, id int64, fingerprint, resultsJSON string) error {
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE watchlists SET last_checked_at=datetime('now'), last_match_fingerprint=? WHERE id=?`,
-		fingerprint, id,
+		`UPDATE watchlists SET last_checked_at=datetime('now'), last_match_fingerprint=?, last_results_json=? WHERE id=?`,
+		fingerprint, resultsJSON, id,
 	)
 	return err
 }
@@ -897,8 +970,8 @@ func (s *SQLiteStore) SetWatchlistNotified(ctx context.Context, id int64) error 
 
 func (s *SQLiteStore) GetEnabledWatchlists(ctx context.Context) ([]Watchlist, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, name, query, filters_json, enabled, auto_enqueue,
-		        last_checked_at, last_match_fingerprint, last_notified_at,
+		`SELECT id, name, query, interval_minutes, filters_json, enabled, auto_enqueue,
+		        last_checked_at, last_match_fingerprint, last_notified_at, last_results_json,
 		        created_at, updated_at
 		 FROM watchlists WHERE enabled = 1 ORDER BY name ASC`,
 	)
@@ -1137,14 +1210,23 @@ func scanSearchPresetFromRows(rows *sql.Rows) (*SearchPreset, error) {
 func scanWatchlist(row interface{ Scan(...any) error }) (*Watchlist, error) {
 	var w Watchlist
 	var lastChecked, lastNotified, createdAtStr, updatedAtStr sql.NullString
-	err := row.Scan(&w.ID, &w.Name, &w.Query, &w.FiltersJSON, &w.Enabled,
+	var lastResultsJSON sql.NullString
+	var intervalMinutes int
+	err := row.Scan(&w.ID, &w.Name, &w.Query, &intervalMinutes, &w.FiltersJSON, &w.Enabled,
 		&w.AutoEnqueue, &lastChecked, &w.LastMatchFingerprint, &lastNotified,
-		&createdAtStr, &updatedAtStr)
+		&lastResultsJSON, &createdAtStr, &updatedAtStr)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("scanning watchlist: %w", err)
+	}
+	w.IntervalMinutes = intervalMinutes
+	if w.IntervalMinutes < 5 {
+		w.IntervalMinutes = 60
+	}
+	if lastResultsJSON.Valid {
+		w.LastResultsJSON = json.RawMessage(lastResultsJSON.String)
 	}
 	if createdAtStr.Valid {
 		w.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAtStr.String)
@@ -1167,13 +1249,22 @@ func scanWatchlist(row interface{ Scan(...any) error }) (*Watchlist, error) {
 	return &w, nil
 }
 
-func scanWatchlistFromRows(rows interface{ Scan(...any) error }) (*Watchlist, error) {
+func scanWatchlistFromRows(rows *sql.Rows) (*Watchlist, error) {
 	var w Watchlist
 	var lastChecked, lastNotified, createdAtStr, updatedAtStr sql.NullString
-	if err := rows.Scan(&w.ID, &w.Name, &w.Query, &w.FiltersJSON, &w.Enabled,
+	var lastResultsJSON sql.NullString
+	var intervalMinutes int
+	if err := rows.Scan(&w.ID, &w.Name, &w.Query, &intervalMinutes, &w.FiltersJSON, &w.Enabled,
 		&w.AutoEnqueue, &lastChecked, &w.LastMatchFingerprint, &lastNotified,
-		&createdAtStr, &updatedAtStr); err != nil {
+		&lastResultsJSON, &createdAtStr, &updatedAtStr); err != nil {
 		return nil, fmt.Errorf("scanning watchlist: %w", err)
+	}
+	w.IntervalMinutes = intervalMinutes
+	if w.IntervalMinutes < 5 {
+		w.IntervalMinutes = 60
+	}
+	if lastResultsJSON.Valid {
+		w.LastResultsJSON = json.RawMessage(lastResultsJSON.String)
 	}
 	if lastChecked.Valid {
 		t, err := time.Parse("2006-01-02 15:04:05", lastChecked.String)

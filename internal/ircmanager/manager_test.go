@@ -267,6 +267,14 @@ func (m *mockStore) SetDownloadPriority(ctx context.Context, id int64, priority 
 func (m *mockStore) BulkActionDownloads(ctx context.Context, ids []int64, action string) (map[int64]string, error) {
 	return nil, nil
 }
+func (m *mockStore) FilenamesExist(ctx context.Context, filenames []string) (map[string]bool, error) {
+	result := make(map[string]bool, len(filenames))
+	for _, fn := range filenames {
+		result[fn] = false
+	}
+	return result, nil
+}
+
 func (m *mockStore) FindDuplicateDownload(ctx context.Context, bot string, serverAddress string, packNumber int) (*store.DownloadRecord, error) {
 	return nil, nil
 }
@@ -306,7 +314,7 @@ func (m *mockStore) GetTotalDownloadedBytes(ctx context.Context) (int64, error) 
 func (m *mockStore) ListWatchlists(ctx context.Context) ([]store.Watchlist, error) { return nil, nil }
 func (m *mockStore) UpdateWatchlist(ctx context.Context, w store.Watchlist) error  { return nil }
 func (m *mockStore) DeleteWatchlist(ctx context.Context, id int64) error           { return nil }
-func (m *mockStore) SetWatchlistChecked(ctx context.Context, id int64, query string) error {
+func (m *mockStore) SetWatchlistChecked(ctx context.Context, id int64, query string, resultsJSON string) error {
 	return nil
 }
 func (m *mockStore) SetWatchlistNotified(ctx context.Context, id int64) error { return nil }

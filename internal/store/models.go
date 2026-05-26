@@ -1,6 +1,9 @@
 package store
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // ---------------------------------------------------------------------------
 // IRC Server
@@ -100,17 +103,19 @@ type SearchPreset struct {
 
 // Watchlist represents a saved watchlist for periodic search and notification.
 type Watchlist struct {
-	ID                   int64      `json:"id"`
-	Name                 string     `json:"name"`
-	Query                string     `json:"query"`
-	FiltersJSON          string     `json:"filters_json,omitempty"`
-	Enabled              bool       `json:"enabled"`
-	AutoEnqueue          bool       `json:"auto_enqueue"`
-	LastCheckedAt        *time.Time `json:"last_checked_at,omitempty"`
-	LastMatchFingerprint string     `json:"last_match_fingerprint,omitempty"`
-	LastNotifiedAt       *time.Time `json:"last_notified_at,omitempty"`
-	CreatedAt            time.Time  `json:"created_at"`
-	UpdatedAt            time.Time  `json:"updated_at"`
+	ID                   int64           `json:"id"`
+	Name                 string          `json:"name"`
+	Query                string          `json:"query"`
+	IntervalMinutes      int             `json:"interval_minutes"`
+	FiltersJSON          string          `json:"filters_json,omitempty"`
+	Enabled              bool            `json:"enabled"`
+	AutoEnqueue          bool            `json:"auto_enqueue"`
+	LastCheckedAt        *time.Time      `json:"last_checked_at,omitempty"`
+	LastMatchFingerprint string          `json:"last_match_fingerprint,omitempty"`
+	LastResultsJSON      json.RawMessage `json:"last_results,omitempty"`
+	LastNotifiedAt       *time.Time      `json:"last_notified_at,omitempty"`
+	CreatedAt            time.Time       `json:"created_at"`
+	UpdatedAt            time.Time       `json:"updated_at"`
 }
 
 // ---------------------------------------------------------------------------

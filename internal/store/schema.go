@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -14,7 +15,7 @@ import (
 // Schema version management
 // ---------------------------------------------------------------------------
 
-const currentSchemaVersion = 3
+const currentSchemaVersion = 5
 
 // migration represents a single schema migration step.
 type migration struct {
@@ -39,6 +40,16 @@ var migrations = []migration{
 		version:     3,
 		description: "Add composite indexes: downloads(status,channel), provider_stats(provider,window_start)",
 		up:          migrationV3Indexes,
+	},
+	{
+		version:     4,
+		description: "Add interval_minutes column to watchlists table",
+		up:          `ALTER TABLE watchlists ADD COLUMN interval_minutes INTEGER NOT NULL DEFAULT 60;`,
+	},
+	{
+		version:     5,
+		description: "Add last_results_json column to watchlists for result persistence",
+		up:          `ALTER TABLE watchlists ADD COLUMN last_results_json TEXT DEFAULT '';`,
 	},
 }
 
@@ -149,6 +160,12 @@ CREATE INDEX IF NOT EXISTS idx_downloads_status_channel ON downloads(status, cha
 CREATE INDEX IF NOT EXISTS idx_provider_stats_provider_window ON provider_stats(provider, window_start);
 `
 
+// backupPrefix returns the base path used to match backup files for cleanup.
+// All backup files start with this prefix.
+func backupPrefix(dbPath string) string {
+	return dbPath + ".backup."
+}
+
 // ---------------------------------------------------------------------------
 // Migrations runner
 // ---------------------------------------------------------------------------
@@ -199,11 +216,13 @@ func runMigrations(ctx context.Context, db *sql.DB, dbPath string) error {
 			_ = tx.Rollback()
 			return fmt.Errorf("recording migration v%d: %w", m.version, err)
 		}
-
 		if err := tx.Commit(); err != nil {
 			return fmt.Errorf("committing migration v%d: %w", m.version, err)
 		}
 	}
+
+	// Cleanup old backups — keep only the 3 most recent
+	cleanupOldBackups(dbPath, 3)
 
 	return nil
 }
@@ -221,6 +240,57 @@ func getCurrentVersion(db *sql.DB) (int, error) {
 // CurrentSchemaVersion returns the highest applied schema version.
 func (s *SQLiteStore) CurrentSchemaVersion(ctx context.Context) (int, error) {
 	return getCurrentVersion(s.db)
+}
+
+// cleanupOldBackups removes all but the most recent `maxCount` backup files
+// for the given database path. Backup files match the pattern `{dbPath}.backup.*`.
+// It runs silently — errors are logged but not returned, as cleanup is best-effort.
+func cleanupOldBackups(dbPath string, maxCount int) {
+	if maxCount < 1 {
+		return
+	}
+	prefix := backupPrefix(dbPath)
+	dir := filepath.Dir(dbPath)
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+
+	// Collect matching backup files with their modification times
+	type backupFile struct {
+		path string
+		mod  time.Time
+	}
+	var backups []backupFile
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		fullPath := filepath.Join(dir, e.Name())
+		if strings.HasPrefix(fullPath, prefix) {
+			info, err := e.Info()
+			if err != nil {
+				continue
+			}
+			backups = append(backups, backupFile{path: fullPath, mod: info.ModTime()})
+		}
+	}
+
+	if len(backups) <= maxCount {
+		return
+	}
+
+	// Sort by modification time, most recent first
+	//nolint:govet // shadowing is intentional for this local sort
+	sort.Slice(backups, func(i, j int) bool {
+		return backups[i].mod.After(backups[j].mod)
+	})
+
+	// Delete older backups beyond maxCount
+	for _, b := range backups[maxCount:] {
+		_ = os.Remove(b.path)
+	}
 }
 
 // ---------------------------------------------------------------------------

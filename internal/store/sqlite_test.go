@@ -952,7 +952,7 @@ func TestSetWatchlistChecked(t *testing.T) {
 	defer closeStore(t, s)
 
 	id, _ := s.AddWatchlist(context.Background(), Watchlist{Name: "Check", Query: "check"})
-	err := s.SetWatchlistChecked(context.Background(), id, "abc123")
+	err := s.SetWatchlistChecked(context.Background(), id, "abc123", `[{"filename":"test.mkv","size":1000}]`)
 	if err != nil {
 		t.Fatalf("SetWatchlistChecked: %v", err)
 	}
@@ -963,6 +963,9 @@ func TestSetWatchlistChecked(t *testing.T) {
 	}
 	if w.LastCheckedAt == nil {
 		t.Errorf("expected last_checked_at to be set")
+	}
+	if string(w.LastResultsJSON) != `[{"filename":"test.mkv","size":1000}]` {
+		t.Errorf("expected results JSON to be stored, got %s", string(w.LastResultsJSON))
 	}
 }
 
