@@ -21,6 +21,7 @@ import (
 	"xdcc-go/internal/ircmanager"
 	"xdcc-go/internal/logging"
 	"xdcc-go/internal/metrics"
+	"xdcc-go/internal/notifier"
 	"xdcc-go/internal/queue"
 	"xdcc-go/internal/search"
 	"xdcc-go/internal/searchagg"
@@ -178,9 +179,16 @@ See config.yaml in the project root for all available settings.`,
 				logger.Infof("queue manager started (max_parallel=%d, persistent_irc=enabled)", cfg.Download.MaxParallelTotal)
 			}
 
+			// Start notification manager for external webhooks (before aggregator, to wire watchlist notifications)
+			notifManager := notifier.NewManager(cfg.Notifications, logger)
+			if len(notifManager.Notifiers()) == 0 {
+				logger.Infof("notification manager: no notifiers configured")
+			}
+
 			// Start search aggregator
 			searchAgg := searchagg.New(st, &cfg.Search, logger)
 			searchAgg.SetMetrics(met)
+			searchAgg.SetOnWatchlistResults(notifManager.NotifyWatchlistResults)
 			if err := searchAgg.Start(context.Background()); err != nil {
 				return fmt.Errorf("starting search aggregator: %w", err)
 			}
@@ -220,6 +228,15 @@ See config.yaml in the project root for all available settings.`,
 			defer queueMgr.Unsubscribe(queueEventCh)
 			eventWg.Add(1)
 			go eventBridge.ForwardQueueEvents(eventCtx, queueEventCh, &eventWg)
+
+			// Subscribe notification manager to queue events
+			if len(notifManager.Notifiers()) > 0 {
+				notifQueueCh := queueMgr.Subscribe()
+				defer queueMgr.Unsubscribe(notifQueueCh)
+				eventWg.Add(1)
+				go notifManager.Run(eventCtx, notifQueueCh, &eventWg)
+				logger.Infof("notification manager started (%d notifier(s))", len(notifManager.Notifiers()))
+			}
 
 			// Build REST API and wire it into the HTTP server
 			apiHandler := api.New(st, ircMgr, queueMgr, searchAgg, sseHub, logBroadcaster, cfg, logger, met)

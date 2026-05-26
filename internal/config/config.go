@@ -22,13 +22,14 @@ import (
 
 // Config holds the complete server configuration.
 type Config struct {
-	IRC      IRCConfig      `yaml:"irc"`
-	HTTP     HTTPConfig     `yaml:"http"`
-	Download DownloadConfig `yaml:"download"`
-	Search   SearchConfig   `yaml:"search"`
-	Storage  StorageConfig  `yaml:"storage"`
-	Logging  LoggingConfig  `yaml:"logging"`
-	UI       UIConfig       `yaml:"ui"`
+	IRC           IRCConfig            `yaml:"irc"`
+	HTTP          HTTPConfig           `yaml:"http"`
+	Download      DownloadConfig       `yaml:"download"`
+	Search        SearchConfig         `yaml:"search"`
+	Storage       StorageConfig        `yaml:"storage"`
+	Logging       LoggingConfig        `yaml:"logging"`
+	UI            UIConfig             `yaml:"ui"`
+	Notifications []NotificationConfig `yaml:"notifications"`
 }
 
 type IRCConfig struct {
@@ -90,6 +91,27 @@ type LoggingConfig struct {
 
 type UIConfig struct {
 	SetupCompleted bool `yaml:"setup_completed" env:"XDCC_UI_SETUP_COMPLETED"`
+}
+
+// ---------------------------------------------------------------------------
+// Notifications
+// ---------------------------------------------------------------------------
+
+// NotificationConfig configures a single external notification target.
+type NotificationConfig struct {
+	Type string `yaml:"type"`
+	// Webhook
+	WebhookEndpoint string `yaml:"webhook_endpoint"`
+	WebhookToken    string `yaml:"webhook_token"`
+	// Ntfy (https://ntfy.sh)
+	NtfyToken    string `yaml:"ntfy_token"`
+	NtfyEndpoint string `yaml:"ntfy_endpoint"`
+	// Pushover (https://pushover.net)
+	PushoverToken    string `yaml:"pushover_token"`
+	PushoverUser     string `yaml:"pushover_user"`
+	PushoverEndpoint string `yaml:"pushover_endpoint"`
+	// Event filter (empty = all events)
+	Events []string `yaml:"events"`
 }
 
 // ---------------------------------------------------------------------------

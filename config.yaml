@@ -69,3 +69,44 @@ logging:
 ui:
   # Whether the first-time setup wizard has been completed
   setup_completed: false
+
+# External notifications for download and watchlist events
+# Supported providers: webhook, ntfy, pushover
+# Available events: download_completed, download_failed, watchlist_new_results
+# If events is empty or omitted, all events trigger notifications.
+#
+# Uncomment the desired providers below to enable notifications.
+#
+# notifications:
+#
+#   ─── Webhook generico ───────────────────────────────────────────
+#   Invia POST {"data":"messaggio"} a un endpoint HTTP/HTTPS qualsiasi.
+#   Supporta Bearer token opzionale per autenticazione.
+#   Esempi di utilizzo: Telegram bot, Slack webhook, IFTTT, Zapier.
+#
+#   - type: webhook
+#     webhook_endpoint: "https://hooks.example.com/notify"
+#     webhook_token: "tk_abc123"                  # opzionale, ometti se non serve
+#     events: [download_completed, download_failed, watchlist_new_results]
+#
+#   ─── ntfy.sh (o istanza self-hosted) ────────────────────────────
+#   https://ntfy.sh — notifiche push via cellulare/desktop.
+#   Richiede un topic (gratuito) o istanza self-hosted.
+#   Il token è il Bearer token per l'autenticazione (opzionale: se omesso
+#   l'endpoint deve essere pubblico/anonymous).
+#
+#   - type: ntfy
+#     ntfy_token: "tk_abc123"                     # opzionale, ometti per topic pubblico
+#     ntfy_endpoint: "https://ntfy.sh/mio_topic"
+#     events: [download_completed, download_failed, watchlist_new_results]
+#
+#   ─── Pushover ───────────────────────────────────────────────────
+#   https://pushover.net — notifiche push su iOS/Android/desktop.
+#   Servono un Application Token e un User/Group Key.
+#   pushover_endpoint è opzionale (default: https://api.pushover.net/1/messages.json).
+#
+#   - type: pushover
+#     pushover_token: "APP_TOKEN"
+#     pushover_user: "USER_KEY"
+#     pushover_endpoint: "https://api.pushover.net/1/messages.json"  # default, puoi omettere
+#     events: [download_completed, download_failed, watchlist_new_results]

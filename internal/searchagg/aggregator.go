@@ -50,6 +50,10 @@ type Aggregator struct {
 	// to SQLite, removing DB write latency from the search hot path.
 	statsCh        chan store.ProviderStats
 	statsFlushDone chan struct{}
+
+	// onWatchlistResults is called when a watchlist finds new packs.
+	// Arguments: watchlist name, new packs count, enqueued count.
+	onWatchlistResults func(name string, newPacks, enqueued int)
 }
 
 // New creates a new search Aggregator.
@@ -69,6 +73,12 @@ func New(st store.Store, cfg *config.SearchConfig, logger *logging.Logger) *Aggr
 // timeout and request tracking.
 func (a *Aggregator) SetMetrics(met *metrics.Collector) {
 	a.metrics = met
+}
+
+// SetOnWatchlistResults sets a callback invoked when a watchlist finds new packs.
+// The callback receives (watchlistName string, newPacksCount, enqueuedCount int).
+func (a *Aggregator) SetOnWatchlistResults(fn func(name string, newPacks, enqueued int)) {
+	a.onWatchlistResults = fn
 }
 
 // Start begins the cache cleanup, stats-flush, and watchlist scheduler goroutines.
@@ -187,11 +197,19 @@ func (a *Aggregator) runWatchlistSafely(wl store.Watchlist) {
 		return
 	}
 	if result.HasChanges {
+		newPacks := len(result.NewPacks)
+		enqueued := result.Enqueued
 		a.log.Infof("watchlist %q: found %d new packs (enqueued %d)",
-			wl.Name, len(result.NewPacks), result.Enqueued)
-		if result.Enqueued > 0 && wl.AutoEnqueue {
-			// Notify via SSE about new enqueued downloads
+			wl.Name, newPacks, enqueued)
+
+		// Notify via SSE about new enqueued downloads
+		if enqueued > 0 && wl.AutoEnqueue {
 			a.notifyWatchlistResults(wl.Name, result.NewPacks)
+		}
+
+		// External notification (webhook, etc.) only when new packs are actually found
+		if a.onWatchlistResults != nil && newPacks > 0 {
+			a.onWatchlistResults(wl.Name, newPacks, enqueued)
 		}
 	} else {
 		a.log.Debugf("watchlist %q: no changes since last run", wl.Name)
