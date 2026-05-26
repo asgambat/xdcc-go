@@ -16,7 +16,9 @@ func getDiskUsage(path string) (available, total int64, err error) {
 		}
 		return int64(v)
 	}
-	available = clamp(stat.Bavail) * stat.Bsize
-	total = clamp(stat.Blocks) * stat.Bsize
+	//nolint:unconvert // Bsize is int64 on 64-bit but int32 on 32-bit (arm)
+	bsize := int64(stat.Bsize)
+	available = clamp(stat.Bavail) * bsize
+	total = clamp(stat.Blocks) * bsize
 	return available, total, nil
 }

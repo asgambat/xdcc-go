@@ -9,7 +9,7 @@ WORKDIR /app/web
 COPY web/package.json web/package-lock.json* ./
 RUN npm ci
 
-COPY web/ .
+COPY web/ ./
 
 # Build to web/dist/
 RUN npm run build
@@ -24,8 +24,8 @@ ARG TARGETARCH
 
 WORKDIR /app
 
-# Install git (needed by go mod download for some modules)
-RUN apk add --no-cache git
+# Install git and ca-certificates (the latter is needed to copy certs to scratch)
+RUN apk add --no-cache git ca-certificates
 
 # Copy Go module files first for better layer caching
 COPY go.mod go.sum* ./
@@ -48,23 +48,18 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -ldflags="-s -w" -o /out/xdcc-server ./cmd/xdcc-server
 
 # ============================================================
-# Stage 3 — Runtime image
+# Stage 3 — Minimal runtime image (scratch)
 # ============================================================
-FROM alpine:3.20
+FROM scratch
 
-RUN apk add --no-cache ca-certificates tzdata
+# Copy CA certificates (needed for HTTPS requests to search APIs)
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 
-# Copy all binaries
-COPY --from=builder /out/xdcc-dl      /usr/local/bin/xdcc-dl
-COPY --from=builder /out/xdcc-search  /usr/local/bin/xdcc-search
-COPY --from=builder /out/xdcc-browse  /usr/local/bin/xdcc-browse
-COPY --from=builder /out/xdcc-server  /usr/local/bin/xdcc-server
+# Copy all binaries in a single layer
+COPY --from=builder /out/ /usr/local/bin/
 
 # Copy default config
-COPY --from=builder /app/config.yaml  /etc/xdcc-server/config.yaml
-
-# Create data directory with download subdirectories
-RUN mkdir -p /data/downloads/tmp /data/downloads/complete /data/logs
+COPY --from=builder /app/config.yaml /etc/xdcc-server/config.yaml
 
 # Expose HTTP port (REST API + web UI)
 EXPOSE 8080
@@ -73,14 +68,11 @@ EXPOSE 8080
 VOLUME ["/data"]
 
 # Default config: use /data for all persistent files
-ENV XDCC_HTTP_PORT=8080
-ENV XDCC_DOWNLOAD_TEMP_DIR=/data/downloads/tmp
-ENV XDCC_DOWNLOAD_DEST_DIR=/data/downloads/complete
-ENV XDCC_LOGGING_FILE_PATH=/data/logs/xdcc-server.log
+ENV XDCC_HTTP_PORT=8080 \
+    XDCC_DOWNLOAD_TEMP_DIR=/data/downloads/tmp \
+    XDCC_DOWNLOAD_DEST_DIR=/data/downloads/complete \
+    XDCC_LOGGING_FILE_PATH=/data/logs/xdcc-server.log
 
 WORKDIR /data
 
-# Default: start the server.
-# Override with CLI tools: docker run xdcc-go xdcc-dl "/msg Bot xdcc send #5"
-# Or pass server flags: use env vars (XDCC_HTTP_PORT, etc.) instead
 CMD ["/usr/local/bin/xdcc-server", "--config", "/etc/xdcc-server/config.yaml"]
