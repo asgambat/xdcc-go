@@ -4,17 +4,17 @@ Produrre una review tecnica critica e strutturata del progetto Go, basata su ana
 
 **Steps**
 1. Fase 1 - Consolidamento evidenze (base del report)
-1. Raccogliere e deduplicare i findings già emersi nelle aree core concorrenti: queue, irc, ircmanager, pubsub, bridge. Dipendenza: nessuna.
-1. Verificare i finding ad alta priorità con lettura diretta dei sorgenti per confermare linee e comportamento reale (in particolare channel close/send, timeout, waitgroup, handler lifecycle). Dipende dal passo precedente.
-1. Fase 2 - Strutturazione della review per obiettivi richiesti
-1. Organizzare i risultati nelle 6 categorie richieste: Concorrenza e Goroutine; Bug subdoli di concorrenza; Memory e Resource Leak; Code Quality e Smell; Best Practices Go; Performance. Dipende da Fase 1.
-1. Per ogni issue includere severità (Alta/Media/Bassa), impatto pratico, perché è subdolo/intermittente quando applicabile, e una proposta concreta di fix/refactoring. Parallelizzabile per categoria dopo consolidamento.
-1. Fase 3 - Composizione report Markdown finale
-1. Creare il documento in docs/plan_and_review con naming richiesto go_review_26_05_2026.md e contenuto completo della review.
-1. Inserire sezione iniziale con metodo e vincoli della review (read-only, nessuna esecuzione) e sezione finale con suggerimenti architetturali prioritizzati (quick wins vs interventi strutturali). Dipende da Fase 2.
-1. Fase 4 - QA editoriale del documento
-1. Verificare consistenza severità, assenza duplicati, correttezza riferimenti file/linea e allineamento ai 6 obiettivi del prompt. Dipende da Fase 3.
-1. Verificare completezza output richiesto: elenco strutturato, spiegazione chiara, esempio fix/refactoring, suggerimenti architetturali. Dipende da passo precedente.
+2. Raccogliere e deduplicare i findings già emersi nelle aree core concorrenti evidenziati nei documenti che trovi nella cartella docs/plan_and_review/ e verifica se sono ancora presenti o risolti per poi integrarli con nuova analisi statica dei sorgenti elencati. Dipendenza: nessuna.
+3. Verificare i finding ad alta priorità con lettura diretta dei sorgenti per confermare linee e comportamento reale (in particolare channel close/send, timeout, waitgroup, handler lifecycle).'Se un file elencato non è accessibile, segnalarlo nel report come finding non verificabile e procedere con i file disponibili. Dipende dal passo precedente.
+4. Fase 2 - Strutturazione della review per obiettivi richiesti
+5. Organizzare i risultati nelle 6 categorie richieste: Concorrenza e Goroutine; Bug subdoli di concorrenza; Memory e Resource Leak; Code Quality e Smell; Best Practices Go; Performance. Dipende da Fase 1.
+6. Per ogni issue includere severità (Alta/Media/Bassa), impatto pratico, perché è subdolo/intermittente quando applicabile, e una proposta concreta di fix/refactoring. Parallelizzabile per categoria dopo consolidamento.
+7. Fase 3 - Composizione report Markdown finale
+8. Creare il documento in docs/plan_and_review con naming richiesto go_review_26_05_2026.md e contenuto completo della review.
+9. Inserire sezione iniziale con metodo e vincoli della review (read-only, nessuna esecuzione) e sezione finale con suggerimenti architetturali prioritizzati (quick wins vs interventi strutturali). Dipende da Fase 2.
+10. Fase 4 - QA editoriale del documento
+11. Verificare consistenza severità, assenza duplicati, correttezza riferimenti file/linea e allineamento ai 6 obiettivi del prompt. Dipende da Fase 3.
+12. Verificare completezza output richiesto: elenco strutturato, spiegazione chiara, esempio fix/refactoring, suggerimenti architetturali. Dipende da passo precedente.
 
 **Relevant files**
 - c:/progetti/altro/xdcc-go/internal/queue/manager.go — verificare startup delay timer lifecycle, shutdown sequencing, monitor loop.
@@ -30,9 +30,9 @@ Produrre una review tecnica critica e strutturata del progetto Go, basata su ana
 
 **Verification**
 1. Checklist di copertura: tutte le 6 aree richieste sono presenti con almeno un finding o nota esplicita di assenza criticità.
-1. Checklist qualità finding: ogni finding contiene severità, file/linea, rischio, fix consigliato.
-1. Controllo anti-false-positive: per i finding Alta severità, riconferma su sorgente con evidenza specifica del flusso concorrente.
-1. Controllo finale formato: documento in docs/plan_and_review, nome richiesto, markdown leggibile, sezioni ordinate per priorità.
+2. Checklist qualità finding: ogni finding contiene severità, file/linea, rischio, fix consigliato.
+3. Controllo anti-false-positive: per i finding Alta severità, riconferma su sorgente con evidenza specifica del flusso concorrente.
+4. Controllo finale formato: documento in docs/plan_and_review, nome richiesto, markdown leggibile, sezioni ordinate per priorità.
 
 **Decisions**
 - Inclusa solo analisi statica read-only, come richiesto.

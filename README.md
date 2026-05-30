@@ -4,7 +4,7 @@
 
 **High-Performance XDCC Downloader for IRC**
 
-[![Go Version](https://img.shields.io/badge/Go-1.22%2B-00ADD8?logo=go)](https://go.dev/)
+[![Go Version](https://img.shields.io/badge/Go-Required-00ADD8?logo=go)](https://go.dev/)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker)](https://www.docker.com/)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey)](https://github.com/asgambat/xdcc-go)
@@ -60,7 +60,7 @@
 - **🚀 Fast & Reliable**: Pure Go implementation with zero CGO dependencies
 - **🌐 Dual-Mode Architecture**: Standalone CLI tools or centralized server management
 - **💻 Modern Web UI**: Responsive Svelte 5 PWA with real-time updates
-- **🔄 Smart Retry Logic**: Automatic retry on failures with exponential backoff
+- **🔄 Smart Retry Logic**: Conditional auto-retry with configurable fallback policy and retry limits
 - **📦 Multi-Provider Search**: Aggregated search across multiple XDCC sources
 - **🐳 Docker Ready**: Single-command deployment with persistent storage
 - **🔧 Developer Friendly**: Task automation, hot reload, comprehensive tests
@@ -114,7 +114,10 @@
 - Two-tier caching (fresh: 30m, stale fallback: 24h)
 - Smart deduplication by filename, size, and bot family
 - Advanced filtering: extension, bot name, filename prefix
+- Web UI client-side filtering: filename, bot, server, and size range sliders
 - Compact mode for cleaner results
+
+> Note: API/server-side filtering currently applies `q`, `prefix`, `bot`, `ext`, `providers`, `compact`, `page`, and `pageSize`. Query params like `min_size`/`max_size` are not currently applied server-side.
 
 </details>
 
@@ -132,7 +135,8 @@
 - Automatic IRC server detection from bot name prefixes
 - DNS fallback resolver for blocked networks
 - Multi-IP connection failover
-- Automatic retry on timeout/stall (up to 3 attempts)
+- Standalone CLI retries timeout/download-failed packs up to 3 attempts
+- Server queue fallback is configurable (`suggest_only` or `auto_retry_best`)
 - Configurable file conflict policies (skip/overwrite/rename)
 
 **Pack Number Syntax:**
@@ -176,7 +180,7 @@
 
 - **Linux**: x86_64, ARM64 (Raspberry Pi 4/5)
 - **macOS**: Intel (x86_64), Apple Silicon (ARM64)
-- **Windows**: x86_64
+- **Windows**: x86_64, ARM64
 - **Docker**: Multi-architecture support (linux/amd64, linux/arm64)
 
 ---
@@ -234,7 +238,12 @@ docker run -d \
 # Or build from source
 git clone https://github.com/asgambat/xdcc-go
 cd xdcc-go
-docker-compose up -d
+docker build -t xdcc-go .
+docker run -d \
+   --name xdcc-server \
+   -p 8080:8080 \
+   -v xdcc-data:/data \
+   xdcc-go
 ```
 
 Open **http://localhost:8080** in your browser.
@@ -355,7 +364,7 @@ go build -o xdcc-server ./cmd/xdcc-server
 
 | Requirement | Version | Purpose |
 |-------------|---------|---------|
-| **Go** | 1.22+ | Building from source |
+| **Go** | 1.25+ | Building from source |
 | **Node.js** | 18+ | Building the web UI |
 | **npm** | Latest | Frontend dependencies |
 | **[Task](https://taskfile.dev)** | Latest | Development automation (optional) |
@@ -504,7 +513,7 @@ services:
       - XDCC_LOGGING_LEVEL=info
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/readyz"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -559,6 +568,14 @@ xdcc-server --port 9090 --download-dir /downloads
 ```
 
 Access the web UI at **http://localhost:8080**
+
+### REST API Highlights
+
+- Health and readiness probes: `GET /healthz`, `GET /readyz`
+- Quick-add parser for raw XDCC messages: `POST /api/xdcc/parse`
+- Setup wizard bootstrap endpoints: `GET /api/setup/status`, `POST /api/setup/bootstrap`
+- Data backup/restore endpoints: `POST /api/admin/export`, `POST /api/admin/import`
+- Runtime logs and event stream: `GET /api/logs`, `GET /api/events` (SSE)
 
 **Systemd Service (Linux):**
 
@@ -629,11 +646,14 @@ Settings are loaded in the following order (later overrides earlier):
 | `XDCC_DOWNLOAD_DEST_DIR` | `./downloads/complete` | Destination for completed downloads |
 | `XDCC_DOWNLOAD_MAX_PARALLEL` | `5` | Maximum parallel downloads |
 | `XDCC_DOWNLOAD_MIN_DISK_SPACE` | `1GB` | Minimum free disk space before pausing |
-| `XDCC_DOWNLOAD_MAX_RETRY` | `3` | Maximum retry attempts per download |
+| `XDCC_DOWNLOAD_MAX_RETRY` | `3` | Maximum auto-retry attempts when `XDCC_DOWNLOAD_FAIL_FALLBACK=auto_retry_best` |
+| `XDCC_DOWNLOAD_FAIL_FALLBACK` | `suggest_only` | Queue fallback mode on failed downloads (`suggest_only`, `auto_retry_best`) |
 | `XDCC_DOWNLOAD_CONFLICT_POLICY` | `skip` | File conflict handling (`skip`, `overwrite`, `rename`) |
+| `XDCC_DOWNLOAD_MAX_RATE_BPS` | `0` | Global download rate limit (bytes/s, 0 = unlimited) |
 | `XDCC_LOGGING_LEVEL` | `info` | Log level (`debug`, `info`, `warn`, `error`) |
 | `XDCC_LOGGING_FILE_PATH` | *(stderr)* | Log file path (empty = stderr) |
 | `XDCC_SEARCH_CACHE_ENABLED` | `true` | Enable search result caching |
+| `XDCC_SEARCH_PROVIDER_TIMEOUT` | `5` | Timeout per search provider (seconds) |
 
 ### Configuration File Example
 
@@ -661,6 +681,25 @@ logging:
 ```
 
 See `config.yaml` in the repository for the complete configuration reference.
+
+### CLI Configuration
+
+All CLI tools support configuration via flags. Common patterns:
+
+**Network Configuration:**
+- `--server <host:port>` — Override IRC server (bypasses auto-detection)
+- `--dns-server <host:port>` — Fallback DNS resolver (default: `8.8.8.8:53`)
+- `--fallback-channel <channel>` — Channel to join if WHOIS fails
+
+**Timing Configuration:**
+- `--connect-timeout <seconds>` — Wait time for DCC initiation (default: 120)
+- `--stall-timeout <seconds>` — Abort if no progress for N seconds (default: 60)
+- `--wait-time <seconds>` — Extra delay before sending XDCC request (default: 0)
+- `--channel-join-delay <seconds>` — Delay before WHOIS (-1 = random 5-10s)
+
+**Download Configuration:**
+- `--out <path>` — Output directory or file path
+- `--throttle <rate>` — Speed limit (e.g., `512K`, `2M`, `1G`, `-1` = unlimited)
 
 ---
 
@@ -909,65 +948,25 @@ xdcc-browse "my show" --ext=mkv --server=94.23.150.97
 
 ---
 
-## Configuration
-
-### Server Configuration
-
-Configuration priority: **CLI flags > environment variables > config.yaml**
-
-Key environment variables:
-
-| Variable | Default | Description |
-|---|---|---|
-| `XDCC_HTTP_PORT` | `8080` | HTTP server port |
-| `XDCC_IRC_NICKNAME` | `xdcc-user` | Base IRC nickname (random suffix appended) |
-| `XDCC_DOWNLOAD_TEMP_DIR` | `./downloads/tmp` | Temporary directory for in-progress downloads |
-| `XDCC_DOWNLOAD_DEST_DIR` | `./downloads/complete` | Destination for completed downloads |
-| `XDCC_DOWNLOAD_MAX_PARALLEL` | `5` | Global max parallel downloads |
-| `XDCC_DOWNLOAD_MIN_DISK_SPACE` | `1GB` | Minimum free disk space before pausing queue |
-| `XDCC_DOWNLOAD_MAX_RETRY` | `3` | Max retry attempts per download |
-| `XDCC_DOWNLOAD_CONFLICT_POLICY` | `skip` | File conflict handling: `skip`, `overwrite`, `rename` |
-| `XDCC_DOWNLOAD_MAX_RATE_BPS` | `0` | Global download rate limit (bytes/s, 0 = unlimited) |
-| `XDCC_LOGGING_LEVEL` | `info` | Log level: `debug`, `info`, `warn`, `error` |
-| `XDCC_LOGGING_FILE_PATH` | *(stderr)* | Log file path (empty = stderr) |
-| `XDCC_SEARCH_CACHE_ENABLED` | `true` | Enable search result caching |
-| `XDCC_SEARCH_PROVIDER_TIMEOUT` | `5` | Timeout per search provider (seconds) |
-
-See `config.yaml` for all available settings and detailed comments.
-
-### CLI Configuration
-
-All CLI tools support configuration via flags. Common patterns:
-
-**Network Configuration:**
-- `--server <host:port>` — Override IRC server (bypasses auto-detection)
-- `--dns-server <host:port>` — Fallback DNS resolver (default: `8.8.8.8:53`)
-- `--fallback-channel <channel>` — Channel to join if WHOIS fails
-
-**Timing Configuration:**
-- `--connect-timeout <seconds>` — Wait time for DCC initiation (default: 120)
-- `--stall-timeout <seconds>` — Abort if no progress for N seconds (default: 60)
-- `--wait-time <seconds>` — Extra delay before sending XDCC request (default: 0)
-- `--channel-join-delay <seconds>` — Delay before WHOIS (-1 = random 5-10s)
-
-**Download Configuration:**
-- `--out <path>` — Output directory or file path
-- `--throttle <rate>` — Speed limit (e.g., `512K`, `2M`, `1G`, `-1` = unlimited)
-
----
-
 ## Technical Details
 
 ### Retry Behavior
 
 | Error Type | Behavior |
 |------------|----------|
-| Timeout / stall | Retry up to 3 times with exponential backoff |
-| "Pack already requested" | Wait 60 seconds, then retry |
+| Timeout / download failed (standalone CLI) | Retry up to 3 times after reconnect (no exponential backoff) |
+| Failed download (server queue mode) | Default `suggest_only` (no auto-retry); `auto_retry_best` re-queues up to `XDCC_DOWNLOAD_MAX_RETRY` |
+| "Pack already requested" (standalone CLI) | Wait 60 seconds, then retry |
 | Bot denied / slot busy | Abort immediately, show bot message |
 | Bot not found | Abort immediately |
 | Server unreachable | Try all resolved IPs, then abort with suggestion |
 | File already exists | Follow conflict policy (skip/overwrite/rename) |
+
+### Search/Preset/Watchlist Contract Notes
+
+- Presets and watchlists are persisted with `filters_json` in storage.
+- Web UI fields like `min_size`, `max_size`, `providers`, and `notify` are currently not fully mapped to server-side execution for watchlist/preset runs.
+- Server-side aggregated search filtering currently uses `q`, `prefix`, `bot`, `ext`, `providers`, and `compact`.
 
 ### Network Resilience
 
@@ -1002,7 +1001,7 @@ Use `--server` to override auto-detection or bypass blocked DNS.
 **Solutions:**
 1. Verify the server is running:
    ```bash
-   curl http://localhost:8080/api/health
+   curl http://localhost:8080/api/version
    ```
 
 2. Check if the port is correct:
@@ -1293,7 +1292,7 @@ A: Yes, xdcc-go works fine over VPN. If you experience connection issues, try us
 
 ### Prerequisites
 
-- **Go 1.22+**
+- **Go** (versione minima: vedi [Installation](#-installation) → Requirements)
 - **Node.js 18+** and **npm**
 - **[Task](https://taskfile.dev)** (recommended)
 - **golangci-lint** (optional, for linting)
